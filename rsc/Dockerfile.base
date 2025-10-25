@@ -15,11 +15,10 @@ FROM docker.io/debian:stable-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Copy all /etc files.
-COPY etc/* /etc/
+COPY etc/ /etc/
 
 # Copy all /root files.
-COPY root/* /root/
-RUN chmod +x /root/start.sh /root/setup/*.sh
+COPY root/ /root/
 # Install tools (as root)
 RUN /root/setup/packages.sh
 RUN /root/setup/neovim.sh
@@ -29,8 +28,7 @@ RUN /root/setup/go.sh
 ### Second phase, as user
 
 # Create user "user"
-RUN adduser --disabled-password user
-#RUN useradd -ms /bin/bash user && mkdir -p /app && chown user:user /app
+RUN useradd -ms /bin/bash user
 # Copy all /home/user files.
 COPY --chown=user:user home/user/ /home/user/
 RUN su user -c "mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share"

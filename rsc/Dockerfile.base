@@ -10,6 +10,12 @@
 FROM docker.io/debian:stable-slim
 # FROM ghcr.io/linuxcontainers/debian-slim:latest
 
+# Settings from the script. We'll want to eventually just use whatever is the current latest.
+ENV GO_VERSION=1.25.3
+
+
+## First phase, setup as root.
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install dependencies.
@@ -58,27 +64,50 @@ RUN GECKODRIVER_URL=$(curl -sSL "https://api.github.com/repos/mozilla/geckodrive
 	curl -sSL $GECKODRIVER_URL | tar xz -C /usr/local/bin && \
 	chmod +x /usr/local/bin/geckodriver
 
-# Partially configure SSH
-COPY etc/ssh/sshd_config.d/md.conf /etc/ssh/sshd_config.d/md.conf
-RUN echo 'Welcome to md!' > /etc/motd
-COPY start.sh /root/start.sh
+# Copy all /etc files.
+COPY etc/* /etc/
 
-# Configure Bash (for everyone)
+# Partially configure SSH
+RUN echo 'Welcome to md!' > /etc/motd
+COPY root/* /root/
+
+# Configure Bash (as root)
 RUN curl -sSL -o /opt/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
-COPY etc/profile.d/md.sh /etc/profile.d/md.sh
+
+# Install latest Neovim (as root)
+RUN ARCH=$(uname -m | sed s/aarch64/arm64/) && \
+    curl -sSL -o- https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${ARCH}.tar.gz | tar xz -C /opt --strip-component=1 && \
+    ln -s /opt/bin/nvim /usr/local/bin/nvim && \
+    ln -s /opt/bin/nvim /usr/local/bin/vim && \
+    ln -s /opt/bin/nvim /usr/local/bin/vi
+
+# Install Go (as root)
+RUN ARCH=$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/) && \
+    curl -sSL -o- https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz | tar -C /usr/local -xzf - && \
+    echo PATH="/usr/local/go/bin:\${HOME}/go/bin:\${PATH}" >> /etc/profile.d/md.sh
+
+
+### Second phase, as user
 
 # Create user "user"
 RUN adduser --disabled-password user
 #RUN useradd -ms /bin/bash user && mkdir -p /app && chown user:user /app
+# Copy all /home/user files.
+COPY --chown=user:user home/user/ /home/user/
 RUN su user -c "mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share"
-COPY --chown=user:user home/user/.config/git/* /home/user/.config/git/
-RUN echo "cd /app" >> /etc/profile.d/md.sh
 RUN chmod 0700 /home/user/.ssh
 
 # Create app directory (as user)
 RUN mkdir /app
 RUN chown user:user /app
 RUN su user -c "git init /app"
+
+# Install Go packages (as user)
+RUN su user -c /home/user/setup/go.sh
+
+# Install nvm, node.js, npm, Claude Code and Gemini CLI (as user)
+RUN su user -c /home/user/setup/nodejs.sh
+RUN su user -c /home/user/setup/llm.sh
 
 # Start SSH server
 CMD ["/root/start.sh"]

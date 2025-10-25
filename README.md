@@ -11,6 +11,12 @@ the container!
 
 ## Usage
 
+Start a container:
+
+```
+md start
+```
+
 Each container has the name `md-<repo-name>-<branch-name>`. Thus if you are on a git checkout of the
 repository [github.com/maruel/genai](https://github.com/maruel/genai), on a branch named `wip`, then the
 container is named `md-genai-wip`.
@@ -27,14 +33,20 @@ results (e.g. `git diff`) and run tests or so manual fixups.
 To pull changes from the container back in your local branch, you do:
 
 ```
-md-pull
+md pull
 ```
 
 To push local changes to the container, let's say you rebased on `origin/main` and need to push that back into
 the container, you do:
 
 ```
-md-push
+md push
+```
+
+Clean up:
+
+```
+md kill
 ```
 
 ## Installation

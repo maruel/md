@@ -20,47 +20,59 @@ HOST_KEY_PATH="$SCRIPT_DIR/rsc/etc/ssh/ssh_host_ed25519_key"
 HOST_KEY_PUB_PATH="$HOST_KEY_PATH.pub"
 USER_AUTH_KEYS="$SCRIPT_DIR/rsc/home/user/.ssh/authorized_keys"
 
-if [ ! -d $HOME/.amp ]; then
-	mkdir $HOME/.amp
-fi
-if [ ! -d $HOME/.codex ]; then
-	mkdir $HOME/.codex
-fi
-if [ ! -d $HOME/.claude ]; then
-	mkdir $HOME/.claude
-fi
-if [ ! -d $HOME/.gemini ]; then
-	mkdir $HOME/.gemini
-fi
-if [ ! -d $HOME/.qwen ]; then
-	mkdir $HOME/.qwen
-fi
-if [ ! -d $HOME/.config/amp ]; then
-	mkdir $HOME/.config/amp
-fi
-if [ ! -d $HOME/.config/goose ]; then
-	mkdir $HOME/.config/goose
-fi
-if [ ! -d $HOME/.local/share/amp ]; then
-	mkdir $HOME/.local/share/amp
-fi
-if [ ! -d $HOME/.local/share/goose ]; then
-	mkdir $HOME/.local/share/goose
-fi
+ensure_dirs() {
+	mkdir -p "$@"
+}
+
+ensure_dirs \
+	"$HOME/.amp" \
+	"$HOME/.codex" \
+	"$HOME/.claude" \
+	"$HOME/.gemini" \
+	"$HOME/.qwen" \
+	"$HOME/.config/amp" \
+	"$HOME/.config/goose" \
+	"$HOME/.local/share/amp" \
+	"$HOME/.local/share/goose" \
+	"$(dirname "$HOST_KEY_PATH")" \
+	"$(dirname "$USER_AUTH_KEYS")" \
+	"$HOME/.ssh/config.d"
+
 if [ ! -d "$HOME/.ssh" ]; then
 	mkdir -m 700 "$HOME/.ssh"
 fi
-if [ ! -d "$HOME/.ssh/config.d" ]; then
-	mkdir "$HOME/.ssh/config.d"
-fi
-mkdir -p "$(dirname "$HOST_KEY_PATH")"
-mkdir -p "$(dirname "$USER_AUTH_KEYS")"
+
+usage() {
+	cat <<'EOF'
+usage: ./md <command>
+
+Commands:
+  start  Pull latest base image, rebuild if needed, start container, open shell.
+  push   Force-push current repo state into the running container.
+  pull   Pull changes from the container back to the local repo.
+  kill   Remove ssh config/remote and stop/remove the container.
+EOF
+	exit 1
+}
+
+require_no_args() {
+	if [ "$#" -ne 0 ]; then
+		echo "Error: '$CMD' does not accept additional arguments." >&2
+		usage
+	fi
+}
+
+container_exists() {
+	docker inspect "$CONTAINER_NAME" >/dev/null 2>&1
+}
+
 GIT_CURRENT_BRANCH=$(git branch --show-current)
 if [ -z "$GIT_CURRENT_BRANCH" ]; then
 	echo "Check out a named branch" >&2
 	exit 1
 fi
 GIT_ROOT_DIR=$(git rev-parse --show-toplevel)
+cd "$GIT_ROOT_DIR"
 GIT_USER_NAME="$(git config --get user.name)"
 GIT_USER_EMAIL="$(git config --get user.email)"
 REPO_NAME=$(basename "$GIT_ROOT_DIR")
@@ -69,31 +81,32 @@ IMAGE_NAME=md
 BASE_IMAGE="ghcr.io/maruel/md:latest"
 
 MD_USER_KEY="$HOME/.ssh/md-$REPO_NAME"
-if [ ! -f "$MD_USER_KEY" ]; then
-	echo "- Generating md user SSH key at $MD_USER_KEY ..."
-	ssh-keygen -q -t ed25519 -N '' -C "md-user" -f "$MD_USER_KEY"
-fi
-if [ ! -f "$MD_USER_KEY.pub" ]; then
-	ssh-keygen -y -f "$MD_USER_KEY" > "$MD_USER_KEY.pub"
-fi
-if [ ! -f "$HOST_KEY_PATH" ]; then
-	echo "- Generating md host SSH key at $HOST_KEY_PATH ..."
-	ssh-keygen -q -t ed25519 -N '' -C "md-host" -f "$HOST_KEY_PATH"
-fi
-if [ ! -f "$HOST_KEY_PUB_PATH" ]; then
-	ssh-keygen -y -f "$HOST_KEY_PATH" > "$HOST_KEY_PUB_PATH"
-fi
 
-if [ $# -ne 0 ]; then
-    echo "Error: No arguments are supported" >&2
-    exit 1
+ensure_ed25519_key() {
+	local path="$1"
+	local comment="$2"
+	if [ ! -f "$path" ]; then
+		echo "- Generating $comment at $path ..."
+		ssh-keygen -q -t ed25519 -N '' -C "$comment" -f "$path"
+	fi
+	if [ ! -f "$path.pub" ]; then
+		ssh-keygen -y -f "$path" > "$path.pub"
+	fi
+}
+
+ensure_ed25519_key "$MD_USER_KEY" "md-user"
+ensure_ed25519_key "$HOST_KEY_PATH" "md-host"
+
+if [ "$#" -eq 0 ]; then
+	usage
 fi
+CMD="$1"
+shift
 
 ######
 
-function build {
-	ROOT="$SCRIPT_DIR"
-	pushd "$ROOT/rsc" >/dev/null
+build() (
+	cd "$SCRIPT_DIR/rsc"
 
 	cp "$MD_USER_KEY.pub" "$USER_AUTH_KEYS"
 	chmod 600 "$USER_AUTH_KEYS"
@@ -146,7 +159,6 @@ PY
 
 	if [[ "${CURRENT_DIGEST}" == "${BASE_DIGEST}" && "${CURRENT_CONTEXT}" == "${CONTEXT_SHA}" ]]; then
 		echo "- Docker image $IMAGE_NAME already matches ${BASE_IMAGE} (${BASE_DIGEST}), skipping rebuild."
-		popd >/dev/null
 		return
 	fi
 
@@ -156,16 +168,14 @@ PY
 		--build-arg BASE_IMAGE_DIGEST="${BASE_DIGEST}" \
 		--build-arg CONTEXT_SHA="${CONTEXT_SHA}" \
 		-t "$IMAGE_NAME" .
-	popd >/dev/null
-}
+)
 
-function run {
-	docker rm -f $CONTAINER_NAME &>/dev/null || true
+run() {
 	echo "- Starting container $CONTAINER_NAME ..."
 	# Port 3000 is mapped.
 	# -p 127.0.0.1:3000:3000
 	docker run -d \
-	  --name $CONTAINER_NAME \
+	  --name "$CONTAINER_NAME" \
 	  -p 127.0.0.1:0:22 \
 	  -v ~/.amp/:/home/user/.amp/ \
 	  -v ~/.codex/:/home/user/.codex/ \
@@ -176,9 +186,9 @@ function run {
 	  -v ~/.config/goose/:/home/user/.config/goose/ \
 	  -v ~/.local/share/amp/:/home/user/.local/share/amp/ \
 	  -v ~/.local/share/goose/:/home/user/.local/share/goose/ \
-	  $IMAGE_NAME
+	  "$IMAGE_NAME"
 
-	PORT_NUMBER=$(docker inspect --format "{{(index .NetworkSettings.Ports \"22/tcp\" 0).HostPort}}" $CONTAINER_NAME)
+	PORT_NUMBER=$(docker inspect --format "{{(index .NetworkSettings.Ports \"22/tcp\" 0).HostPort}}" "$CONTAINER_NAME")
 	echo "- Found ssh port $PORT_NUMBER"
 	local HOST_CONF="$HOME/.ssh/config.d/$CONTAINER_NAME.conf"
 	local HOST_KNOWN_HOSTS="$HOME/.ssh/config.d/$CONTAINER_NAME.known_hosts"
@@ -193,25 +203,20 @@ function run {
 	local HOST_PUBLIC_KEY
 	HOST_PUBLIC_KEY=$(cat "$HOST_KEY_PUB_PATH")
 	echo "[127.0.0.1]:$PORT_NUMBER $HOST_PUBLIC_KEY" > "$HOST_KNOWN_HOSTS"
-	#echo "  HostbasedAuthentication yes" >> "$HOST_CONF"
-	#echo "  EnableSSHKeysign yes" >> "$HOST_CONF"
 
 	echo "- git clone into container ..."
-	git remote rm $CONTAINER_NAME || true
-	git remote add $CONTAINER_NAME user@$CONTAINER_NAME:/app || true
-	# We need to loop until the container is up and running. It's quite fast but can take a few hundreds of
-	# ms.
-	while ! ssh $CONTAINER_NAME exit &>/dev/null; do
+	git remote rm "$CONTAINER_NAME" || true
+	git remote add "$CONTAINER_NAME" "user@$CONTAINER_NAME:/app" || true
+	while ! ssh "$CONTAINER_NAME" exit &>/dev/null; do
 		sleep 0.1
 	done
-	git fetch $CONTAINER_NAME
-	git push -q $CONTAINER_NAME HEAD:$GIT_CURRENT_BRANCH
-	ssh $CONTAINER_NAME "cd /app && git checkout -q $GIT_CURRENT_BRANCH"
-	# Set up base branch to match the original state for easy diffing
-	ssh $CONTAINER_NAME "cd /app && git branch -f base $GIT_CURRENT_BRANCH && git checkout base && git checkout $GIT_CURRENT_BRANCH"
-		if [ -f .env ]; then
+	git fetch "$CONTAINER_NAME"
+	git push -q "$CONTAINER_NAME" "HEAD:$GIT_CURRENT_BRANCH"
+	ssh "$CONTAINER_NAME" "cd /app && git checkout -q $GIT_CURRENT_BRANCH"
+	ssh "$CONTAINER_NAME" "cd /app && git branch -f base $GIT_CURRENT_BRANCH && git checkout base && git checkout $GIT_CURRENT_BRANCH"
+	if [ -f .env ]; then
 		echo "- sending .env into container ..."
-		scp .env $CONTAINER_NAME:/home/user/.env
+		scp .env "$CONTAINER_NAME:/home/user/.env"
 	fi
 
 	echo ""
@@ -222,7 +227,61 @@ function run {
 	echo "  docker rm -f $CONTAINER_NAME"
 }
 
-build
-run
+push_changes() {
+	local branch container_commit backup_branch
+	branch="$(git rev-parse --abbrev-ref HEAD)"
+	container_commit="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse HEAD")"
+	backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
+	ssh "$CONTAINER_NAME" "cd /app && git branch -f $backup_branch $container_commit"
+	git push -f "$CONTAINER_NAME"
+	ssh "$CONTAINER_NAME" "cd /app && git reset --hard && git checkout $branch && git branch -f base $branch"
+	echo "- Container updated (previous state saved as $backup_branch)."
+}
 
-ssh $CONTAINER_NAME
+kill_env() {
+	local host_conf="$HOME/.ssh/config.d/$CONTAINER_NAME.conf"
+	local host_known_hosts="$HOME/.ssh/config.d/$CONTAINER_NAME.known_hosts"
+	rm -f "$host_conf" "$host_known_hosts"
+	git remote remove "$CONTAINER_NAME" 2>/dev/null || true
+	if docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1; then
+		echo "Removed $CONTAINER_NAME"
+	else
+		echo "$CONTAINER_NAME not running"
+	fi
+}
+
+pull_changes() {
+	ssh "$CONTAINER_NAME" "cd /app && git add . && git commit -a -q -m 'Pull from md' || true"
+	local remote_branch
+	remote_branch="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse --abbrev-ref HEAD")"
+	git pull -q "$CONTAINER_NAME" "$remote_branch:"
+	ssh "$CONTAINER_NAME" "cd /app && git branch -f base $remote_branch"
+}
+
+case "$CMD" in
+	start)
+		require_no_args "$@"
+		if container_exists; then
+			echo "Container $CONTAINER_NAME already exists. SSH in with 'ssh $CONTAINER_NAME' or clean it up via './md kill' first." >&2
+			exit 1
+		fi
+		build
+		run
+		ssh "$CONTAINER_NAME"
+		;;
+	push)
+		require_no_args "$@"
+		push_changes
+		;;
+	pull)
+		require_no_args "$@"
+		pull_changes
+		;;
+	kill)
+		require_no_args "$@"
+		kill_env
+		;;
+	*)
+		usage
+		;;
+esac

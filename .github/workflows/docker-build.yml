@@ -29,7 +29,8 @@ jobs:
         # didn't intend to.
         if: github.repository_owner == 'maruel'
         with:
-          context: .
+          context: rsc
+          file: rsc/Dockerfile.base
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/${{ github.repository }}:latest

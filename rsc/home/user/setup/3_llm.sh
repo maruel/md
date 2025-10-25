@@ -8,7 +8,7 @@ if ! which nvm &> /dev/null; then
 	. ~/.nvm/nvm.sh
 fi
 
-npm install -g \
+npm install --silent --no-fund -g \
 	@anthropic-ai/claude-code \
 	@google/gemini-cli \
 	@openai/codex \

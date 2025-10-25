@@ -4,9 +4,9 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
-apt-get update -q
-apt-get upgrade -q -y
-apt-get install -q -y --no-install-recommends \
+apt-get update -qq
+apt-get upgrade -qq -y
+apt-get install -qq -y --no-install-recommends \
 	bash-completion \
 	brotli \
 	bubblewrap \

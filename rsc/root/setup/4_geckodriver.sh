@@ -6,7 +6,7 @@ export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
 # Install Firefox from Mozilla's repository.
 install -d -m 0755 /etc/apt/keyrings
-curl -sSL -o /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg
+curl -fsSL -o /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg
 cat >/etc/apt/sources.list.d/mozilla.list <<'EOF'
 deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main
 EOF
@@ -16,8 +16,8 @@ Pin: origin packages.mozilla.org
 Pin-Priority: 1000
 EOF
 
-apt-get update -q
-apt-get install -q -y --no-install-recommends firefox
+apt-get update -qq
+apt-get install -qq -y --no-install-recommends firefox
 
 API_URL="https://api.github.com/repos/mozilla/geckodriver/releases/latest"
 AUTH_HEADER=()

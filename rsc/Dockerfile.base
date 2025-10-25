@@ -18,73 +18,15 @@ ENV GO_VERSION=1.25.3
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies.
-# Install tools that the LLMs know about. I keep on adding tool as I see LLMs using them unprompted.
-RUN apt-get update -q && \
-    apt-get upgrade -q -y && \
-    apt-get install -q -y --no-install-recommends \
-		brotli \
-		bubblewrap \
-		build-essential \
-		ca-certificates \
-		curl \
-		ffmpeg \
-		file \
-		git \
-		gpg \
-		iproute2 \
-		jq \
-		less \
-		lsof \
-		net-tools \
-		openssh-server \
-		podman \
-		python3 \
-		python3-venv \
-		ripgrep \
-		rsync \
-		shared-mime-info \
-		sqlite3 \
-		wget \
-		xvfb \
-		zstd && \
-	apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Firefox from Mozilla's official APT repository
-RUN curl -sSL -o /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg && \
-	echo 'deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main' > /etc/apt/sources.list.d/mozilla.list && \
-	echo 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000' > /etc/apt/preferences.d/mozilla && \
-	apt-get update -q && \
-	apt-get install -y --no-install-recommends firefox && \
-	apt-get clean
-
-# Install Geckodriver
-RUN GECKODRIVER_URL=$(curl -sSL "https://api.github.com/repos/mozilla/geckodriver/releases/latest" curl -s https://api.github.com/repos/mozilla/geckodriver/releases/latest | jq -r '.assets[] | select(.name | contains("linux64")) | .browser_download_url' | grep -v \.asc) && \
-	curl -sSL $GECKODRIVER_URL | tar xz -C /usr/local/bin && \
-	chmod +x /usr/local/bin/geckodriver
-
 # Copy all /etc files.
 COPY etc/* /etc/
 
-# Start SSH server
-COPY root/* /root/
-CMD ["/root/start.sh"]
-
-# Configure Bash (as root)
-RUN curl -sSL -o /opt/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
-
-# Install latest Neovim (as root)
-RUN ARCH=$(uname -m | sed s/aarch64/arm64/) && \
-    curl -sSL -o- https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${ARCH}.tar.gz | tar xz -C /opt --strip-component=1 && \
-    ln -s /opt/bin/nvim /usr/local/bin/nvim && \
-    ln -s /opt/bin/nvim /usr/local/bin/vim && \
-    ln -s /opt/bin/nvim /usr/local/bin/vi
-
-# Install Go (as root)
-RUN ARCH=$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/) && \
-    curl -sSL -o- https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz | tar -C /usr/local -xzf - && \
-    echo PATH="/usr/local/go/bin:\${HOME}/go/bin:\${PATH}" >> /etc/profile.d/md.sh
+# Root setup scripts
+COPY root/ /root/
+RUN chmod +x /root/start.sh /root/setup/*.sh
+RUN /root/setup/packages.sh
+RUN /root/setup/neovim.sh
+RUN /root/setup/go.sh
 
 
 ### Second phase, as user
@@ -108,3 +50,6 @@ RUN su user -c /home/user/setup/go.sh
 # Install nvm, node.js, npm, Claude Code and Gemini CLI (as user)
 RUN su user -c /home/user/setup/nodejs.sh
 RUN su user -c /home/user/setup/llm.sh
+
+# Start SSH server by default
+CMD ["/root/start.sh"]

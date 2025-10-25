@@ -1,0 +1,87 @@
+# Copyright 2025 Marc-Antoine Ruel. All Rights Reserved. Use of this
+# source code is governed by a BSD-style license that can be found in the
+# LICENSE file.
+#
+# Dockerfile to create md.base
+
+# We don't need it to be stuck on old images so just fetch whatever is current latest.
+FROM docker.io/debian:stable-slim
+# FROM ghcr.io/linuxcontainers/debian-slim:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies.
+# Install tools that the LLMs know about.
+RUN apt-get update -q && \
+    apt-get upgrade -q -y && \
+    apt-get install -q -y --no-install-recommends \
+		brotli \
+		bubblewrap \
+		build-essential \
+		ca-certificates \
+		curl \
+		ffmpeg \
+		file \
+		git \
+		gpg \
+		iproute2 \
+		jq \
+		less \
+		lsof \
+		net-tools \
+		openssh-server \
+		podman \
+		python3 \
+		python3-venv \
+		ripgrep \
+		rsync \
+		shared-mime-info \
+		sqlite3 \
+		wget \
+		xvfb \
+		zstd && \
+	apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Firefox from Mozilla's official APT repository
+RUN curl -sSL -o /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg && \
+	echo 'deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main' > /etc/apt/sources.list.d/mozilla.list && \
+	echo 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000' > /etc/apt/preferences.d/mozilla && \
+	apt-get update -q && \
+	apt-get install -y --no-install-recommends firefox && \
+	apt-get clean
+
+# Install Geckodriver
+RUN GECKODRIVER_URL=$(curl -sSL "https://api.github.com/repos/mozilla/geckodriver/releases/latest" curl -s https://api.github.com/repos/mozilla/geckodriver/releases/latest | jq -r '.assets[] | select(.name | contains("linux64")) | .browser_download_url' | grep -v \.asc) && \
+	curl -sSL $GECKODRIVER_URL | tar xz -C /usr/local/bin && \
+	chmod +x /usr/local/bin/geckodriver
+
+# Configure SSH
+RUN rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+COPY etc/ssh/sshd_config.d/md.conf /etc/ssh/sshd_config.d/md.conf
+COPY etc/ssh/ssh_host_ed25519_key /etc/ssh/ssh_host_ed25519_key
+COPY etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ed25519_key.pub
+RUN echo 'Welcome to md!' > /etc/motd
+COPY start.sh /root/start.sh
+
+# Configure Bash (for everyone)
+RUN curl -sSL -o /opt/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
+COPY etc/profile.d/md.sh /etc/profile.d/md.sh
+
+# Create user "user"
+RUN adduser --disabled-password user
+#RUN useradd -ms /bin/bash user && mkdir -p /app && chown user:user /app
+RUN su user -c "mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share"
+COPY --chown=user:user home/user/.ssh/authorized_keys /home/user/.ssh/authorized_keys
+COPY --chown=user:user home/user/.config/git/* /home/user/.config/git/
+RUN echo "cd /app" >> /etc/profile.d/md.sh
+RUN chmod 0700 /home/user/.ssh
+RUN chmod 0400 /home/user/.ssh/authorized_keys
+
+# Create app directory (as user)
+RUN mkdir /app
+RUN chown user:user /app
+RUN su user -c "git init /app"
+
+# Start SSH server
+CMD ["/root/start.sh"]

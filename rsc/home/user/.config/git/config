@@ -1,0 +1,26 @@
+[grep]
+	patternType = perl
+[receive]
+        denyCurrentBranch = warn
+[advice]
+	detachedHead = false
+	skippedCherryPicks = false
+[merge]
+	tool = vimdiff4way
+[mergetool]
+	prompt = false
+	keepBackup = false
+[mergetool "vimdiff4way"]
+	cmd = vimdiff -c \"wincmd J\" -c \"0\" -c \"/<<<<<<< \" $MERGED $LOCAL $BASE $REMOTE
+[user]
+	name = md
+	email = "<>"
+[diff]
+	tool = vimdiff
+	noprefix = true
+	colorMoved = dimmed-zebra
+[alias]
+        br = branch
+        ci = commit
+        co = checkout
+        st = status --ignore-submodule=all -sb

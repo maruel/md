@@ -1,0 +1,10 @@
+.coverage
+.DS_Store
+cover.cov
+*.egg-info
+*.orig
+*.pyc
+*.rej
+*.swp
+*~
+.vscode

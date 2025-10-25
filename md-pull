@@ -1,0 +1,36 @@
+#!/bin/bash
+# Copyright 2025 Marc-Antoine Ruel. All Rights Reserved. Use of this
+# source code is governed by a BSD-style license that can be found in the
+# LICENSE file.
+#
+# Pull changes from a md container to the local repository.
+
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+
+GIT_CURRENT_BRANCH=$(git branch --show-current)
+if [ -z "$GIT_CURRENT_BRANCH" ]; then
+	echo "Check out a named branch" >&2
+	exit 1
+fi
+GIT_ROOT_DIR=$(git rev-parse --show-toplevel)
+CONTAINER_NAME="md-$(basename $GIT_ROOT_DIR)-$GIT_CURRENT_BRANCH"
+if [ $# -ne 0 ]; then
+    echo "Error: No arguments are supported" >&2
+    exit 1
+fi
+# Make sure everything is committed inside the container.
+ssh $CONTAINER_NAME "cd /app && git add .; git commit -a -q -m 'Pull from md'; true"
+REMOTE_BRANCH=$(ssh $CONTAINER_NAME "cd /app && git rev-parse --abbrev-ref HEAD")
+# Pull from the current remote checkout into the current branch, independent of its name.
+git pull -q $CONTAINER_NAME $REMOTE_BRANCH:
+
+# Update the base branch in the container to match the current state after pull
+ssh $CONTAINER_NAME "cd /app && git branch -f base $REMOTE_BRANCH"
+
+if [ -f go.mod ]; then
+	go test ./...
+	if [ -d cmd ]; then
+		go install . ./cmd/...
+	fi
+fi

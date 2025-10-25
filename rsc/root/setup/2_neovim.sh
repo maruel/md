@@ -2,16 +2,36 @@
 # Install the latest stable Neovim build and wire common aliases.
 set -euo pipefail
 
-ARCH="$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/')"
+ARCH="$(uname -m)"
+case "${ARCH}" in
+	aarch64|arm64) ARCH="arm64" ;;
+	x86_64|amd64) ARCH="x86_64" ;;
+	*)
+		echo "Unsupported architecture: ${ARCH}" >&2
+		exit 1
+		;;
+esac
+
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "${TMPDIR}"' EXIT
 
-CURL_ARGS=(-fsSL)
+API_URL="https://api.github.com/repos/neovim/neovim/releases/latest"
+AUTH_HEADER=()
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-	CURL_ARGS+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+	AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
 fi
 
-curl "${CURL_ARGS[@]}" -o "${TMPDIR}/nvim.tar.gz" "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${ARCH}.tar.gz"
+NVIM_URL="$(
+	curl -fsSL "${AUTH_HEADER[@]}" -H 'Accept: application/vnd.github+json' "${API_URL}" |
+		jq -r --arg arch "${ARCH}" '.assets[]? | select(.name | test("nvim-linux-" + $arch + "\\.tar\\.gz$")) | .browser_download_url' |
+		head -n1
+)"
+if [[ -z "${NVIM_URL}" ]]; then
+	echo "Failed to determine Neovim download URL for arch ${ARCH}" >&2
+	exit 1
+fi
+
+curl -fsSL "${NVIM_URL}" -o "${TMPDIR}/nvim.tar.gz"
 mkdir -p /opt
 tar xzf "${TMPDIR}/nvim.tar.gz" -C /opt --strip-components=1
 ln -sf /opt/bin/nvim /usr/local/bin/nvim

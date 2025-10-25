@@ -10,10 +10,6 @@
 FROM docker.io/debian:stable-slim
 # FROM ghcr.io/linuxcontainers/debian-slim:latest
 
-# Settings from the script. We'll want to eventually just use whatever is the current latest.
-ENV GO_VERSION=1.25.3
-
-
 ## First phase, setup as root.
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,9 +17,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Copy all /etc files.
 COPY etc/* /etc/
 
-# Root setup scripts
-COPY root/ /root/
+# Copy all /root files.
+COPY root/* /root/
 RUN chmod +x /root/start.sh /root/setup/*.sh
+# Install tools (as root)
 RUN /root/setup/packages.sh
 RUN /root/setup/neovim.sh
 RUN /root/setup/go.sh
@@ -44,10 +41,8 @@ RUN mkdir /app
 RUN chown user:user /app
 RUN su user -c "git init /app"
 
-# Install Go packages (as user)
+# Install tools (as user)
 RUN su user -c /home/user/setup/go.sh
-
-# Install nvm, node.js, npm, Claude Code and Gemini CLI (as user)
 RUN su user -c /home/user/setup/nodejs.sh
 RUN su user -c /home/user/setup/llm.sh
 

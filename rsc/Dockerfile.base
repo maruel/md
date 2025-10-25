@@ -10,6 +10,8 @@
 FROM docker.io/debian:stable-slim
 # FROM ghcr.io/linuxcontainers/debian-slim:latest
 
+ARG GITHUB_TOKEN
+
 ## First phase, setup as root.
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,8 +23,9 @@ COPY etc/ /etc/
 COPY root/ /root/
 # Install tools (as root)
 RUN /root/setup/1_packages.sh
-RUN /root/setup/2_neovim.sh
+RUN GITHUB_TOKEN="${GITHUB_TOKEN:-}" /root/setup/2_neovim.sh
 RUN /root/setup/3_go.sh
+RUN GITHUB_TOKEN="${GITHUB_TOKEN:-}" /root/setup/4_geckodriver.sh
 
 
 ### Second phase, as user

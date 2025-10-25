@@ -10,6 +10,13 @@ ARG ENV_FILE
 # Settings from the script. We'll want to eventually just use whatever is the current latest.
 ENV GO_VERSION=1.25.3
 
+# Specialize the SSH configuration.
+RUN rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+COPY etc/ssh/ssh_host_ed25519_key /etc/ssh/ssh_host_ed25519_key
+COPY etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ed25519_key.pub
+COPY --chown=user:user home/user/.ssh/authorized_keys /home/user/.ssh/authorized_keys
+RUN chmod 0400 /home/user/.ssh/authorized_keys
+
 # Copy the file setting environment variables.
 COPY --chown=user:user ${ENV_FILE:+$ENV_FILE} ${ENV_FILE:+/home/user/.env}
 # Copy the aliases and setup scripts.

@@ -54,7 +54,11 @@ It is **highly recommended** to setup the git alias `git squash` from
 
 The container runs as account `user` that is mapped to your user ID.
 
-The files under [rsc/](/rsc) are mapped as-is inside the container.
+The files under [rsc/](/rsc) are mapped as-is inside the container. The following files are generated:
+
+- `rsc/etc/ssh/ssh_host_ed25519_key`
+- `rsc/etc/ssh/ssh_host_ed25519_key.pub`
+- `rsc/home/user/.ssh/authorized_keys`
 
 Each container has host ssh keys that are used to make sure the container is what we expect. It does map a few things:
 

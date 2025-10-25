@@ -3,6 +3,8 @@
 # LICENSE file.
 #
 # Dockerfile to create md.base
+#
+# This is the generic portion of the image which is then specialized for your SSH keys.
 
 # We don't need it to be stuck on old images so just fetch whatever is current latest.
 FROM docker.io/debian:stable-slim
@@ -11,7 +13,7 @@ FROM docker.io/debian:stable-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install dependencies.
-# Install tools that the LLMs know about.
+# Install tools that the LLMs know about. I keep on adding tool as I see LLMs using them unprompted.
 RUN apt-get update -q && \
     apt-get upgrade -q -y && \
     apt-get install -q -y --no-install-recommends \
@@ -56,11 +58,8 @@ RUN GECKODRIVER_URL=$(curl -sSL "https://api.github.com/repos/mozilla/geckodrive
 	curl -sSL $GECKODRIVER_URL | tar xz -C /usr/local/bin && \
 	chmod +x /usr/local/bin/geckodriver
 
-# Configure SSH
-RUN rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+# Partially configure SSH
 COPY etc/ssh/sshd_config.d/md.conf /etc/ssh/sshd_config.d/md.conf
-COPY etc/ssh/ssh_host_ed25519_key /etc/ssh/ssh_host_ed25519_key
-COPY etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ed25519_key.pub
 RUN echo 'Welcome to md!' > /etc/motd
 COPY start.sh /root/start.sh
 
@@ -72,11 +71,9 @@ COPY etc/profile.d/md.sh /etc/profile.d/md.sh
 RUN adduser --disabled-password user
 #RUN useradd -ms /bin/bash user && mkdir -p /app && chown user:user /app
 RUN su user -c "mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share"
-COPY --chown=user:user home/user/.ssh/authorized_keys /home/user/.ssh/authorized_keys
 COPY --chown=user:user home/user/.config/git/* /home/user/.config/git/
 RUN echo "cd /app" >> /etc/profile.d/md.sh
 RUN chmod 0700 /home/user/.ssh
-RUN chmod 0400 /home/user/.ssh/authorized_keys
 
 # Create app directory (as user)
 RUN mkdir /app

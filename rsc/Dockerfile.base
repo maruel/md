@@ -67,9 +67,9 @@ RUN GECKODRIVER_URL=$(curl -sSL "https://api.github.com/repos/mozilla/geckodrive
 # Copy all /etc files.
 COPY etc/* /etc/
 
-# Partially configure SSH
-RUN echo 'Welcome to md!' > /etc/motd
+# Start SSH server
 COPY root/* /root/
+CMD ["/root/start.sh"]
 
 # Configure Bash (as root)
 RUN curl -sSL -o /opt/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
@@ -108,6 +108,3 @@ RUN su user -c /home/user/setup/go.sh
 # Install nvm, node.js, npm, Claude Code and Gemini CLI (as user)
 RUN su user -c /home/user/setup/nodejs.sh
 RUN su user -c /home/user/setup/llm.sh
-
-# Start SSH server
-CMD ["/root/start.sh"]

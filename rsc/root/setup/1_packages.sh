@@ -21,6 +21,7 @@ apt-get install -qq -y --no-install-recommends \
 	jq \
 	less \
 	lsof \
+	locales \
 	net-tools \
 	openssh-server \
 	podman \
@@ -33,6 +34,12 @@ apt-get install -qq -y --no-install-recommends \
 	wget \
 	xvfb \
 	zstd
+
+if ! grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen; then
+	sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen
+fi
+locale-gen en_US.UTF-8
+update-locale LANG=en_US.UTF-8 LC_CTYPE=en_US.UTF-8
 
 apt-get clean
 rm -rf /var/lib/apt/lists/*

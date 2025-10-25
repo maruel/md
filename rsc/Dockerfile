@@ -2,10 +2,19 @@
 # source code is governed by a BSD-style license that can be found in the
 # LICENSE file.
 
-# Defined in Dockerfile.base
-FROM md.base
+ARG BASE_IMAGE=ghcr.io/maruel/md:latest
+FROM ${BASE_IMAGE}
+
+ARG BASE_IMAGE
+ARG BASE_IMAGE_DIGEST=unknown
+ARG CONTEXT_SHA=unknown
 
 ARG ENV_FILE
+
+LABEL \
+	md.base_image="${BASE_IMAGE}" \
+	md.base_digest="${BASE_IMAGE_DIGEST}" \
+	md.context_sha="${CONTEXT_SHA}"
 
 # Specialize the SSH configuration.
 RUN rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub

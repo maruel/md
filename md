@@ -66,6 +66,7 @@ GIT_USER_EMAIL="$(git config --get user.email)"
 REPO_NAME=$(basename "$GIT_ROOT_DIR")
 CONTAINER_NAME="md-$REPO_NAME-$GIT_CURRENT_BRANCH"
 IMAGE_NAME=md
+BASE_IMAGE="ghcr.io/maruel/md:latest"
 
 MD_USER_KEY="$HOME/.ssh/md-$REPO_NAME"
 if [ ! -f "$MD_USER_KEY" ]; then
@@ -92,17 +93,70 @@ fi
 
 function build {
 	ROOT="$SCRIPT_DIR"
-	cd $ROOT/rsc
+	pushd "$ROOT/rsc" >/dev/null
 
-	echo "- Building Docker image ${IMAGE_NAME}.base ..."
 	cp "$MD_USER_KEY.pub" "$USER_AUTH_KEYS"
 	chmod 600 "$USER_AUTH_KEYS"
-	docker build -t ${IMAGE_NAME}.base -f Dockerfile.base .
+
+	echo "- Pulling base image ${BASE_IMAGE} ..."
+	docker pull "${BASE_IMAGE}"
+
+	BASE_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "${BASE_IMAGE}" 2>/dev/null || true)"
+	if [ -z "${BASE_DIGEST}" ]; then
+		BASE_DIGEST="$(docker image inspect --format '{{.Id}}' "${BASE_IMAGE}")"
+	fi
+
+	CONTEXT_SHA="$(
+		python3 - "$PWD" <<'PY'
+import hashlib
+import os
+import sys
+
+root = os.path.abspath(sys.argv[1])
+digest = hashlib.sha256()
+for dirpath, dirnames, filenames in os.walk(root):
+    dirnames.sort()
+    filenames.sort()
+    for name in filenames:
+        path = os.path.join(dirpath, name)
+        rel = os.path.relpath(path, root)
+        digest.update(rel.encode('utf-8', 'surrogateescape'))
+        with open(path, 'rb') as f:
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
+                digest.update(chunk)
+print(digest.hexdigest(), end='')
+PY
+	)"
+
+	CURRENT_DIGEST=""
+	CURRENT_CONTEXT=""
+	if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+		CURRENT_DIGEST="$(docker image inspect "$IMAGE_NAME" --format '{{ index .Config.Labels "md.base_digest" }}')"
+		CURRENT_CONTEXT="$(docker image inspect "$IMAGE_NAME" --format '{{ index .Config.Labels "md.context_sha" }}')"
+		if [ "${CURRENT_DIGEST}" = "<no value>" ]; then
+			CURRENT_DIGEST=""
+		fi
+		if [ "${CURRENT_CONTEXT}" = "<no value>" ]; then
+			CURRENT_CONTEXT=""
+		fi
+	fi
+
+	if [[ "${CURRENT_DIGEST}" == "${BASE_DIGEST}" && "${CURRENT_CONTEXT}" == "${CONTEXT_SHA}" ]]; then
+		echo "- Docker image $IMAGE_NAME already matches ${BASE_IMAGE} (${BASE_DIGEST}), skipping rebuild."
+		popd >/dev/null
+		return
+	fi
 
 	echo "- Building Docker image $IMAGE_NAME ..."
-	# We could use ARGS ENV_FILE in there but the image would become specific to this repository.
-	docker build -t $IMAGE_NAME .
-	cd -
+	docker build \
+		--build-arg BASE_IMAGE="${BASE_IMAGE}" \
+		--build-arg BASE_IMAGE_DIGEST="${BASE_DIGEST}" \
+		--build-arg CONTEXT_SHA="${CONTEXT_SHA}" \
+		-t "$IMAGE_NAME" .
+	popd >/dev/null
 }
 
 function run {

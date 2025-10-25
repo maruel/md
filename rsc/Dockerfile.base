@@ -20,9 +20,9 @@ COPY etc/ /etc/
 # Copy all /root files.
 COPY root/ /root/
 # Install tools (as root)
-RUN /root/setup/packages.sh
-RUN /root/setup/neovim.sh
-RUN /root/setup/go.sh
+RUN /root/setup/1_packages.sh
+RUN /root/setup/2_neovim.sh
+RUN /root/setup/3_go.sh
 
 
 ### Second phase, as user
@@ -40,9 +40,9 @@ RUN chown user:user /app
 RUN su user -c "git init /app"
 
 # Install tools (as user)
-RUN su user -c /home/user/setup/go.sh
-RUN su user -c /home/user/setup/nodejs.sh
-RUN su user -c /home/user/setup/llm.sh
+RUN su user -c /home/user/setup/1_go.sh
+RUN su user -c /home/user/setup/2_nodejs.sh
+RUN su user -c /home/user/setup/3_llm.sh
 
 # Start SSH server by default
 CMD ["/root/start.sh"]

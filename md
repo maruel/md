@@ -4,15 +4,6 @@
 # LICENSE file.
 #
 # md (my devenv): sets up a local dev environment with a local git clone for quick iteration.
-#
-# Assumptions:
-# - only tested on ubuntu
-# - ssh-keygen is available locally
-# - nvim is configured
-#
-# A simplified version of https://github.com/boldsoftware/sketch/blob/main/loop/server/local_ssh.md but
-# without the certification verification done properly yet.
-#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,11 +11,7 @@ HOST_KEY_PATH="$SCRIPT_DIR/rsc/etc/ssh/ssh_host_ed25519_key"
 HOST_KEY_PUB_PATH="$HOST_KEY_PATH.pub"
 USER_AUTH_KEYS="$SCRIPT_DIR/rsc/home/user/.ssh/authorized_keys"
 
-ensure_dirs() {
-	mkdir -p "$@"
-}
-
-ensure_dirs \
+mkdir -p \
 	"$HOME/.amp" \
 	"$HOME/.codex" \
 	"$HOME/.claude" \
@@ -119,31 +106,7 @@ build() (
 		BASE_DIGEST="$(docker image inspect --format '{{.Id}}' "${BASE_IMAGE}")"
 	fi
 
-	CONTEXT_SHA="$(
-		python3 - "$PWD" <<'PY'
-import hashlib
-import os
-import sys
-
-root = os.path.abspath(sys.argv[1])
-digest = hashlib.sha256()
-for dirpath, dirnames, filenames in os.walk(root):
-    dirnames.sort()
-    filenames.sort()
-    for name in filenames:
-        path = os.path.join(dirpath, name)
-        rel = os.path.relpath(path, root)
-        digest.update(rel.encode('utf-8', 'surrogateescape'))
-        with open(path, 'rb') as f:
-            while True:
-                chunk = f.read(8192)
-                if not chunk:
-                    break
-                digest.update(chunk)
-print(digest.hexdigest(), end='')
-PY
-	)"
-
+	CONTEXT_SHA="$(tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - . | sha256sum | cut -d' ' -f1)"
 	CURRENT_DIGEST=""
 	CURRENT_CONTEXT=""
 	if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
@@ -156,7 +119,6 @@ PY
 			CURRENT_CONTEXT=""
 		fi
 	fi
-
 	if [[ "${CURRENT_DIGEST}" == "${BASE_DIGEST}" && "${CURRENT_CONTEXT}" == "${CONTEXT_SHA}" ]]; then
 		echo "- Docker image $IMAGE_NAME already matches ${BASE_IMAGE} (${BASE_DIGEST}), skipping rebuild."
 		return

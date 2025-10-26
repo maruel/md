@@ -22,12 +22,14 @@ mkdir -p \
 	"$HOME/.local/share/amp" \
 	"$HOME/.local/share/goose" \
 	"$(dirname "$HOST_KEY_PATH")" \
-	"$(dirname "$USER_AUTH_KEYS")" \
-	"$HOME/.ssh/config.d"
+	"$(dirname "$USER_AUTH_KEYS")"
 
-if [ ! -d "$HOME/.ssh" ]; then
+if [ -d "$HOME/.ssh" ]; then
+	chmod 700 "$HOME/.ssh"
+else
 	mkdir -m 700 "$HOME/.ssh"
 fi
+mkdir -p "$HOME/.ssh/config.d"
 
 usage() {
 	cat <<'EOF'
@@ -139,15 +141,15 @@ run() {
 	docker run -d \
 	  --name "$CONTAINER_NAME" \
 	  -p 127.0.0.1:0:22 \
-	  -v ~/.amp/:/home/user/.amp/ \
-	  -v ~/.codex/:/home/user/.codex/ \
-	  -v ~/.claude/:/home/user/.claude/ \
-	  -v ~/.gemini/:/home/user/.gemini/ \
-	  -v ~/.qwen/:/home/user/.qwen/ \
-	  -v ~/.config/amp/:/home/user/.config/amp/ \
-	  -v ~/.config/goose/:/home/user/.config/goose/ \
-	  -v ~/.local/share/amp/:/home/user/.local/share/amp/ \
-	  -v ~/.local/share/goose/:/home/user/.local/share/goose/ \
+	  -v "$HOME/.amp:/home/user/.amp" \
+	  -v "$HOME/.codex:/home/user/.codex" \
+	  -v "$HOME/.claude:/home/user/.claude" \
+	  -v "$HOME/.gemini:/home/user/.gemini" \
+	  -v "$HOME/.qwen:/home/user/.qwen" \
+	  -v "$HOME/.config/amp:/home/user/.config/amp" \
+	  -v "$HOME/.config/goose:/home/user/.config/goose" \
+	  -v "$HOME/.local/share/amp:/home/user/.local/share/amp" \
+	  -v "$HOME/.local/share/goose:/home/user/.local/share/goose" \
 	  "$IMAGE_NAME"
 
 	PORT_NUMBER=$(docker inspect --format "{{(index .NetworkSettings.Ports \"22/tcp\" 0).HostPort}}" "$CONTAINER_NAME")

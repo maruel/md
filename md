@@ -68,8 +68,9 @@ REPO_NAME=$(basename "$GIT_ROOT_DIR")
 CONTAINER_NAME="md-$REPO_NAME-$GIT_CURRENT_BRANCH"
 IMAGE_NAME=md
 BASE_IMAGE="ghcr.io/maruel/md:latest"
-
-MD_USER_KEY="$HOME/.ssh/md-$REPO_NAME"
+# For now, we use the same key for all containers. Let's update if there's any security value in doing
+# different.
+MD_USER_KEY="$HOME/.ssh/md"
 
 ensure_ed25519_key() {
 	local path="$1"

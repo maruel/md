@@ -4,6 +4,7 @@
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
+alias amp="\$(which amp) --dangerously-allow-all"
 alias gemini="\$(which gemini) --yolo"
 alias qwen="\$(which qwen) --yolo"
 alias codex="\$(which codex) --dangerously-bypass-approvals-and-sandbox"

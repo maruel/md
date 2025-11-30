@@ -104,6 +104,16 @@ build() (
 	echo "- Pulling base image ${BASE_IMAGE} ..."
 	docker pull "${BASE_IMAGE}"
 
+	#if [ -d "$HOME/go/pkg" ]; then
+	#	docker volume create go_pkg_cache
+	#	# Should be the same as rsc/Dockerfile.base
+	#	BASE_IMG=docker.io/debian:stable-slim
+	#	docker run --rm \
+	#		-v $HOME/go/pkg:/host_pkg:ro \
+	#		-v go_pkg_cache:/container_pkg \
+	#		$BASE_IMG sh -c "cp -a /host_pkg/. /container_pkg/"
+	#fi
+
 	BASE_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "${BASE_IMAGE}" 2>/dev/null || true)"
 	if [ -z "${BASE_DIGEST}" ]; then
 		BASE_DIGEST="$(docker image inspect --format '{{.Id}}' "${BASE_IMAGE}")"
@@ -183,6 +193,12 @@ run() {
 		echo "- sending .env into container ..."
 		scp .env "$CONTAINER_NAME:/home/user/.env"
 	fi
+
+	# TODO: This would require a go clean -modcache then a go get -t ./... to be efficient.
+	#if [ -d "$HOME/go/pkg" ]; then
+	#	# Surprisingly, compression helps.
+	#	rsync -az --ignore-existing --info=progress2 $HOME/go/pkg/ $CONTAINER_NAME:/home/user/go/pkg
+	f#i
 
 	echo ""
 	echo "Base branch '$GIT_CURRENT_BRANCH' has been set up in the container as 'base' for easy diffing."

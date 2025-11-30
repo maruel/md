@@ -4,7 +4,7 @@
 set -eu
 cd $HOME
 
-if ! which nvm &> /dev/null; then
+if ! which nvm &>/dev/null; then
 	. ~/.nvm/nvm.sh
 fi
 

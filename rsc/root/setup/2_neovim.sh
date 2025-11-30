@@ -4,12 +4,12 @@ set -euo pipefail
 
 ARCH="$(uname -m)"
 case "${ARCH}" in
-	aarch64|arm64) ARCH="arm64" ;;
-	x86_64|amd64) ARCH="x86_64" ;;
-	*)
-		echo "Unsupported architecture: ${ARCH}" >&2
-		exit 1
-		;;
+aarch64 | arm64) ARCH="arm64" ;;
+x86_64 | amd64) ARCH="x86_64" ;;
+*)
+	echo "Unsupported architecture: ${ARCH}" >&2
+	exit 1
+	;;
 esac
 
 TMPDIR="$(mktemp -d)"

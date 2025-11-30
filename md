@@ -78,7 +78,7 @@ ensure_ed25519_key() {
 		ssh-keygen -q -t ed25519 -N '' -C "$comment" -f "$path"
 	fi
 	if [ ! -f "$path.pub" ]; then
-		ssh-keygen -y -f "$path" > "$path.pub"
+		ssh-keygen -y -f "$path" >"$path.pub"
 	fi
 }
 
@@ -148,18 +148,18 @@ run() {
 	# Port 3000 is mapped.
 	# -p 127.0.0.1:3000:3000
 	docker run -d \
-	  --name "$CONTAINER_NAME" \
-	  -p 127.0.0.1:0:22 \
-	  -v "$HOME/.amp:/home/user/.amp" \
-	  -v "$HOME/.codex:/home/user/.codex" \
-	  -v "$HOME/.claude:/home/user/.claude" \
-	  -v "$HOME/.gemini:/home/user/.gemini" \
-	  -v "$HOME/.qwen:/home/user/.qwen" \
-	  -v "$HOME/.config/amp:/home/user/.config/amp" \
-	  -v "$HOME/.config/goose:/home/user/.config/goose" \
-	  -v "$HOME/.local/share/amp:/home/user/.local/share/amp" \
-	  -v "$HOME/.local/share/goose:/home/user/.local/share/goose" \
-	  "$IMAGE_NAME"
+		--name "$CONTAINER_NAME" \
+		-p 127.0.0.1:0:22 \
+		-v "$HOME/.amp:/home/user/.amp" \
+		-v "$HOME/.codex:/home/user/.codex" \
+		-v "$HOME/.claude:/home/user/.claude" \
+		-v "$HOME/.gemini:/home/user/.gemini" \
+		-v "$HOME/.qwen:/home/user/.qwen" \
+		-v "$HOME/.config/amp:/home/user/.config/amp" \
+		-v "$HOME/.config/goose:/home/user/.config/goose" \
+		-v "$HOME/.local/share/amp:/home/user/.local/share/amp" \
+		-v "$HOME/.local/share/goose:/home/user/.local/share/goose" \
+		"$IMAGE_NAME"
 
 	PORT_NUMBER=$(docker inspect --format "{{(index .NetworkSettings.Ports \"22/tcp\" 0).HostPort}}" "$CONTAINER_NAME")
 	echo "- Found ssh port $PORT_NUMBER"
@@ -174,10 +174,10 @@ run() {
 		echo "  IdentitiesOnly yes"
 		echo "  UserKnownHostsFile $HOST_KNOWN_HOSTS"
 		echo "  StrictHostKeyChecking yes"
-	} > "$HOST_CONF"
+	} >"$HOST_CONF"
 	local HOST_PUBLIC_KEY
 	HOST_PUBLIC_KEY=$(cat "$HOST_KEY_PUB_PATH")
-	echo "[127.0.0.1]:$PORT_NUMBER $HOST_PUBLIC_KEY" > "$HOST_KNOWN_HOSTS"
+	echo "[127.0.0.1]:$PORT_NUMBER $HOST_PUBLIC_KEY" >"$HOST_KNOWN_HOSTS"
 
 	echo "- git clone into container ..."
 	git remote rm "$CONTAINER_NAME" || true
@@ -240,29 +240,29 @@ pull_changes() {
 }
 
 case "$CMD" in
-	start)
-		require_no_args "$@"
-		if container_exists; then
-			echo "Container $CONTAINER_NAME already exists. SSH in with 'ssh $CONTAINER_NAME' or clean it up via './md kill' first." >&2
-			exit 1
-		fi
-		build
-		run
-		ssh "$CONTAINER_NAME"
-		;;
-	push)
-		require_no_args "$@"
-		push_changes
-		;;
-	pull)
-		require_no_args "$@"
-		pull_changes
-		;;
-	kill)
-		require_no_args "$@"
-		kill_env
-		;;
-	*)
-		usage
-		;;
+start)
+	require_no_args "$@"
+	if container_exists; then
+		echo "Container $CONTAINER_NAME already exists. SSH in with 'ssh $CONTAINER_NAME' or clean it up via './md kill' first." >&2
+		exit 1
+	fi
+	build
+	run
+	ssh "$CONTAINER_NAME"
+	;;
+push)
+	require_no_args "$@"
+	push_changes
+	;;
+pull)
+	require_no_args "$@"
+	pull_changes
+	;;
+kill)
+	require_no_args "$@"
+	kill_env
+	;;
+*)
+	usage
+	;;
 esac

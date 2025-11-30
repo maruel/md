@@ -36,10 +36,11 @@ usage() {
 usage: ./md <command>
 
 Commands:
-  start  Pull latest base image, rebuild if needed, start container, open shell.
-  push   Force-push current repo state into the running container.
-  pull   Pull changes from the container back to the local repo.
-  kill   Remove ssh config/remote and stop/remove the container.
+  start       Pull latest base image, rebuild if needed, start container, open shell.
+  build-base  Build the base Docker image locally from rsc/Dockerfile.base.
+  push        Force-push current repo state into the running container.
+  pull        Pull changes from the container back to the local repo.
+  kill        Remove ssh config/remote and stop/remove the container.
 EOF
 	exit 1
 }
@@ -93,14 +94,38 @@ shift
 
 ######
 
+build_base() (
+	echo "- Building base Docker image from rsc/Dockerfile.base ..."
+	docker build \
+		-f "$SCRIPT_DIR/rsc/Dockerfile.base" \
+		-t md-base \
+		"$SCRIPT_DIR/rsc"
+	echo "- Base image built as 'md-base'."
+)
+
 build() (
 	cd "$SCRIPT_DIR/rsc"
 
 	cp "$MD_USER_KEY.pub" "$USER_AUTH_KEYS"
 	chmod 600 "$USER_AUTH_KEYS"
 
-	echo "- Pulling base image ${BASE_IMAGE} ..."
-	docker pull "${BASE_IMAGE}"
+	# Check if local md-base image is more recent than remote
+	LOCAL_BASE_CREATED=$(docker image inspect md-base --format '{{.Created}}' 2>/dev/null || echo "")
+	if [ -n "$LOCAL_BASE_CREATED" ]; then
+		REMOTE_BASE_CREATED=$(docker image inspect "${BASE_IMAGE}" --format '{{.Created}}' 2>/dev/null || echo "")
+		if [ -n "$REMOTE_BASE_CREATED" ]; then
+			LOCAL_EPOCH=$(date -d "$LOCAL_BASE_CREATED" +%s 2>/dev/null || echo 0)
+			REMOTE_EPOCH=$(date -d "$REMOTE_BASE_CREATED" +%s 2>/dev/null || echo 0)
+			if [ "$LOCAL_EPOCH" -gt "$REMOTE_EPOCH" ]; then
+				echo "- Local md-base image is newer, using local build instead of ${BASE_IMAGE}"
+				BASE_IMAGE="md-base"
+			fi
+		fi
+	fi
+	if [ "$BASE_IMAGE" != "md-base" ]; then
+		echo "- Pulling base image ${BASE_IMAGE} ..."
+		docker pull "${BASE_IMAGE}"
+	fi
 
 	#if [ -d "$HOME/go/pkg" ]; then
 	#	docker volume create go_pkg_cache
@@ -249,6 +274,10 @@ start)
 	build
 	run
 	ssh "$CONTAINER_NAME"
+	;;
+build-base)
+	require_no_args "$@"
+	build_base
 	;;
 push)
 	require_no_args "$@"

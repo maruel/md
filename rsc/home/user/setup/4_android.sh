@@ -1,10 +1,10 @@
 #!/bin/bash
-# Install Android SDK and gradle (runs as root).
+# Install Android SDK and gradle (runs as user).
 set -euo pipefail
 
 SDK_URL=$(curl -s "https://developer.android.com/studio" | grep -o 'https://dl\.google\.com/android/repository/commandlinetools-linux-[0-9]*_latest\.zip' | head -n 1)
 
-ANDROID_SDK_ROOT=/opt/android-sdk
+ANDROID_SDK_ROOT="$HOME/.local/share/android-sdk"
 mkdir -p "$ANDROID_SDK_ROOT"
 cd "$ANDROID_SDK_ROOT"
 
@@ -28,6 +28,3 @@ yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/n
 	"platforms;android-36" \
 	"build-tools;36.0.0" \
 	"cmdline-tools;latest"
-
-# Symlink command-line tools to PATH
-ln -sf "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"/* /usr/local/bin/

@@ -28,7 +28,6 @@ RUN --mount=type=secret,id=github_token \
 RUN /root/setup/3_go.sh
 RUN --mount=type=secret,id=github_token \
 	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" /root/setup/4_geckodriver.sh'
-RUN /root/setup/5_android_sdk.sh
 
 
 ### Second phase, as user
@@ -49,6 +48,7 @@ RUN su user -c "git init /app"
 RUN su user -c /home/user/setup/1_go.sh
 RUN su user -c /home/user/setup/2_nodejs.sh
 RUN su user -c /home/user/setup/3_llm.sh
+RUN su user -c /home/user/setup/4_android.sh
 
 # Start SSH server by default
 CMD ["/root/start.sh"]

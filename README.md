@@ -1,92 +1,144 @@
-# md
+# md: Parallel Development Containers for AI Coding Agents
 
-My Development container: enables you to work with multiple coding agents in parallel safely.
+A development container system that enables you to work with multiple coding agents in parallel safely. Run AI
+coding tools (Claude Code, Codex, Amp CLI, Gemini CLI, Qwen CLI, etc.) without branch conflicts or
+interference.
 
-The goal of this project is to run common coding again tools (Claude Code, Codex, Amp CLI, Gemini CLI, Qwen
-CLI, etc) in what is generally called _YOLO mode_ in a safe manner. Instead of using git worktree, you use
-normal branches, enabling a simpler workspace. The container has a **complete separate git clone**, your local
-checkout is not mapped in the container. Because each branch runs in a container, you can safely do multiple
-changes in parallel, run test in parallel and not have branch switching issues. When you are done, just delete
-the container!
+## Overview
 
-## Usage
+`md` runs common coding agent tools in what is generally called _YOLO mode_ (all prompts to run commands and
+sandboxing disabled) in a safe manner.
 
-Start a container:
+Instead of using git worktree, you use normal branches. Each container runs a **complete separate git clone**
+of your repository. Your local checkout is never mapped into the container. Because each branch runs in an
+isolated container with a different name, you can safely:
 
-```
-md start
-```
+- Make changes in parallel on different branches
+- Run tests simultaneously without conflicts
+- Switch branches locally without affecting running containers
+- Delete containers cleanly when done
 
-Each container has the name `md-<repo-name>-<branch-name>`. Thus if you are on a git checkout of the
-repository [github.com/maruel/genai](https://github.com/maruel/genai), on a branch named `wip`, then the
-container is named `md-genai-wip`.
+## Prerequisites
 
-You access the container via ssh. So to access the container, you do:
-
-```
-ssh md-genai-wip
-```
-
-Frequently, you'll use two ssh sessions, one to run the coding agent (cc, codex, etc), one to inspect the
-results (e.g. `git diff`) and run tests or so manual fixups.
-
-To pull changes from the container back in your local branch, you do:
-
-```
-md pull
-```
-
-To push local changes to the container, let's say you rebased on `origin/main` and need to push that back into
-the container, you do:
-
-```
-md push
-```
-
-Clean up:
-
-```
-md kill
-```
+- **Docker** installed and running
 
 ## Installation
 
-`curl | sudo bash`? lol no, just clone and add to PATH:
+Clone the repository and add it to your PATH:
 
-```
+```bash
 git clone https://github.com/maruel/md
-PATH=$PATH:$(pwd)/md
+export PATH="$PATH:$(pwd)/md/bin"
 ```
 
 It is **highly recommended** to setup the git alias `git squash` from
 [squash.ini](https://github.com/maruel/bin_pub/blob/main/configs/.config/git/squash.ini).
 
+## Quick Start
 
-## Details
+Here's a complete workflow example:
 
-The container runs as account `user` that is mapped to your user ID.
+```bash
+# Start a container for your current branch
+md start
 
-The files under [rsc/](/rsc) are mapped as-is inside the container. The following files are generated:
+# Inside the container, run your coding agent
+# (e.g., amp, claude, codex, etc.)
+
+# Exit when done
+exit
+
+# Back on your local machine, pull changes
+md pull
+
+# Clean up the container
+md kill
+```
+
+## Usage
+
+### Starting a Container
+
+```bash
+md start
+```
+
+Each container is named `md-<repo-name>-<branch-name>`. For example, if you're on the `wip` branch of
+[github.com/maruel/genai](https://github.com/maruel/genai), the container is named `md-genai-wip`.
+
+### Accessing the Container
+
+Access the container via SSH:
+
+```bash
+# SSH into the container (in another terminal window)
+ssh md-<repo-name>-<branch-name>
+```
+
+**Tip:** Use two SSH sessions—one for running the coding agent and one for inspecting results (e.g., `git diff`) and running tests.
+
+### Pulling Changes Back
+
+To pull changes from the container into your local branch:
+
+```bash
+md pull
+```
+
+### Pushing Changes to the Container
+
+If you've rebased on `origin/main` or made other local changes that need to be synced to the container:
+
+```bash
+md push
+```
+
+### Cleaning Up
+
+When done with a container:
+
+```bash
+md kill
+```
+
+## How It Works
+
+### User and Permissions
+
+The container runs as the user account `user`, which is mapped to your local user ID, ensuring proper file permissions.
+
+### Resource Mappings
+
+Files under [rsc/](/rsc) are copied as-is inside the container. The system generates the following files automatically:
 
 - `rsc/etc/ssh/ssh_host_ed25519_key`
 - `rsc/etc/ssh/ssh_host_ed25519_key.pub`
 - `rsc/home/user/.ssh/authorized_keys`
 
-Each container has host ssh keys that are used to make sure the container is what we expect. It does map a few things:
+Host SSH keys ensure you're connecting to the expected container.
 
-- `~/.amp`
-- `~/.codex`
-- `~/.claude`
-- `~/.gemini`
-- `~/.qwen`
-- `~/.config/amp`
-- `~/.config/goose`
-- `~/.local/share/amp`
-- `~/.local/share/goose`
+### Configuration and Credentials
 
-For most of these, you need to manually tell it to use YOLO mode.
+The following directories from your local machine are mounted into each container for agent configurations and credentials:
 
-The container runs basically nothing, only sshd, for maximum efficiency. The container has everything needed
-to do TypeScript, Go and Rust development preinstalled. It comes with Neovim.
+- `~/.amp` - Amp CLI configuration
+- `~/.codex` - Codex configuration
+- `~/.claude` - Claude configuration
+- `~/.gemini` - Gemini CLI configuration
+- `~/.qwen` - Qwen CLI configuration
+- `~/.config/amp` - Amp tool config
+- `~/.config/goose` - Goose configuration
+- `~/.local/share/amp` - Amp data
+- `~/.local/share/goose` - Goose data
 
-Want a feature? Please send a PR!
+### Preinstalled Tools
+
+The container runs with minimal overhead—only sshd is running to maximize efficiency. However, it comes preinstalled with everything needed for:
+
+- TypeScript development
+- Go development
+- Neovim editor
+
+## Contributing
+
+Want a feature or found a bug? Contributions are welcome! Send a PR. Thanks!

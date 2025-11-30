@@ -30,6 +30,7 @@ apt-get install -qq -y --no-install-recommends \
 	ripgrep \
 	rsync \
 	shared-mime-info \
+	shellcheck \
 	sqlite3 \
 	wget \
 	xvfb \

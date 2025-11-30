@@ -214,8 +214,8 @@ push_changes() {
 	container_commit="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse HEAD")"
 	backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
 	ssh "$CONTAINER_NAME" 'cd /app && git branch -f '"'$backup_branch'"' '"'$container_commit'"
-	git push -f "$CONTAINER_NAME"
-	ssh "$CONTAINER_NAME" 'cd /app && git reset --hard && git checkout '"'$branch'"' && git branch -f base '"'$branch'"
+	git push -q -f "$CONTAINER_NAME"
+	ssh "$CONTAINER_NAME" 'cd /app && git reset -q --hard && git checkout -q '"'$branch'"' && git branch -q -f base '"'$branch'"
 	echo "- Container updated (previous state saved as $backup_branch)."
 }
 

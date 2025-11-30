@@ -13,15 +13,18 @@ apt-get install -qq -y --no-install-recommends \
 	build-essential \
 	ca-certificates \
 	curl \
+	default-jdk-headless \
 	ffmpeg \
 	file \
 	git \
 	gpg \
+	gradle \
 	iproute2 \
 	jq \
 	less \
-	lsof \
+	libgl1 \
 	locales \
+	lsof \
 	net-tools \
 	openssh-server \
 	podman \
@@ -32,6 +35,7 @@ apt-get install -qq -y --no-install-recommends \
 	shared-mime-info \
 	shellcheck \
 	sqlite3 \
+	unzip \
 	wget \
 	xvfb \
 	zstd

@@ -62,8 +62,6 @@ if [ -z "$GIT_CURRENT_BRANCH" ]; then
 fi
 GIT_ROOT_DIR=$(git rev-parse --show-toplevel)
 cd "$GIT_ROOT_DIR"
-GIT_USER_NAME="$(git config --get user.name)"
-GIT_USER_EMAIL="$(git config --get user.email)"
 REPO_NAME=$(basename "$GIT_ROOT_DIR")
 CONTAINER_NAME="md-$REPO_NAME-$GIT_CURRENT_BRANCH"
 IMAGE_NAME=md
@@ -167,14 +165,16 @@ run() {
 	echo "- Found ssh port $PORT_NUMBER"
 	local HOST_CONF="$HOME/.ssh/config.d/$CONTAINER_NAME.conf"
 	local HOST_KNOWN_HOSTS="$HOME/.ssh/config.d/$CONTAINER_NAME.known_hosts"
-	echo "Host $CONTAINER_NAME" > "$HOST_CONF"
-	echo "  HostName 127.0.0.1" >> "$HOST_CONF"
-	echo "  Port $PORT_NUMBER" >> "$HOST_CONF"
-	echo "  User user" >> "$HOST_CONF"
-	echo "  IdentityFile $MD_USER_KEY" >> "$HOST_CONF"
-	echo "  IdentitiesOnly yes" >> "$HOST_CONF"
-	echo "  UserKnownHostsFile $HOST_KNOWN_HOSTS" >> "$HOST_CONF"
-	echo "  StrictHostKeyChecking yes" >> "$HOST_CONF"
+	{
+		echo "Host $CONTAINER_NAME"
+		echo "  HostName 127.0.0.1"
+		echo "  Port $PORT_NUMBER"
+		echo "  User user"
+		echo "  IdentityFile $MD_USER_KEY"
+		echo "  IdentitiesOnly yes"
+		echo "  UserKnownHostsFile $HOST_KNOWN_HOSTS"
+		echo "  StrictHostKeyChecking yes"
+	} > "$HOST_CONF"
 	local HOST_PUBLIC_KEY
 	HOST_PUBLIC_KEY=$(cat "$HOST_KEY_PUB_PATH")
 	echo "[127.0.0.1]:$PORT_NUMBER $HOST_PUBLIC_KEY" > "$HOST_KNOWN_HOSTS"
@@ -187,8 +187,8 @@ run() {
 	done
 	git fetch "$CONTAINER_NAME"
 	git push -q "$CONTAINER_NAME" "HEAD:$GIT_CURRENT_BRANCH"
-	ssh "$CONTAINER_NAME" "cd /app && git checkout -q $GIT_CURRENT_BRANCH"
-	ssh "$CONTAINER_NAME" "cd /app && git branch -f base $GIT_CURRENT_BRANCH && git checkout base && git checkout $GIT_CURRENT_BRANCH"
+	ssh "$CONTAINER_NAME" 'cd /app && git checkout -q '"'$GIT_CURRENT_BRANCH'"
+	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base '"'$GIT_CURRENT_BRANCH'"' && git checkout base && git checkout '"'$GIT_CURRENT_BRANCH'"
 	if [ -f .env ]; then
 		echo "- sending .env into container ..."
 		scp .env "$CONTAINER_NAME:/home/user/.env"
@@ -213,9 +213,9 @@ push_changes() {
 	branch="$(git rev-parse --abbrev-ref HEAD)"
 	container_commit="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse HEAD")"
 	backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
-	ssh "$CONTAINER_NAME" "cd /app && git branch -f $backup_branch $container_commit"
+	ssh "$CONTAINER_NAME" 'cd /app && git branch -f '"'$backup_branch'"' '"'$container_commit'"
 	git push -f "$CONTAINER_NAME"
-	ssh "$CONTAINER_NAME" "cd /app && git reset --hard && git checkout $branch && git branch -f base $branch"
+	ssh "$CONTAINER_NAME" 'cd /app && git reset --hard && git checkout '"'$branch'"' && git branch -f base '"'$branch'"
 	echo "- Container updated (previous state saved as $backup_branch)."
 }
 
@@ -236,7 +236,7 @@ pull_changes() {
 	local remote_branch
 	remote_branch="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse --abbrev-ref HEAD")"
 	git pull -q "$CONTAINER_NAME" "$remote_branch:"
-	ssh "$CONTAINER_NAME" "cd /app && git branch -f base $remote_branch"
+	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base '"'$remote_branch'"
 }
 
 case "$CMD" in

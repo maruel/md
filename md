@@ -198,7 +198,7 @@ run() {
 	#if [ -d "$HOME/go/pkg" ]; then
 	#	# Surprisingly, compression helps.
 	#	rsync -az --ignore-existing --info=progress2 $HOME/go/pkg/ $CONTAINER_NAME:/home/user/go/pkg
-	f#i
+	#fi
 
 	echo ""
 	echo "Base branch '$GIT_CURRENT_BRANCH' has been set up in the container as 'base' for easy diffing."

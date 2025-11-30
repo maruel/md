@@ -25,8 +25,8 @@ yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/n
 # Install required SDK components
 "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
 	"platform-tools" \
-	"platforms;android-34" \
-	"build-tools;34.0.0" \
+	"platforms;android-36" \
+	"build-tools;36.0.0" \
 	"cmdline-tools;latest"
 
 # Symlink command-line tools to PATH

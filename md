@@ -13,6 +13,7 @@ USER_AUTH_KEYS="$SCRIPT_DIR/rsc/home/user/.ssh/authorized_keys"
 
 mkdir -p \
 	"$HOME/.amp" \
+	"$HOME/.android" \
 	"$HOME/.codex" \
 	"$HOME/.claude" \
 	"$HOME/.gemini" \
@@ -170,12 +171,11 @@ build() (
 
 run() {
 	echo "- Starting container $CONTAINER_NAME ..."
-	# Port 3000 is mapped.
-	# -p 127.0.0.1:3000:3000
 	docker run -d \
 		--name "$CONTAINER_NAME" \
 		-p 127.0.0.1:0:22 \
 		-v "$HOME/.amp:/home/user/.amp" \
+		-v "$HOME/.android:/home/user/.android" \
 		-v "$HOME/.codex:/home/user/.codex" \
 		-v "$HOME/.claude:/home/user/.claude" \
 		-v "$HOME/.gemini:/home/user/.gemini" \

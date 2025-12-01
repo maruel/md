@@ -101,6 +101,16 @@ When done with a container:
 md kill
 ```
 
+### Android
+
+You can use adb over wifi from within the container. First make sure the device is accessible over wifi by
+initiating the connection via Android Studio. Then from within the container, run:
+
+```bash
+adb connect <ip>:<port>
+adb devices
+```
+
 ## How It Works
 
 ### User and Permissions
@@ -122,6 +132,7 @@ Host SSH keys ensure you're connecting to the expected container.
 The following directories from your local machine are mounted into each container for agent configurations and credentials:
 
 - `~/.amp` - Amp CLI configuration
+- `~/.android` - Android ADB keys
 - `~/.codex` - Codex configuration
 - `~/.claude` - Claude configuration
 - `~/.gemini` - Gemini CLI configuration

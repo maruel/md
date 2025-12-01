@@ -149,6 +149,7 @@ The container runs with minimal overhead—only sshd is running to maximize effi
 - TypeScript development
 - Go development
 - Neovim editor
+- QEMU with KVM acceleration (when `/dev/kvm` is available on the host)
 
 ## Contributing
 

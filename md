@@ -171,9 +171,14 @@ build() (
 
 run() {
 	echo "- Starting container $CONTAINER_NAME ..."
+	local KVM_DEVICE=""
+	if [ -e /dev/kvm ] && [ -w /dev/kvm ]; then
+		KVM_DEVICE="--device=/dev/kvm"
+	fi
 	docker run -d \
 		--name "$CONTAINER_NAME" \
 		-p 127.0.0.1:0:22 \
+		${KVM_DEVICE:+"$KVM_DEVICE"} \
 		-v "$HOME/.amp:/home/user/.amp" \
 		-v "$HOME/.android:/home/user/.android" \
 		-v "$HOME/.codex:/home/user/.codex" \

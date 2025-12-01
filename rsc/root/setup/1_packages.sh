@@ -28,6 +28,9 @@ apt-get install -qq -y --no-install-recommends \
 	net-tools \
 	openssh-server \
 	podman \
+	qemu-system-arm \
+	qemu-system-x86 \
+	qemu-utils \
 	python3 \
 	python3-venv \
 	ripgrep \

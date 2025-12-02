@@ -23,11 +23,14 @@ apt-get install -qq -y --no-install-recommends \
 	jq \
 	less \
 	libgl1 \
+	libvirt-clients \
+	libvirt-daemon \
 	locales \
 	lsof \
 	net-tools \
 	openssh-server \
 	podman \
+	qemu-kvm \
 	qemu-system-arm \
 	qemu-system-x86 \
 	qemu-utils \

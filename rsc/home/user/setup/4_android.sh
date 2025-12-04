@@ -42,10 +42,15 @@ SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 # Accept all licenses
 yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 
-# Install required SDK components
-"$SDKMANAGER" \
-	"build-tools;36.0.0" \
-	"emulator" \
-	"platform-tools" \
-	"platforms;android-36" \
+# Install required SDK components (emulator not available on arm64)
+SDK_PACKAGES=(
+	"build-tools;36.0.0"
+	"platform-tools"
+	"platforms;android-36"
 	"system-images;android-36;google_apis;${SYS_IMAGE_ABI}"
+)
+if [ "$ARCH" != "aarch64" ]; then
+	SDK_PACKAGES+=("emulator")
+fi
+
+"$SDKMANAGER" "${SDK_PACKAGES[@]}"

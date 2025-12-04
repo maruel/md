@@ -2,7 +2,7 @@ name: Cleanup old Docker images
 
 on:
   schedule:
-    - cron: '0 2 * * 0'  # Every Sunday at 2 AM UTC
+    - cron: "0 2 * * 0" # Every Sunday at 2 AM UTC
   workflow_dispatch:
 
 permissions:
@@ -19,37 +19,29 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq skopeo
+          sudo apt-get install -y -qq jq
       - name: Delete old images
         run: |
-          REGISTRY="ghcr.io"
-          REPO="${{ github.repository }}"
-          IMAGE="${REGISTRY}/${REPO}"
-          # Get all tags sorted by creation date (newest first)
-          TAGS=$(skopeo list-tags "docker://${IMAGE}" | jq -r '.Tags[]' | sort -V)
-          # Calculate the cutoff date (30 days ago)
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
           CUTOFF_DATE=$(date -d '30 days ago' +%s)
-          # Keep track of the latest tag (don't delete)
-          LATEST_TAG=""
-          FOUND_LATEST=false
-          # Process each tag
-          while IFS= read -r TAG; do
-            # Skip empty lines
-            [ -z "$TAG" ] && continue
-            # Skip if it's the "latest" tag
-            if [ "$TAG" = "latest" ]; then
-              echo "Skipping tag: $TAG (latest)"
-              FOUND_LATEST=true
-              continue
-            fi
-            # Get the creation timestamp of the image
-            IMAGE_INSPECT=$(skopeo inspect "docker://${IMAGE}:${TAG}")
-            CREATED=$(echo "$IMAGE_INSPECT" | jq -r '.Created' | xargs -I {} date -d {} +%s)
-            # Check if image is older than 30 days
+
+          # Get all package versions
+          VERSIONS=$(curl -s -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/users/$OWNER/packages/container/$REPO/versions" | jq -r '.[] | "\(.id)|\(.name)|\(.created_at)"')
+
+          while IFS='|' read -r VERSION_ID TAG CREATED_AT; do
+            [ -z "$VERSION_ID" ] && continue
+            [ "$TAG" = "latest" ] && { echo "Skipping tag: latest"; continue; }
+            
+            CREATED=$(date -d "$CREATED_AT" +%s)
             if [ "$CREATED" -lt "$CUTOFF_DATE" ]; then
               echo "Deleting image: $TAG (created: $(date -d @$CREATED))"
-              skopeo delete "docker://${IMAGE}:${TAG}" || echo "Failed to delete $TAG"
+              curl -s -X DELETE \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                "https://api.github.com/users/$OWNER/packages/container/$REPO/versions/$VERSION_ID" && echo "Deleted successfully" || echo "Failed to delete $TAG"
             else
               echo "Keeping image: $TAG (created: $(date -d @$CREATED))"
             fi
-          done <<< "$TAGS"
+          done <<< "$VERSIONS"

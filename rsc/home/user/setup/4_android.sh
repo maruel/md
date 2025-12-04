@@ -1,6 +1,7 @@
 #!/bin/bash
 # Install Android SDK tools, emulator, and system images (runs as user).
 set -euo pipefail
+echo "- $0"
 
 ANDROID_SDK_ROOT="$HOME/.local/share/android-sdk"
 mkdir -p "$ANDROID_SDK_ROOT"

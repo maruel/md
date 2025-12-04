@@ -1,11 +1,15 @@
 #!/bin/bash
 # Install core system packages (runs as root).
 set -euo pipefail
+echo "- $0"
 
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
-apt-get update -qq
-apt-get upgrade -qq -y
+echo "- apt-get update"
+apt-get update -qq > /dev/null
+echo "- apt-get upgrade"
+apt-get upgrade -qq -y > /dev/null
+echo "- apt-get install"
 apt-get install -qq -y --no-install-recommends \
 	bash-completion \
 	brotli \
@@ -44,7 +48,7 @@ apt-get install -qq -y --no-install-recommends \
 	unzip \
 	wget \
 	xvfb \
-	zstd
+	zstd > /dev/null
 
 if ! grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen; then
 	sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >>/etc/locale.gen

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Install nvm, node.js, npm, typescript, eslint (as user)
+set -euo pipefail
+echo "- $0"
 
-set -eu
 cd $HOME
 
 if ! which nvm &>/dev/null; then

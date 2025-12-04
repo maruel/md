@@ -1,6 +1,7 @@
 #!/bin/bash
 # Install the latest stable Neovim build and wire common aliases.
 set -euo pipefail
+echo "- $0"
 
 ARCH="$(uname -m)"
 case "${ARCH}" in

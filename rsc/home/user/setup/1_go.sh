@@ -1,6 +1,7 @@
 #!/bin/bash
 # Install the latest Go toolchain reported by go.dev and set up go tools.
 set -euo pipefail
+echo "- $0"
 
 ARCH="$(uname -m | sed 's/aarch64/arm64/' | sed 's/x86_64/amd64/')"
 TMPDIR="$(mktemp -d)"

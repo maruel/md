@@ -44,7 +44,6 @@ yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 # Install required SDK components
 "$SDKMANAGER" \
 	"build-tools;36.0.0" \
-	"cmdline-tools;latest" \
 	"emulator" \
 	"platform-tools" \
 	"platforms;android-36" \

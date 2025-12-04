@@ -27,6 +27,7 @@ RUN --mount=type=secret,id=github_token \
 	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" /root/setup/2_neovim.sh'
 RUN --mount=type=secret,id=github_token \
 	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" /root/setup/3_geckodriver.sh'
+RUN /root/setup/4_kvm.sh
 
 
 ### Second phase, as user

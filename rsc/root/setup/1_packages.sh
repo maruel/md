@@ -31,6 +31,7 @@ apt-get install -qq -y --no-install-recommends \
 	libgl1 \
 	libvirt-clients \
 	libvirt-daemon \
+	libvirt-daemon-system \
 	locales \
 	lsof \
 	net-tools \

@@ -9,7 +9,7 @@
 # This is the generic portion of the image which is then specialized for your SSH keys.
 
 # We don't need it to be stuck on old images so just fetch whatever is current latest.
-FROM docker.io/debian:stable-slim
+FROM docker.io/debian:stable
 # FROM ghcr.io/linuxcontainers/debian-slim:latest
 
 ## First phase, setup as root.
@@ -27,13 +27,12 @@ RUN --mount=type=secret,id=github_token \
 	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" /root/setup/2_neovim.sh'
 RUN --mount=type=secret,id=github_token \
 	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" /root/setup/3_geckodriver.sh'
-RUN /root/setup/4_kvm.sh
+RUN /root/setup/4_create_user.sh
+RUN /root/setup/5_kvm.sh
 
 
 ### Second phase, as user
 
-# Create user "user"
-RUN useradd -ms /bin/bash user
 # Copy all /home/user files.
 COPY --chown=user:user home/user/ /home/user/
 RUN su user -c "mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share"

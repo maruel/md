@@ -16,6 +16,7 @@ apt-get install -qq -y --no-install-recommends \
 	bubblewrap \
 	build-essential \
 	ca-certificates \
+	cpu-checker \
 	curl \
 	default-jdk-headless \
 	ffmpeg \
@@ -25,6 +26,7 @@ apt-get install -qq -y --no-install-recommends \
 	gradle \
 	iproute2 \
 	jq \
+	kmod \
 	less \
 	libgl1 \
 	libvirt-clients \
@@ -34,12 +36,12 @@ apt-get install -qq -y --no-install-recommends \
 	net-tools \
 	openssh-server \
 	podman \
+	python3 \
+	python3-venv \
 	qemu-kvm \
 	qemu-system-arm \
 	qemu-system-x86 \
 	qemu-utils \
-	python3 \
-	python3-venv \
 	ripgrep \
 	rsync \
 	shared-mime-info \

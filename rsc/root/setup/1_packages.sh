@@ -18,7 +18,6 @@ apt-get install -qq -y --no-install-recommends \
 	ca-certificates \
 	cpu-checker \
 	curl \
-	default-jdk-headless \
 	ffmpeg \
 	file \
 	git \
@@ -35,6 +34,7 @@ apt-get install -qq -y --no-install-recommends \
 	locales \
 	lsof \
 	net-tools \
+	openjdk-21-jdk-headless \
 	openssh-server \
 	podman \
 	python3 \

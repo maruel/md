@@ -41,6 +41,7 @@ Commands:
   build-base  Build the base Docker image locally from rsc/Dockerfile.base.
   push        Force-push current repo state into the running container.
   pull        Pull changes from the container back to the local repo.
+  diff        Show differences between base branch and current changes in container.
   kill        Remove ssh config/remote and stop/remove the container.
 EOF
 	exit 1
@@ -269,6 +270,10 @@ pull_changes() {
 	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base '"'$remote_branch'"
 }
 
+diff_changes() {
+	ssh -t "$CONTAINER_NAME" "cd /app && git diff base"
+}
+
 case "$CMD" in
 start)
 	require_no_args "$@"
@@ -291,6 +296,10 @@ push)
 pull)
 	require_no_args "$@"
 	pull_changes
+	;;
+diff)
+	require_no_args "$@"
+	diff_changes
 	;;
 kill)
 	require_no_args "$@"

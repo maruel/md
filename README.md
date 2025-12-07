@@ -77,6 +77,16 @@ ssh md-<repo-name>-<branch-name>
 
 **Tip:** Use two SSH sessions—one for running the coding agent and one for inspecting results (e.g., `git diff`) and running tests.
 
+### Viewing Changes
+
+To see the differences between the last push (base branch) and current changes in the container:
+
+```bash
+md diff
+```
+
+This runs `git diff base` inside the container, showing all modifications since the last push.
+
 ### Pulling Changes Back
 
 To pull changes from the container into your local branch:

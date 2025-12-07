@@ -271,7 +271,7 @@ pull_changes() {
 }
 
 diff_changes() {
-	ssh -t "$CONTAINER_NAME" "cd /app && git add . && git diff base"
+	ssh -q -t "$CONTAINER_NAME" "cd /app && git add . && git diff base"
 }
 
 case "$CMD" in

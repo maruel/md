@@ -18,4 +18,7 @@ npm install --silent --no-fund -g \
 	opencode-ai \
 	vscode-langservers-extracted
 
+# This is SO annoying. What were they thinking?
+ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"
+
 # curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash

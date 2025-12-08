@@ -26,6 +26,17 @@ mkdir -p \
 	"$HOME/.local/share/goose" \
 	"$(dirname "$HOST_KEY_PATH")" \
 	"$(dirname "$USER_AUTH_KEYS")"
+if [ ! -f "$HOME/.claude.json" ]; then
+	# This is SO annoying. What were they thinking?
+	ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"
+elif [ ! -L "$HOME/.claude.json" ]; then
+	echo "File $HOME/.claude.json exists but is not a symlink"
+	echo "It's problematic because your authentication will not be synchronized. Blame Anthropic to not putting files at the right place."
+	echo "Run:"
+	echo "  mv $HOME/.claude.json $HOME/.claude/claude.json"
+	echo "  ln -s $HOME/.claude/claude.json $HOME/.claude.json"
+	exit 1
+fi
 
 if [ -d "$HOME/.ssh" ]; then
 	chmod 700 "$HOME/.ssh"
@@ -179,9 +190,6 @@ run() {
 		KVM_DEVICE="--device=/dev/kvm"
 	fi
 	local CLAUDE_JSON_MOUNT=""
-	if [ -f "$HOME/.claude.json" ]; then
-		CLAUDE_JSON_MOUNT="-v $HOME/.claude.json:/home/user/.claude.json"
-	fi
 	docker run -d \
 		--name "$CONTAINER_NAME" \
 		-p 127.0.0.1:0:22 \

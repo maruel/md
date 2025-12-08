@@ -178,10 +178,15 @@ run() {
 	if [ -e /dev/kvm ] && [ -w /dev/kvm ]; then
 		KVM_DEVICE="--device=/dev/kvm"
 	fi
+	local CLAUDE_JSON_MOUNT=""
+	if [ -f "$HOME/.claude.json" ]; then
+		CLAUDE_JSON_MOUNT="-v $HOME/.claude.json:/home/user/.claude.json"
+	fi
 	docker run -d \
 		--name "$CONTAINER_NAME" \
 		-p 127.0.0.1:0:22 \
 		${KVM_DEVICE:+"$KVM_DEVICE"} \
+		${CLAUDE_JSON_MOUNT:+"$CLAUDE_JSON_MOUNT"} \
 		-v "$HOME/.amp:/home/user/.amp" \
 		-v "$HOME/.android:/home/user/.android" \
 		-v "$HOME/.codex:/home/user/.codex" \

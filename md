@@ -17,9 +17,11 @@ mkdir -p \
 	"$HOME/.codex" \
 	"$HOME/.claude" \
 	"$HOME/.gemini" \
+	"$HOME/.opencode" \
 	"$HOME/.qwen" \
 	"$HOME/.config/amp" \
 	"$HOME/.config/goose" \
+	"$HOME/.config/opencode" \
 	"$HOME/.local/share/amp" \
 	"$HOME/.local/share/goose" \
 	"$(dirname "$HOST_KEY_PATH")" \
@@ -185,9 +187,11 @@ run() {
 		-v "$HOME/.codex:/home/user/.codex" \
 		-v "$HOME/.claude:/home/user/.claude" \
 		-v "$HOME/.gemini:/home/user/.gemini" \
+		-v "$HOME/.opencode:/home/user/.opencode" \
 		-v "$HOME/.qwen:/home/user/.qwen" \
 		-v "$HOME/.config/amp:/home/user/.config/amp" \
 		-v "$HOME/.config/goose:/home/user/.config/goose" \
+		-v "$HOME/.config/opencode:/home/user/.config/opencode" \
 		-v "$HOME/.local/share/amp:/home/user/.local/share/amp" \
 		-v "$HOME/.local/share/goose:/home/user/.local/share/goose" \
 		"$IMAGE_NAME"

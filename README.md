@@ -1,7 +1,7 @@
 # md: Parallel Development Containers for AI Coding Agents
 
 A development container system that enables you to work with multiple coding agents in parallel safely. Run AI
-coding tools (Claude Code, Codex, Amp CLI, Gemini CLI, Qwen CLI, etc.) without branch conflicts or
+coding tools (Claude Code, Codex, Amp CLI, Gemini CLI, OpenCode, Qwen CLI, etc.) without branch conflicts or
 interference.
 
 ## Overview
@@ -146,9 +146,11 @@ The following directories from your local machine are mounted into each containe
 - `~/.codex` - Codex configuration
 - `~/.claude` - Claude configuration
 - `~/.gemini` - Gemini CLI configuration
+- `~/.opencode` - OpenCode configuration
 - `~/.qwen` - Qwen CLI configuration
 - `~/.config/amp` - Amp tool config
 - `~/.config/goose` - Goose configuration
+- `~/.config/opencode` - OpenCode config, commands, and rules
 - `~/.local/share/amp` - Amp data
 - `~/.local/share/goose` - Goose data
 

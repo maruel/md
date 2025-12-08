@@ -26,7 +26,7 @@ mkdir -p \
 	"$HOME/.local/share/goose" \
 	"$(dirname "$HOST_KEY_PATH")" \
 	"$(dirname "$USER_AUTH_KEYS")"
-if [ ! -f "$HOME/.claude.json" ]; then
+if [ ! -f "$HOME/.claude.json" ]; then
 	# This is SO annoying. What were they thinking?
 	ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"
 elif [ ! -L "$HOME/.claude.json" ]; then

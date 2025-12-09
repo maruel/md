@@ -24,6 +24,7 @@ export PATH="$HOME/.local/go/bin:$PATH"
 
 # Set up go tools
 mkdir -p "$HOME/go/bin"
+go install github.com/maruel/ask@latest
 go install golang.org/x/tools/cmd/goimports@latest
 go install golang.org/x/tools/gopls@latest
 go install mvdan.cc/sh/v3/cmd/shfmt@latest

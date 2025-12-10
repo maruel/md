@@ -19,16 +19,16 @@ mkdir -p \
 	"$HOME/.gemini" \
 	"$HOME/.opencode" \
 	"$HOME/.qwen" \
-	"$HOME/.config/amp" \
-	"$HOME/.config/goose" \
-	"$HOME/.config/opencode" \
-	"$HOME/.config/md" \
+	"${XDG_CONFIG_HOME:-$HOME/.config}/amp" \
+	"${XDG_CONFIG_HOME:-$HOME/.config}/goose" \
+	"${XDG_CONFIG_HOME:-$HOME/.config}/opencode" \
+	"${XDG_CONFIG_HOME:-$HOME/.config}/md" \
 	"$HOME/.local/share/amp" \
 	"$HOME/.local/share/goose" \
 	"$(dirname "$HOST_KEY_PATH")" \
 	"$(dirname "$USER_AUTH_KEYS")"
-if [ ! -f "$HOME/.config/md/env" ]; then
-	touch "$HOME/.config/md/env"
+if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/md/env" ]; then
+	touch "${XDG_CONFIG_HOME:-$HOME/.config}/md/env"
 fi
 if [ ! -f "$HOME/.claude.json" ]; then
 	# This is SO annoying. What were they thinking?
@@ -206,10 +206,10 @@ run() {
 		-v "$HOME/.gemini:/home/user/.gemini" \
 		-v "$HOME/.opencode:/home/user/.opencode" \
 		-v "$HOME/.qwen:/home/user/.qwen" \
-		-v "$HOME/.config/amp:/home/user/.config/amp" \
-		-v "$HOME/.config/goose:/home/user/.config/goose" \
-		-v "$HOME/.config/opencode:/home/user/.config/opencode" \
-		-v "$HOME/.config/md:/home/user/.config/md:ro" \
+		-v "${XDG_CONFIG_HOME:-$HOME/.config}/amp:/home/user/.config/amp" \
+		-v "${XDG_CONFIG_HOME:-$HOME/.config}/goose:/home/user/.config/goose" \
+		-v "${XDG_CONFIG_HOME:-$HOME/.config}/opencode:/home/user/.config/opencode" \
+		-v "${XDG_CONFIG_HOME:-$HOME/.config}/md:/home/user/.config/md:ro" \
 		-v "$HOME/.local/share/amp:/home/user/.local/share/amp" \
 		-v "$HOME/.local/share/goose:/home/user/.local/share/goose" \
 		"$IMAGE_NAME"

@@ -125,11 +125,13 @@ adb devices
 
 ### User and Permissions
 
-The container runs as the user account `user`, which is mapped to your local user ID, ensuring proper file permissions.
+The container runs as the user account `user`, which is mapped to your local user ID, ensuring proper file
+permissions.
 
 ### Resource Mappings
 
-Files under [rsc/](/rsc) are copied as-is inside the container. The system generates the following files automatically:
+Files under [rsc/](/rsc) are copied as-is inside the container. The system generates the following files
+automatically:
 
 - `rsc/etc/ssh/ssh_host_ed25519_key`
 - `rsc/etc/ssh/ssh_host_ed25519_key.pub`
@@ -139,7 +141,8 @@ Host SSH keys ensure you're connecting to the expected container.
 
 ### Configuration and Credentials
 
-The following directories from your local machine are mounted into each container for agent configurations and credentials:
+The following directories from your local machine are mounted into each container for agent configurations and
+credentials:
 
 - `~/.amp` - Amp CLI configuration
 - `~/.android` - Android ADB keys
@@ -150,9 +153,29 @@ The following directories from your local machine are mounted into each containe
 - `~/.qwen` - Qwen CLI configuration
 - `~/.config/amp` - Amp tool config
 - `~/.config/goose` - Goose configuration
+- `~/.config/md` - md configuration (see below)
 - `~/.config/opencode` - OpenCode config, commands, and rules
 - `~/.local/share/amp` - Amp data
 - `~/.local/share/goose` - Goose data
+
+### Environment Variables
+
+There's two completementary ways to pass environment variables into containers.
+
+First if there's a `.env` file at your root of your git checkout, it will be mapped automatically.
+
+Second, create `~/.config/md/env` on your local machine and export variables:
+
+```bash
+# ~/.config/md/env
+ANTHROPIC_API_KEY=bar
+GEMINI_API_KEY=foo
+GROQ_API_KEY=baz
+OPENAI_API_KEY=value
+```
+
+These variables will be available in all md containers. Both are useful to pass API keys for
+Anthropic/Cerebras/Gemeni/Groq/OpenAI/etc.
 
 ### Preinstalled Tools
 

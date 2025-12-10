@@ -22,10 +22,14 @@ mkdir -p \
 	"$HOME/.config/amp" \
 	"$HOME/.config/goose" \
 	"$HOME/.config/opencode" \
+	"$HOME/.config/md" \
 	"$HOME/.local/share/amp" \
 	"$HOME/.local/share/goose" \
 	"$(dirname "$HOST_KEY_PATH")" \
 	"$(dirname "$USER_AUTH_KEYS")"
+if [ ! -f "$HOME/.config/md/env" ]; then
+	touch "$HOME/.config/md/env"
+fi
 if [ ! -f "$HOME/.claude.json" ]; then
 	# This is SO annoying. What were they thinking?
 	ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"
@@ -205,6 +209,7 @@ run() {
 		-v "$HOME/.config/amp:/home/user/.config/amp" \
 		-v "$HOME/.config/goose:/home/user/.config/goose" \
 		-v "$HOME/.config/opencode:/home/user/.config/opencode" \
+		-v "$HOME/.config/md:/home/user/.config/md:ro" \
 		-v "$HOME/.local/share/amp:/home/user/.local/share/amp" \
 		-v "$HOME/.local/share/goose:/home/user/.local/share/goose" \
 		"$IMAGE_NAME"

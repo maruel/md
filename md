@@ -239,9 +239,9 @@ run() {
 		sleep 0.1
 	done
 	git fetch "$CONTAINER_NAME"
-	git push -q "$CONTAINER_NAME" "HEAD:$GIT_CURRENT_BRANCH"
-	ssh "$CONTAINER_NAME" 'cd /app && git checkout -q '"'$GIT_CURRENT_BRANCH'"
-	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base '"'$GIT_CURRENT_BRANCH'"' && git checkout base && git checkout '"'$GIT_CURRENT_BRANCH'"
+	git push -q "$CONTAINER_NAME" "HEAD:refs/heads/$GIT_CURRENT_BRANCH"
+	ssh "$CONTAINER_NAME" 'cd /app && git switch -q refs/heads/'"'$GIT_CURRENT_BRANCH'"
+	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base refs/heads/'"'$GIT_CURRENT_BRANCH'"' && git switch -q refs/heads/base && git switch -q refs/heads/'"'$GIT_CURRENT_BRANCH'"
 	if [ -f .env ]; then
 		echo "- sending .env into container ..."
 		scp .env "$CONTAINER_NAME:/home/user/.env"
@@ -266,9 +266,9 @@ push_changes() {
 	branch="$(git rev-parse --abbrev-ref HEAD)"
 	container_commit="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse HEAD")"
 	backup_branch="backup-$(date +%Y%m%d-%H%M%S)"
-	ssh "$CONTAINER_NAME" 'cd /app && git branch -f '"'$backup_branch'"' '"'$container_commit'"
+	ssh "$CONTAINER_NAME" 'cd /app && git branch -f refs/heads/'"'$backup_branch'"' '"'$container_commit'"
 	git push -q -f "$CONTAINER_NAME"
-	ssh "$CONTAINER_NAME" 'cd /app && git reset -q --hard && git checkout -q '"'$branch'"' && git branch -q -f base '"'$branch'"
+	ssh "$CONTAINER_NAME" 'cd /app && git reset -q --hard && git switch -q refs/heads/'"'$branch'"' && git branch -q -f base refs/heads/'"'$branch'"
 	echo "- Container updated (previous state saved as $backup_branch)."
 }
 
@@ -285,15 +285,18 @@ kill_env() {
 }
 
 pull_changes() {
-	ssh "$CONTAINER_NAME" "cd /app && git add . && git commit -a -q -m 'Pull from md' || true"
+	ssh "$CONTAINER_NAME" "cd /app && git add ."
+	local commit_msg="Pull from md"
+	ssh "$CONTAINER_NAME" 'cd /app && git commit -a -q -m '"'"'"$commit_msg"'"'"' || true'
 	local remote_branch
 	remote_branch="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse --abbrev-ref HEAD")"
-	git pull -q "$CONTAINER_NAME" "$remote_branch:"
-	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base '"'$remote_branch'"
+	git pull -q "$CONTAINER_NAME" "refs/heads/$remote_branch:refs/heads/$remote_branch"
+	git commit --amend --no-edit --reset-author
+	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base refs/heads/'"'$remote_branch'"
 }
 
 diff_changes() {
-	ssh -q -t "$CONTAINER_NAME" "cd /app && git add . && git diff base"
+	ssh -q -t "$CONTAINER_NAME" "cd /app && git add . && git diff refs/heads/base"
 }
 
 case "$CMD" in

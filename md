@@ -288,7 +288,7 @@ pull_changes() {
 	ssh "$CONTAINER_NAME" "cd /app && git add ."
 	# shellcheck disable=SC2034
 	local commit_msg="Pull from md"
-	ssh "$CONTAINER_NAME" 'cd /app && git commit -a -q -m '"'"'"$commit_msg"'"'"' || true'
+	ssh "$CONTAINER_NAME" 'cd /app && git commit -a -q -m '"'""$commit_msg""'"' || true'
 	local remote_branch
 	remote_branch="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse --abbrev-ref HEAD")"
 	git pull -q "$CONTAINER_NAME" "$remote_branch"
@@ -297,7 +297,7 @@ pull_changes() {
 }
 
 diff_changes() {
-	ssh -q -t "$CONTAINER_NAME" "cd /app && git add . && git diff base"
+	ssh -q -t "$CONTAINER_NAME" "cd /app && git add . && git diff base --"
 }
 
 case "$CMD" in

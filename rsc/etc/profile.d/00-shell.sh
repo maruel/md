@@ -1,6 +1,7 @@
 # Common shell defaults for interactive sessions.
 
 export SHELL="${SHELL:-/bin/bash}"
+export PATH="$HOME/.local/bin:$PATH"
 
 if command -v dircolors >/dev/null 2>&1; then
 	eval "$(dircolors)"
@@ -13,6 +14,7 @@ case $- in
 	alias ll='ls $LS_OPTIONS -la'
 	alias vimdiff='nvim -d'
 	if [ -d /app ]; then
+		# shellcheck disable=SC2164
 		cd /app
 	fi
 	;;

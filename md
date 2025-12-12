@@ -55,11 +55,11 @@ usage: ./md <command>
 
 Commands:
   start       Pull latest base image, rebuild if needed, start container, open shell.
-  build-base  Build the base Docker image locally from rsc/Dockerfile.base.
   push        Force-push current repo state into the running container.
   pull        Pull changes from the container back to the local repo.
   diff        Show differences between base branch and current changes in container.
   kill        Remove ssh config/remote and stop/remove the container.
+  build-base  Build the base Docker image locally from rsc/Dockerfile.base.
 EOF
 	exit 1
 }

@@ -48,6 +48,7 @@ RUN su user -c /home/user/setup/1_go.sh
 RUN su user -c /home/user/setup/2_nodejs.sh
 RUN su user -c /home/user/setup/3_llm.sh
 RUN su user -c /home/user/setup/4_android.sh
+RUN su user -c /home/user/setup/5_python.sh
 
 # Start SSH server by default
 CMD ["/root/start.sh"]

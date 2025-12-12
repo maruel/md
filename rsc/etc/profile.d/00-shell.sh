@@ -2,6 +2,7 @@
 
 export SHELL="${SHELL:-/bin/bash}"
 export PATH="$HOME/.local/bin:$PATH"
+export EDITOR=nvim
 
 if command -v dircolors >/dev/null 2>&1; then
 	eval "$(dircolors)"

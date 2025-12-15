@@ -21,3 +21,4 @@ The `rsc/` directory contains Docker build context and system configuration:
   - `rsc/root/start.sh` - Container entrypoint
 - `rsc/home/user/` - User-context setup (copied as user to `/home/user/`)
   - `rsc/home/user/setup/` - User-level installation scripts (numbered 1+)
+  - `rsc/home/user/.config/agents/AGENTS.md` - Agent documentation inside container (keep in sync)

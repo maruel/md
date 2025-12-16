@@ -287,7 +287,7 @@ pull_changes() {
 	local commit_msg="Pull from md"
 	if [ -n "${ASK_PROVIDER:-}" ] && which ask >/dev/null 2>&1; then
 		local diff_output
-		diff_output="$(ssh "$CONTAINER_NAME" "cd /app && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base && echo && echo '=== Recent Commits ===' && git log -5 base && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base")"
+		diff_output="$(ssh "$CONTAINER_NAME" "cd /app && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- && echo && echo '=== Recent Commits ===' && git log -5 base -- && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base --")"
 		local prompt="Analyze the git context below (branch, file changes, recent commits, and diff). Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
 		# shellcheck disable=SC2034
 		commit_msg="$(ask -q -provider "$ASK_PROVIDER" "$prompt" "$diff_output")"
@@ -301,7 +301,7 @@ pull_changes() {
 }
 
 diff_changes() {
-	ssh -q -t "$CONTAINER_NAME" "cd /app && git add . && git diff base --"
+	ssh -q -t "$CONTAINER_NAME" "cd /app && git add . && git diff base -- ."
 }
 
 case "$CMD" in

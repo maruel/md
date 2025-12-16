@@ -71,10 +71,6 @@ require_no_args() {
 	fi
 }
 
-container_exists() {
-	docker inspect "$CONTAINER_NAME" >/dev/null 2>&1
-}
-
 GIT_CURRENT_BRANCH=$(git branch --show-current)
 if [ -z "$GIT_CURRENT_BRANCH" ]; then
 	echo "Check out a named branch" >&2
@@ -311,7 +307,7 @@ diff_changes() {
 case "$CMD" in
 start)
 	require_no_args "$@"
-	if container_exists; then
+	if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
 		echo "Container $CONTAINER_NAME already exists. SSH in with 'ssh $CONTAINER_NAME' or clean it up via 'md kill' first." >&2
 		exit 1
 	fi

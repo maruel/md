@@ -51,7 +51,7 @@ mkdir -p "$HOME/.ssh/config.d"
 
 usage() {
 	cat <<'EOF'
-usage: ./md <command>
+usage: md <command>
 
 Commands:
   start       Pull latest base image, rebuild if needed, start container, open shell.
@@ -285,14 +285,22 @@ kill_env() {
 }
 
 pull_changes() {
-	ssh "$CONTAINER_NAME" "cd /app && git add ."
+	local remote_branch
+	remote_branch="$(ssh "$CONTAINER_NAME" "cd /app && git add . && git rev-parse --abbrev-ref HEAD")"
 	# shellcheck disable=SC2034
 	local commit_msg="Pull from md"
-	ssh "$CONTAINER_NAME" 'cd /app && git commit -a -q -m '"'""$commit_msg""'"' || true'
-	local remote_branch
-	remote_branch="$(ssh "$CONTAINER_NAME" "cd /app && git rev-parse --abbrev-ref HEAD")"
-	git pull -q "$CONTAINER_NAME" "$remote_branch"
-	git commit --amend --no-edit --reset-author
+	if [ -n "${ASK_PROVIDER:-}" ] && which ask >/dev/null 2>&1; then
+		local diff_output
+		diff_output="$(ssh "$CONTAINER_NAME" "cd /app && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base && echo && echo '=== Recent Commits ===' && git log -5 base && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base")"
+		local prompt="Analyze the git context below (branch, file changes, recent commits, and diff). Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
+		# shellcheck disable=SC2034
+		commit_msg="$(ask -q -provider "$ASK_PROVIDER" "$prompt" "$diff_output")"
+		echo ""
+	fi
+	echo "$commit_msg" | ssh "$CONTAINER_NAME" 'cd /app && git commit -a -q -F -' || true
+	if git pull -q "$CONTAINER_NAME" "$remote_branch"; then
+		git commit --amend --no-edit --reset-author
+	fi
 	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base '"'$remote_branch'"
 }
 
@@ -304,7 +312,7 @@ case "$CMD" in
 start)
 	require_no_args "$@"
 	if container_exists; then
-		echo "Container $CONTAINER_NAME already exists. SSH in with 'ssh $CONTAINER_NAME' or clean it up via './md kill' first." >&2
+		echo "Container $CONTAINER_NAME already exists. SSH in with 'ssh $CONTAINER_NAME' or clean it up via 'md kill' first." >&2
 		exit 1
 	fi
 	build

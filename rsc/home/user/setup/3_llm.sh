@@ -10,7 +10,6 @@ if ! which nvm &>/dev/null; then
 fi
 
 npm install --silent --no-fund -g \
-	@anthropic-ai/claude-code \
 	@google/gemini-cli \
 	@openai/codex \
 	@qwen-code/qwen-code@latest \
@@ -20,5 +19,6 @@ npm install --silent --no-fund -g \
 
 # This is SO annoying. What were they thinking?
 ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"
+curl -fsSL https://claude.ai/install.sh | bash
 
 # curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash

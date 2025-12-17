@@ -31,8 +31,8 @@ git clone https://github.com/maruel/md
 export PATH="$PATH:$(pwd)/md/bin"
 ```
 
-It is **highly recommended** to setup the git alias `git squash` from
-[squash.ini](https://github.com/maruel/bin_pub/blob/main/configs/.config/git/squash.ini).
+It is **highly recommended** to setup the git alias `git squash` and `git rb` from
+[github.com/maruel/git-maruel](https://github.com/maruel/git-maruel).
 
 ## Quick Start
 

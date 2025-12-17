@@ -294,7 +294,7 @@ pull_changes() {
 		echo ""
 	fi
 	echo "$commit_msg" | ssh "$CONTAINER_NAME" 'cd /app && git commit -a -q -F -' || true
-	if git pull -q "$CONTAINER_NAME" "$remote_branch"; then
+	if git pull --rebase -q "$CONTAINER_NAME" "$remote_branch"; then
 		git commit --amend --no-edit --reset-author
 	fi
 	ssh "$CONTAINER_NAME" 'cd /app && git branch -f base '"'$remote_branch'"

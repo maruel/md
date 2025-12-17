@@ -3,7 +3,7 @@
 set -euo pipefail
 echo "- $0"
 
-cd $HOME
+cd "$HOME"
 
 if ! which nvm &>/dev/null; then
 	. ~/.nvm/nvm.sh
@@ -20,5 +20,7 @@ npm install --silent --no-fund -g \
 # This is SO annoying. What were they thinking?
 ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"
 curl -fsSL https://claude.ai/install.sh | bash
+rm "$HOME/.claude.json"
+ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"
 
 # curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash

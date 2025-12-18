@@ -9,8 +9,10 @@ if ! which nvm &>/dev/null; then
 	. ~/.nvm/nvm.sh
 fi
 
+
 npm install --silent --no-fund -g \
 	@google/gemini-cli \
+	@letta-ai/letta-code \
 	@openai/codex \
 	@qwen-code/qwen-code@latest \
 	@sourcegraph/amp \

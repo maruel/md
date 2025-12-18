@@ -17,6 +17,7 @@ mkdir -p \
 	"$HOME/.codex" \
 	"$HOME/.claude" \
 	"$HOME/.gemini" \
+	"$HOME/.letta" \
 	"$HOME/.opencode" \
 	"$HOME/.qwen" \
 	"${XDG_CONFIG_HOME:-$HOME/.config}/amp" \
@@ -203,6 +204,7 @@ run() {
 		-v "$HOME/.codex:/home/user/.codex" \
 		-v "$HOME/.claude:/home/user/.claude" \
 		-v "$HOME/.gemini:/home/user/.gemini" \
+		-v "$HOME/.letta:/home/user/.letta" \
 		-v "$HOME/.opencode:/home/user/.opencode" \
 		-v "$HOME/.qwen:/home/user/.qwen" \
 		-v "${XDG_CONFIG_HOME:-$HOME/.config}/amp:/home/user/.config/amp" \

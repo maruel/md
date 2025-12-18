@@ -1,10 +1,11 @@
-.coverage
-.DS_Store
-cover.cov
 *.egg-info
 *.orig
 *.pyc
 *.rej
 *.swp
 *~
+.DS_Store
+.coverage
+.letta
 .vscode
+cover.cov

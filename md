@@ -193,13 +193,11 @@ run() {
 	if [ "$(uname -s)" = "Linux" ]; then
 		LOCALTIME_MOUNT="-v /etc/localtime:/etc/localtime:ro"
 	fi
-	local CLAUDE_JSON_MOUNT=""
 	docker run -d \
 		--name "$CONTAINER_NAME" \
 		-p 127.0.0.1:0:22 \
-		${KVM_DEVICE:+"$KVM_DEVICE"} \
-		${LOCALTIME_MOUNT:+"$LOCALTIME_MOUNT"} \
-		${CLAUDE_JSON_MOUNT:+"$CLAUDE_JSON_MOUNT"} \
+		${KVM_DEVICE:+$KVM_DEVICE} \
+		${LOCALTIME_MOUNT:+$LOCALTIME_MOUNT} \
 		-v "$HOME/.amp:/home/user/.amp" \
 		-v "$HOME/.android:/home/user/.android" \
 		-v "$HOME/.codex:/home/user/.codex" \

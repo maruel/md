@@ -298,7 +298,7 @@ pull_changes() {
 			echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && \
 			echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && \
 			echo '=== Recent Commits ===' && git log -5 base -- && echo && \
-			echo '=== Changes ===' && git diff --patience -U10 --cached base -- . ':!*.yaml'" | \
+			echo '=== Changes ===' && git diff --patience -U10 --cached base -- . ':!*.yaml'" |
 			ask -q "$prompt")"
 		echo ""
 	fi

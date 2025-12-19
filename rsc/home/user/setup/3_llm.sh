@@ -6,6 +6,7 @@ echo "- $0"
 cd "$HOME"
 
 if ! which nvm &>/dev/null; then
+	# shellcheck disable=SC1090
 	. ~/.nvm/nvm.sh
 fi
 

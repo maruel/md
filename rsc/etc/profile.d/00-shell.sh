@@ -1,3 +1,4 @@
+# shellcheck disable=SC2148
 # Common shell defaults for interactive sessions.
 
 export SHELL="${SHELL:-/bin/bash}"

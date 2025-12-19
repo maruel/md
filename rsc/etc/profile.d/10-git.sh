@@ -1,3 +1,4 @@
+# shellcheck disable=SC2148
 # Git completion + prompt helpers.
 
 if [ -z "${BASH_VERSION:-}" ]; then

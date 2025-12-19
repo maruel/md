@@ -3,11 +3,12 @@
 set -euo pipefail
 echo "- $0"
 
-cd $HOME
+cd "$HOME"
 
 if ! which nvm &>/dev/null; then
 	# TODO: Update from time to time.
 	curl -sSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+	# shellcheck disable=SC1090
 	. ~/.nvm/nvm.sh
 fi
 

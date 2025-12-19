@@ -6,9 +6,9 @@ echo "- $0"
 export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 
 echo "- apt-get update"
-apt-get update -qq > /dev/null
+apt-get update -qq >/dev/null
 echo "- apt-get upgrade"
-apt-get upgrade -qq -y > /dev/null
+apt-get upgrade -qq -y >/dev/null
 echo "- apt-get install"
 apt-get install -qq -y --no-install-recommends \
 	bash-completion \
@@ -51,7 +51,7 @@ apt-get install -qq -y --no-install-recommends \
 	unzip \
 	wget \
 	xvfb \
-	zstd > /dev/null
+	zstd >/dev/null
 
 if ! grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen; then
 	sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >>/etc/locale.gen

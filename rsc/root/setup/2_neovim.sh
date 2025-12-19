@@ -38,5 +38,5 @@ tar xzf "${TMPDIR}/nvim.tar.gz" -C /opt --strip-components=1
 ln -sf /opt/bin/nvim /usr/local/bin/nvim
 ln -sf /opt/bin/nvim /usr/local/bin/vim
 ln -sf /opt/bin/nvim /usr/local/bin/vi
-echo '#!/opt/bin/nvim -d' > /usr/local/bin/vimdiff
+echo '#!/opt/bin/nvim -d' >/usr/local/bin/vimdiff
 chmod +x /usr/local/bin/vimdiff

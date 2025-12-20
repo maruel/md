@@ -263,6 +263,10 @@ def cmd_push(args):
 
 def cmd_pull(args):
     """Pull changes from the container back to the local repo."""
+    git_user_name, _ = run_cmd(["git", "config", "user.name"], capture_output=True)
+    git_user_email, _ = run_cmd(["git", "config", "user.email"], capture_output=True)
+    git_author = f"{git_user_name} <{git_user_email}>"
+
     remote_branch, _ = run_cmd(["ssh", args.container_name, "cd /app && git add . && git rev-parse --abbrev-ref HEAD"], capture_output=True)
     commit_msg = "Pull from md"
 
@@ -272,10 +276,9 @@ def cmd_pull(args):
         git_context, _ = run_cmd(["ssh", args.container_name, remote_cmd], capture_output=True)
         commit_msg, _ = run_cmd(["ask", "-q", prompt], input=git_context, capture_output=True)
 
-    run_cmd(["ssh", args.container_name, f"cd /app && echo {shlex.quote(commit_msg)} | git commit -a -q -F -"])
-    _, returncode = run_cmd(["git", "pull", "--rebase", "-q", args.container_name, remote_branch])
-    if returncode == 0:
-        run_cmd(["git", "commit", "--amend", "--no-edit", "--reset-author"])
+    commit_cmd = f"cd /app && echo {shlex.quote(commit_msg)} | git commit -a -q --author {shlex.quote(git_author)} -F -"
+    run_cmd(["ssh", args.container_name, commit_cmd])
+    run_cmd(["git", "pull", "--rebase", "-q", args.container_name, remote_branch])
     run_cmd(["ssh", args.container_name, f"cd /app && git branch -f base {remote_branch}"])
     return 0
 

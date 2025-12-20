@@ -52,7 +52,7 @@ def date_to_epoch(date_str):
 
 def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
     """Build Docker image."""
-    os.chdir(f"{script_dir}/rsc")
+    rsc_dir = f"{script_dir}/rsc"
 
     with open(md_user_key + ".pub", encoding="utf-8") as f:
         pub_key = f.read()
@@ -80,7 +80,7 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
     else:
         base_digest, _ = run_cmd(["docker", "image", "inspect", "--format", "{{.Id}}", base_image], capture_output=True)
 
-    context_sha, _ = run_cmd(["tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - . | sha256sum | cut -d' ' -f1"], shell=True, capture_output=True)
+    context_sha, _ = run_cmd(["tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C " + shlex.quote(rsc_dir) + " . | sha256sum | cut -d' ' -f1"], shell=True, capture_output=True)
 
     current_digest = ""
     current_context = ""
@@ -95,7 +95,7 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
         return base_image
 
     print(f"- Building Docker image {image_name} ...")
-    run_cmd(["docker", "build", "--build-arg", f"BASE_IMAGE={base_image}", "--build-arg", f"BASE_IMAGE_DIGEST={base_digest}", "--build-arg", f"CONTEXT_SHA={context_sha}", "-t", image_name, "."])
+    run_cmd(["docker", "build", "--build-arg", f"BASE_IMAGE={base_image}", "--build-arg", f"BASE_IMAGE_DIGEST={base_digest}", "--build-arg", f"CONTEXT_SHA={context_sha}", "-t", image_name, rsc_dir])
     return base_image
 
 

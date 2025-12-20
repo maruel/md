@@ -1,6 +1,6 @@
 #!/bin/bash
 # Copyright 2025 Marc-Antoine Ruel. All Rights Reserved. Use of this
-# source code is governed by a BSD-style license that can be found in the
+# source code is governed by the Apache v2 license that can be found in the
 # LICENSE file.
 #
 # md (my devenv): sets up a local dev environment with a local git clone for quick iteration.

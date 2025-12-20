@@ -4,7 +4,9 @@
 # LICENSE file.
 
 import argparse
+import inspect
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -188,7 +190,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
 
 
 def cmd_start(args):
-    """Start command."""
+    """Pull latest base image, rebuild if needed, start container, open shell."""
     host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
     host_key_pub_path = str(host_key_path) + ".pub"
     user_auth_keys = Path(SCRIPT_DIR) / "rsc" / "home" / "user" / ".ssh" / "authorized_keys"
@@ -240,7 +242,7 @@ def cmd_start(args):
 
 
 def cmd_build_base(args):  # pylint: disable=unused-argument
-    """Build base Docker image."""
+    """Build the base Docker image locally from rsc/Dockerfile.base."""
     print("- Building base Docker image from rsc/Dockerfile.base ...")
     run_cmd(["docker", "build", "-f", f"{SCRIPT_DIR}/rsc/Dockerfile.base", "-t", "md-base", f"{SCRIPT_DIR}/rsc"])
     print("- Base image built as 'md-base'.")
@@ -248,7 +250,7 @@ def cmd_build_base(args):  # pylint: disable=unused-argument
 
 
 def cmd_push(args):
-    """Push changes from host to container."""
+    """Force-push current repo state into the running container."""
     branch, _ = run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True)
     container_commit, _ = run_cmd(["ssh", args.container_name, "cd /app && git rev-parse HEAD"], capture_output=True)
     backup_branch = f"backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -260,7 +262,7 @@ def cmd_push(args):
 
 
 def cmd_pull(args):
-    """Pull changes from container to host."""
+    """Pull changes from the container back to the local repo."""
     remote_branch, _ = run_cmd(["ssh", args.container_name, "cd /app && git add . && git rev-parse --abbrev-ref HEAD"], capture_output=True)
     commit_msg = "Pull from md"
 
@@ -270,7 +272,7 @@ def cmd_pull(args):
         git_context, _ = run_cmd(["ssh", args.container_name, remote_cmd], capture_output=True)
         commit_msg, _ = run_cmd(["ask", "-q", prompt], input=git_context, capture_output=True)
 
-    run_cmd(["ssh", args.container_name, f"cd /app && echo {commit_msg} | git commit -a -q -F -"])
+    run_cmd(["ssh", args.container_name, f"cd /app && echo {shlex.quote(commit_msg)} | git commit -a -q -F -"])
     _, returncode = run_cmd(["git", "pull", "--rebase", "-q", args.container_name, remote_branch])
     if returncode == 0:
         run_cmd(["git", "commit", "--amend", "--no-edit", "--reset-author"])
@@ -279,13 +281,13 @@ def cmd_pull(args):
 
 
 def cmd_diff(args):
-    """Show diff between base and current changes."""
+    """Show differences between base branch and current changes in container."""
     run_cmd(["ssh", "-q", "-t", args.container_name, "cd /app && git add . && git diff base -- ."])
     return 0
 
 
 def cmd_kill(args):
-    """Kill the container and remove the SSH config."""
+    """Remove ssh config/remote and stop/remove the container."""
     ssh_config_dir = Path.home() / ".ssh" / "config.d"
     (ssh_config_dir / f"{args.container_name}.conf").unlink(missing_ok=True)
     (ssh_config_dir / f"{args.container_name}.known_hosts").unlink(missing_ok=True)
@@ -311,14 +313,15 @@ def main():
         return 1
     container_name = f"md-{Path(git_root_dir).name}-{git_current_branch}"
     parser = argparse.ArgumentParser(description="md (my devenv): local development environment with git clone")
-    subparsers = parser.add_subparsers(dest="cmd", required=True)
-    subparsers.add_parser("start", help="Pull latest base image, rebuild if needed, start container, open shell").set_defaults(func=cmd_start)
-    subparsers.add_parser("push", help="Force-push current repo state into the running container").set_defaults(func=cmd_push)
-    subparsers.add_parser("pull", help="Pull changes from the container back to the local repo").set_defaults(func=cmd_pull)
-    subparsers.add_parser("diff", help="Show differences between base branch and current changes in container").set_defaults(func=cmd_diff)
-    subparsers.add_parser("kill", help="Remove ssh config/remote and stop/remove the container").set_defaults(func=cmd_kill)
-    subparsers.add_parser("build-base", help="Build the base Docker image locally from rsc/Dockerfile.base").set_defaults(func=cmd_build_base)
+    subparsers = parser.add_subparsers(dest="cmd")
+    for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction):
+        if name.startswith("cmd_"):
+            cmd_name = name[4:].replace("_", "-")
+            subparsers.add_parser(cmd_name, help=func.__doc__.strip() if func.__doc__ else "").set_defaults(func=func)
     args = parser.parse_args()
+    if not args.cmd:
+        parser.print_help()
+        return 0
     args.container_name = container_name
     args.git_current_branch = git_current_branch
     return args.func(args)

@@ -10,13 +10,14 @@ import shlex
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = str(Path(__file__).parent.resolve())
 
 
-def run_cmd(cmd, check=False, **kwargs):
+def run_cmd(cmd, check=True, **kwargs):
     """Execute shell command, return (stdout, returncode) tuple."""
     if kwargs.get("capture_output", False) or "stdout" in kwargs:
         kwargs.setdefault("text", True)
@@ -38,16 +39,26 @@ def ensure_ed25519_key(path, comment):
 
 def get_image_created_time(image_name):
     """Get image creation time."""
-    stdout, _ = run_cmd(["docker", "image", "inspect", image_name, "--format", "{{.Created}}"], capture_output=True)
+    stdout, _ = run_cmd(["docker", "image", "inspect", image_name, "--format", "{{.Created}}"], capture_output=True, check=False)
     return stdout
 
 
 def date_to_epoch(date_str):
     """Convert date string to epoch."""
     try:
-        return str(int(datetime.fromisoformat(date_str.replace("Z", "+00:00")).timestamp()))
+        # Stay compatible with python3.10 until I upgrade away from Ubuntu 22.04 lol
+        s = date_str.replace("Z", "+00:00")
+        # Trim the nanoseconds
+        if "." in s:
+            parts = s.split(".", 1)
+            # Split - or +
+            for c in "+-":
+                if c in parts[1]:
+                    s = parts[0] + c + parts[1].split(c, 1)[-1]
+                    break
+        return datetime.fromisoformat(s).timestamp()
     except ValueError:
-        return "0"
+        return 0
 
 
 def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
@@ -63,18 +74,27 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
     local_base = get_image_created_time("md-base")
     if local_base:
         remote_base = get_image_created_time(base_image)
-        if remote_base:
-            local_epoch = date_to_epoch(local_base)
-            remote_epoch = date_to_epoch(remote_base)
-            if int(local_epoch) > int(remote_epoch):
-                print(f"- Local md-base image is newer, using local build instead of {base_image}")
-                base_image = "md-base"
+        if not remote_base:
+            print(f"- Remote {base_image} image not found, using local build instead")
+            base_image = "md-base"
+        elif date_to_epoch(local_base) > date_to_epoch(remote_base):
+            print(f"- Local md-base image is newer, using local build instead of {base_image}")
+            base_image = "md-base"
 
     if base_image != "md-base":
         print(f"- Pulling base image {base_image} ...")
-        run_cmd(["docker", "pull", base_image])
+        _, returncode = run_cmd(["docker", "pull", base_image], check=False)
+        if returncode:
+            print("- Pulling base image {base_image} failed, this is likely because the GitHub Actions ", file=sys.stderr)
+            print("  workflow to build the image failed. Sorry about that!", file=sys.stderr)
+            if not local_base:
+                print("  Try building one locally with 'md build-base' for now.", file=sys.stderr)
+                return None
+            # Unlikely?
+            print("  Fallingback to local 'md-base'", file=sys.stderr)
+            base_image = "md-base"
 
-    stdout, returncode = run_cmd(["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", base_image], capture_output=True)
+    stdout, returncode = run_cmd(["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", base_image], capture_output=True, check=False)
     if returncode == 0:
         base_digest = stdout
     else:
@@ -84,11 +104,12 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
 
     current_digest = ""
     current_context = ""
-    stdout, returncode = run_cmd(["docker", "image", "inspect", image_name, "--format", '{{index .Config.Labels "md.base_digest"}}'], capture_output=True)
+    stdout, returncode = run_cmd(["docker", "image", "inspect", image_name, "--format", '{{index .Config.Labels "md.base_digest"}}'], capture_output=True, check=False)
     if returncode == 0:
         current_digest = stdout if stdout != "<no value>" else ""
-        stdout, _ = run_cmd(["docker", "image", "inspect", image_name, "--format", '{{index .Config.Labels "md.context_sha"}}'], capture_output=True)
-        current_context = stdout if stdout != "<no value>" else ""
+        stdout, returncode = run_cmd(["docker", "image", "inspect", image_name, "--format", '{{index .Config.Labels "md.context_sha"}}'], capture_output=True, check=False)
+        if returncode == 0:
+            current_context = stdout
 
     if current_digest == base_digest and current_context == context_sha:
         print(f"- Docker image {image_name} already matches {base_image} ({base_digest}), skipping rebuild.")
@@ -162,12 +183,12 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         f.write(f"[127.0.0.1]:{port} {host_pub_key}\n")
 
     print("- git clone into container ...")
-    run_cmd(["git", "remote", "rm", container_name], check=False)
-    run_cmd(["git", "remote", "add", container_name, f"user@{container_name}:/app"], check=False)
+    run_cmd(["git", "remote", "rm", container_name], check=False, capture_output=True)
+    run_cmd(["git", "remote", "add", container_name, f"user@{container_name}:/app"])
 
     while True:
         try:
-            _, returncode = run_cmd(["ssh", container_name, "exit"], capture_output=True, timeout=1)
+            _, returncode = run_cmd(["ssh", container_name, "exit"], capture_output=True, timeout=1, check=False)
             if returncode == 0:
                 break
         except subprocess.TimeoutExpired:
@@ -232,13 +253,15 @@ def cmd_start(args):
     ensure_ed25519_key(str(home / ".ssh" / "md"), "md-user")
     ensure_ed25519_key(str(host_key_path), "md-host")
 
-    _, returncode = run_cmd(["docker", "inspect", args.container_name], capture_output=True)
+    _, returncode = run_cmd(["docker", "inspect", args.container_name], capture_output=True, check=False)
     if returncode == 0:
         print(f"Container {args.container_name} already exists. SSH in with 'ssh {args.container_name}' or clean it up via 'md kill' first.", file=sys.stderr)
         sys.exit(1)
-    build(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image)
+    if not build(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image):
+        return 1
     run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch)
     run_cmd(["ssh", args.container_name])
+    return 0
 
 
 def cmd_build_base(args):  # pylint: disable=unused-argument
@@ -294,12 +317,12 @@ def cmd_kill(args):
     ssh_config_dir = Path.home() / ".ssh" / "config.d"
     (ssh_config_dir / f"{args.container_name}.conf").unlink(missing_ok=True)
     (ssh_config_dir / f"{args.container_name}.known_hosts").unlink(missing_ok=True)
-    run_cmd(["git", "remote", "remove", args.container_name])
-    _, returncode = run_cmd(["docker", "rm", "-f", args.container_name])
-    if returncode == 0:
-        print(f"Removed {args.container_name}")
-    else:
+    run_cmd(["git", "remote", "remove", args.container_name], check=False, capture_output=True)
+    stdout, returncode = run_cmd(["docker", "rm", "-f", "-v", args.container_name], check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if returncode or "Error" in stdout:
         print(f"{args.container_name} not running")
+        return 1
+    print(f"Removed {args.container_name}")
     return 0
 
 
@@ -314,20 +337,35 @@ def main():
     if returncode or not git_current_branch:
         print("Check out a named branch", file=sys.stderr)
         return 1
-    container_name = f"md-{Path(git_root_dir).name}-{git_current_branch}"
     parser = argparse.ArgumentParser(description="md (my devenv): local development environment with git clone")
     subparsers = parser.add_subparsers(dest="cmd")
     for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction):
         if name.startswith("cmd_"):
-            cmd_name = name[4:].replace("_", "-")
-            subparsers.add_parser(cmd_name, help=func.__doc__.strip() if func.__doc__ else "").set_defaults(func=func)
+            subparsers.add_parser(name[4:].replace("_", "-"), help=func.__doc__.strip() if func.__doc__ else "").set_defaults(func=func)
     args = parser.parse_args()
     if not args.cmd:
         parser.print_help()
-        return 0
-    args.container_name = container_name
+        return 2
+    args.container_name = f"md-{Path(git_root_dir).name}-{git_current_branch}"
     args.git_current_branch = git_current_branch
-    return args.func(args)
+    try:
+        return args.func(args)
+    except subprocess.CalledProcessError as e:
+        # Find the frame that called run_git_command
+        tb = traceback.extract_tb(e.__traceback__)
+        frame = None
+        for i, f in enumerate(tb):
+            if f.name == "run_git_command" and i > 0:
+                frame = tb[i - 1]
+                break
+        if frame:
+            print(f"Error in {frame.name}() at line {frame.lineno}:", file=sys.stderr)
+        print(f"Command failed: {' '.join(e.cmd)}", file=sys.stderr)
+        if e.stdout:
+            print(f"stdout: {e.stdout}", file=sys.stderr)
+        if e.stderr:
+            print(f"stderr: {e.stderr}", file=sys.stderr)
+        return e.returncode
 
 
 if __name__ == "__main__":

@@ -26,7 +26,6 @@ apt-get install -qq -y --no-install-recommends \
 	imagemagick \
 	iproute2 \
 	jq \
-	html5-validator \
 	kmod \
 	less \
 	libgl1 \

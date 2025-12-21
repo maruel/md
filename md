@@ -8,6 +8,7 @@ import inspect
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -294,17 +295,19 @@ def cmd_pull(args):
     remote_branch, _ = run_cmd(["ssh", args.container_name, "cd /app && git add . && git rev-parse --abbrev-ref HEAD"], capture_output=True)
     commit_msg = "Pull from md"
 
-    if os.environ.get("ASK_PROVIDER") and os.system("which ask >/dev/null 2>&1") == 0:
-        prompt = "Analyze the git context below (branch, file changes, recent commits, and diff). Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
-        remote_cmd = "cd /app && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base -- . ':!*.yaml'"
-        git_context, _ = run_cmd(["ssh", args.container_name, remote_cmd], capture_output=True)
-        try:
-            commit_msg, _ = run_cmd(["ask", "-q", prompt], input=git_context, capture_output=True, timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
+    _, returncode = run_cmd(["ssh", args.container_name, "cd /app && git add . && git diff --quiet base -- ."], capture_output=True, check=False)
+    if returncode != 0:
+        if os.environ.get("ASK_PROVIDER") and shutil.which("ask"):
+            prompt = "Analyze the git context below (branch, file changes, recent commits, and diff). Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
+            remote_cmd = "cd /app && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base -- . ':!*.yaml'"
+            git_context, _ = run_cmd(["ssh", args.container_name, remote_cmd], capture_output=True)
+            try:
+                commit_msg, _ = run_cmd(["ask", "-q", prompt], input=git_context, capture_output=True, timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+        commit_cmd = f"cd /app && echo {shlex.quote(commit_msg)} | git commit -a -q --author {shlex.quote(git_author)} -F -"
+        run_cmd(["ssh", args.container_name, commit_cmd])
 
-    commit_cmd = f"cd /app && echo {shlex.quote(commit_msg)} | git commit -a -q --author {shlex.quote(git_author)} -F -"
-    run_cmd(["ssh", args.container_name, commit_cmd])
     run_cmd(["git", "pull", "--rebase", "-q", args.container_name, remote_branch])
     run_cmd(["ssh", args.container_name, f"cd /app && git branch -f base {remote_branch}"])
     return 0

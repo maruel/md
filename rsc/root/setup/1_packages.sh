@@ -23,11 +23,13 @@ apt-get install -qq -y --no-install-recommends \
 	git \
 	gpg \
 	gradle \
+	imagemagick \
 	iproute2 \
 	jq \
 	kmod \
 	less \
 	libgl1 \
+	librsvg2-bin \
 	libvirt-clients \
 	libvirt-daemon \
 	libvirt-daemon-system \

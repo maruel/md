@@ -30,6 +30,7 @@ apt-get install -qq -y --no-install-recommends \
 	less \
 	libgl1 \
 	librsvg2-bin \
+	libssl-dev \
 	libvirt-clients \
 	libvirt-daemon \
 	libvirt-daemon-system \
@@ -38,6 +39,7 @@ apt-get install -qq -y --no-install-recommends \
 	net-tools \
 	openjdk-21-jdk-headless \
 	openssh-server \
+	pkg-config \
 	podman \
 	python3 \
 	python3-venv \

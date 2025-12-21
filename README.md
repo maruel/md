@@ -67,7 +67,7 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 
 ### Preinstalled Tools
 
-- TypeScript, Go, Node.js, Python development environments
+- TypeScript, Go, Rust, Node.js, Python development environments
 - Neovim editor
 - QEMU/KVM acceleration (when available)
 - Android SDK and ADB

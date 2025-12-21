@@ -5,6 +5,7 @@
 
 import argparse
 import inspect
+import json
 import os
 import shlex
 import subprocess
@@ -312,6 +313,24 @@ def cmd_pull(args):
 def cmd_diff(args):
     """Show differences between base branch and current changes in container."""
     run_cmd(["ssh", "-q", "-t", args.container_name, "cd /app && git add . && git diff base -- ."])
+    return 0
+
+
+def cmd_list(args):  # pylint: disable=unused-argument
+    """List running md containers with their uptime."""
+    containers, returncode = run_cmd(["docker", "ps", "--all", "--no-trunc", "--format", "{{json .}}"], capture_output=True, check=False)
+    if returncode or not containers.strip():
+        print("No running containers")
+        return returncode
+    containers = (json.loads(line) for line in containers.split("\n") if line)
+    containers = [line for line in containers if line["Names"].startswith("md-")]
+    if not containers:
+        print("No running md containers")
+        return 0
+    print(f"{'Container':<50} {'Status':<15} {'Uptime':<20}")
+    print("-" * 85)
+    for data in sorted(containers, key=lambda c: c["Names"]):
+        print(f"{data['Names']:<50} {data['State']:<15} {data['RunningFor']:<20}")
     return 0
 
 

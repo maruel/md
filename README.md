@@ -100,6 +100,7 @@ OPENAI_API_KEY=your_key
 | Command | Purpose |
 |---------|---------|
 | `md start` | Create and start a container for the current branch |
+| `md list` | List all md containers |
 | `ssh md-<repo>-<branch>` | Access the container |
 | `md diff` | Show all changes in the container (runs `git diff base`) |
 | `md pull` | Pull changes from container back to local branch |

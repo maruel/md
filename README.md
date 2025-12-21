@@ -1,191 +1,111 @@
 # md: Parallel Development Containers for AI Coding Agents
 
-A development container system that enables you to work with multiple coding agents in parallel safely. Run AI
-coding tools (Claude Code, Codex, Amp CLI, Gemini CLI, OpenCode, Qwen CLI, etc.) without branch conflicts or
-interference.
+**Safe parallel work with multiple AI coding agents.** Run Claude Code, Codex,
+Amp CLI, Gemini CLI, and other tools in isolated containers without branch
+conflicts, file interference, or environmental headaches.
 
-## Overview
+## The Problem
 
-`md` runs common coding agent tools in what is generally called _YOLO mode_ (all prompts to run commands and
-sandboxing disabled) in a safe manner.
+AI coding agents work best when given full command execution (YOLO mode). But running them locally is risky:
 
-Instead of using git worktree, you use normal branches. Each container runs a **complete separate git clone**
-of your repository. Your local checkout is never mapped into the container. Because each branch runs in an
-isolated container with a different name, you can safely:
+- **Branch conflicts** - Agent changes on one branch interfere with your local checkout
+- **Test conflicts** - Running tests simultaneously causes failures and race conditions
+- **Environment pollution** - Dependencies and state accumulate, causing hidden bugs
+- **Context switching** - Switching branches while an agent is working loses progress
 
-- Make changes in parallel on different branches
-- Run tests simultaneously without conflicts
-- Switch branches locally without affecting running containers
-- Delete containers cleanly when done
+## The Solution
 
-## Prerequisites
+`md` gives each AI agent a **complete, isolated container** with a full git clone. You can:
 
-- **Docker** installed and running
-
-## Installation
-
-Clone the repository and add it to your PATH:
-
-```bash
-git clone https://github.com/maruel/md
-export PATH="$PATH:$(pwd)/md/bin"
-```
-
-It is **highly recommended** to setup the git alias `git squash` and `git rb` from
-[github.com/maruel/git-maruel](https://github.com/maruel/git-maruel).
+✓ Run agents on multiple branches simultaneously
+✓ Switch local branches without affecting running agents
+✓ Run tests in parallel without conflicts
+✓ Keep your local checkout clean
+✓ Delete containers cleanly when done
 
 ## Quick Start
 
-Here's a complete workflow example:
-
 ```bash
-# Start a container for your current branch
+# Start container for your current branch
+git checkout -b wip origin/main
 md start
 
-# Inside the container, run your coding agent
-# (e.g., amp, claude, codex, etc.)
-
-# Exit when done
+# SSH in and run your coding agent, where "wip" is the branch associated with this container
+ssh md-<repo>-wip
+amp
+# Exit from the ssh session into the container (or use a separate terminal)
 exit
 
-# Back on your local machine, pull changes
+# Pull changes back when done
 md pull
+# Verify changes
+git log -1
 
 # Clean up the container
 md kill
 ```
 
-## Usage
-
-### Starting a Container
+## Installation
 
 ```bash
-md start
+git clone https://github.com/maruel/md
+export PATH="$PATH:$(pwd)/md"
 ```
 
-Each container is named `md-<repo-name>-<branch-name>`. For example, if you're on the `wip` branch of
-[github.com/maruel/genai](https://github.com/maruel/genai), the container is named `md-genai-wip`.
-
-### Accessing the Container
-
-Access the container via SSH:
-
-```bash
-# SSH into the container (in another terminal window)
-ssh md-<repo-name>-<branch-name>
-```
-
-**Tip:** Use two SSH sessions—one for running the coding agent and one for inspecting results (e.g., `git diff`) and running tests.
-
-### Viewing Changes
-
-To see the differences between the last push (base branch) and current changes in the container:
-
-```bash
-md diff
-```
-
-This runs `git diff base` inside the container, showing all modifications since the last push.
-
-### Pulling Changes Back
-
-To pull changes from the container into your local branch:
-
-```bash
-md pull
-```
-
-### Pushing Changes to the Container
-
-If you've rebased on `origin/main` or made other local changes that need to be synced to the container:
-
-```bash
-md push
-```
-
-### Cleaning Up
-
-When done with a container:
-
-```bash
-md kill
-```
-
-### Android
-
-You can use adb over wifi from within the container. First make sure the device is accessible over wifi by
-initiating the connection via Android Studio. Then from within the container, run:
-
-```bash
-adb connect <ip>:<port>
-adb devices
-```
+**Recommended:** Also install [git-maruel](https://github.com/maruel/git-maruel) for the `git squash` and `git rb` helpers.
 
 ## How It Works
 
-### User and Permissions
+### Container Setup
 
-The container runs as the user account `user`, which is mapped to your local user ID, ensuring proper file
-permissions.
+Each container is named `md-<repo-name>-<branch-name>` with:
 
-### Resource Mappings
-
-Files under [rsc/](/rsc) are copied as-is inside the container. The system generates the following files
-automatically:
-
-- `rsc/etc/ssh/ssh_host_ed25519_key`
-- `rsc/etc/ssh/ssh_host_ed25519_key.pub`
-- `rsc/home/user/.ssh/authorized_keys`
-
-Host SSH keys ensure you're connecting to the expected container.
-
-### Configuration and Credentials
-
-The following directories from your local machine are mounted into each container for agent configurations and
-credentials:
-
-- `~/.amp` - Amp CLI configuration
-- `~/.android` - Android ADB keys
-- `~/.codex` - Codex configuration
-- `~/.claude` - Claude configuration
-- `~/.gemini` - Gemini CLI configuration
-- `~/.opencode` - OpenCode configuration
-- `~/.qwen` - Qwen CLI configuration
-- `~/.config/amp` - Amp tool config
-- `~/.config/goose` - Goose configuration
-- `~/.config/md` - md configuration (see below)
-- `~/.config/opencode` - OpenCode config, commands, and rules
-- `~/.local/share/amp` - Amp data
-- `~/.local/share/goose` - Goose data
-
-### Environment Variables
-
-There's two completementary ways to pass environment variables into containers.
-
-First if there's a `.env` file at your root of your git checkout, it will be mapped automatically.
-
-Second, create `~/.config/md/env` on your local machine and export variables:
-
-```bash
-# ~/.config/md/env
-ANTHROPIC_API_KEY=bar
-GEMINI_API_KEY=foo
-GROQ_API_KEY=baz
-OPENAI_API_KEY=value
-```
-
-These variables will be available in all md containers. Both are useful to pass API keys for
-Anthropic/Cerebras/Gemeni/Groq/OpenAI/etc.
+- **Isolated git clone** - Your local checkout is never mapped into the container
+- **User-mapped permissions** - Container runs as your local user ID for proper file permissions
+- **SSH access** - Connect via `ssh md-<repo>-<branch>`
+- **Minimal overhead** - Only sshd runs; no unnecessary background services
 
 ### Preinstalled Tools
 
-The container runs with minimal overhead—only sshd is running to maximize efficiency. However, it comes preinstalled with everything needed for:
-
-- TypeScript development
-- Go development
+- TypeScript, Go, Node.js, Python development environments
 - Neovim editor
-- QEMU with KVM acceleration (when `/dev/kvm` is available on the host)
+- QEMU/KVM acceleration (when available)
+- Android SDK and ADB
+- And more! See [rsc/root/setup/](rsc/root/setup/) and [rsc/home/user/setup/](rsc/home/user/setup/).
+
+### Configuration
+
+Agent configurations and credentials are automatically mounted:
+
+- `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.qwen`, `~/.opencode` - Agent configurations
+- `~/.android` - Android ADB keys
+- `~/.config/md` - md configuration
+- `~/.local/share/` - Agent data directories
+
+Environment variables can be passed via:
+
+1. `.env` file in your repository (auto-mapped)
+2. `~/.config/md/env` on your local machine (applies to all containers)
+
+For example:
+
+```bash
+# ~/.config/md/env
+ANTHROPIC_API_KEY=your_key
+OPENAI_API_KEY=your_key
+```
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `md start` | Create and start a container for the current branch |
+| `ssh md-<repo>-<branch>` | Access the container |
+| `md diff` | Show all changes in the container (runs `git diff base`) |
+| `md pull` | Pull changes from container back to local branch |
+| `md push` | Push local changes to the container |
+| `md kill` | Stop and remove the container |
 
 ## Contributing
 
-Want a feature or found a bug? Contributions are welcome! Send a PR. Thanks!
+Made with ❤️  by [Marc-Antoine Ruel](https://maruel.ca). Contributions are very appreciated! Thanks in advance! 🙏

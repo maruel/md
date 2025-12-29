@@ -1,29 +1,21 @@
 #!/bin/bash
-# Install Android SDK tools, emulator, and system images (runs as user).
+# Install Android SDK tools, emulator, and system images on x64 (runs as user).
 set -euo pipefail
 echo "- $0"
+
+# Detect architecture and set appropriate system image ABI.
+ARCH=$(uname -m)
+# linux/arm64 is still not supported; see https://issuetracker.google.com/issues/227219818
+if [ "$ARCH" == "aarch64" ]; then
+	echo "  Skipping Android SDK installation on $ARCH"
+	exit 0
+fi
 
 ANDROID_SDK_ROOT="$HOME/.local/share/android-sdk"
 mkdir -p "$ANDROID_SDK_ROOT"
 cd "$ANDROID_SDK_ROOT"
 
-# Detect architecture and set appropriate system image ABI
-ARCH=$(uname -m)
-case "$ARCH" in
-x86_64)
-	SYS_IMAGE_ABI="x86_64"
-	;;
-aarch64)
-	SYS_IMAGE_ABI="arm64-v8a"
-	;;
-*)
-	echo "Unsupported architecture: $ARCH" >&2
-	exit 1
-	;;
-esac
-
 # Get the latest commandlinetools download URL dynamically
-# linux/arm64 is still not supported; see https://issuetracker.google.com/issues/227219818
 SDK_URL=$(curl -s "https://developer.android.com/studio" | grep -o 'https://dl\.google\.com/android/repository/commandlinetools-linux-[0-9]*_latest\.zip' | head -n 1)
 if [ -z "$SDK_URL" ]; then
 	echo "Failed to determine SDK URL" >&2
@@ -48,11 +40,25 @@ SDK_PACKAGES=(
 	"platform-tools"
 	"platforms;android-36"
 )
-if [ "$ARCH" != "aarch64" ]; then
-	SDK_PACKAGES+=(
-		"system-images;android-36;google_apis;${SYS_IMAGE_ABI}"
-		"emulator"
-	)
-fi
+
+# Emulator and system images take 3GiB which is a bit too large to always include in the base image.
+# if [ "$ARCH" != "aarch64" ]; then
+#   case "$ARCH" in
+#   x86_64)
+#   	SYS_IMAGE_ABI="x86_64"
+#   	;;
+#   aarch64)
+#   	SYS_IMAGE_ABI="arm64-v8a"
+#   	;;
+#   *)
+#   	echo "Unsupported architecture: $ARCH" >&2
+#   	exit 1
+#   	;;
+#   esac
+#	  SDK_PACKAGES+=(
+#	 	  "system-images;android-36;google_apis;${SYS_IMAGE_ABI}"
+# 	  "emulator"
+#   )
+# fi
 
 "$SDKMANAGER" "${SDK_PACKAGES[@]}"

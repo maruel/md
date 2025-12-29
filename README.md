@@ -69,8 +69,7 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 
 - TypeScript, Go, Rust, Node.js, Python development environments
 - Neovim editor
-- QEMU/KVM acceleration (when available)
-- Android SDK and ADB
+- Android SDK and ADB on x64
 - And more! See [rsc/root/setup/](rsc/root/setup/) and [rsc/home/user/setup/](rsc/home/user/setup/).
 
 ### Configuration

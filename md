@@ -276,28 +276,33 @@ def cmd_build_base(args):  # pylint: disable=unused-argument
 
 def cmd_push(args):
     """Force-push current repo state into the running container."""
-    branch, _ = run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True)
+    # Refuse if there's any pending changes locally.
+    _, returncode = run_cmd(["git", "diff", "--quiet", "--exit-code"], check=False)
+    if returncode:
+        print("- There are pending changes locally. Please commit or stash them before pushing.", file=sys.stderr)
+        return 1
+    # If there are any pending changes inside the container, commit them so they are saved in the backup branch.
+    run_cmd(["ssh", args.container_name, "cd /app && git add . && git commit -q -m 'Backup before push'"], check=False)
     container_commit, _ = run_cmd(["ssh", args.container_name, "cd /app && git rev-parse HEAD"], capture_output=True)
     backup_branch = f"backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     run_cmd(["ssh", args.container_name, f"cd /app && git branch -f {backup_branch} {container_commit}"])
-    run_cmd(["git", "push", "-q", "-f", args.container_name])
-    run_cmd(["ssh", args.container_name, f"cd /app && git reset -q --hard && git switch -q {branch} && git branch -q -f base {branch}"])
-    print(f"- Container updated (previous state saved as {backup_branch}).")
+    print(f"- Previous state saved as git branch: {backup_branch}")
+    # Update base first.
+    run_cmd(["git", "push", "-q", "-f", args.container_name, f"{args.git_current_branch}:base"])
+    # Recreate the branch from base.
+    run_cmd(["ssh", args.container_name, f"cd /app && git switch -q -C {args.git_current_branch} base"])
+    print("- Container updated.")
     return 0
 
 
 def cmd_pull(args):
     """Pull changes from the container back to the local repo."""
-    git_user_name, _ = run_cmd(["git", "config", "user.name"], capture_output=True)
-    git_user_email, _ = run_cmd(["git", "config", "user.email"], capture_output=True)
-    git_author = f"{git_user_name} <{git_user_email}>"
-
-    remote_branch, _ = run_cmd(["ssh", args.container_name, "cd /app && git add . && git rev-parse --abbrev-ref HEAD"], capture_output=True)
-    commit_msg = "Pull from md"
-
-    _, returncode = run_cmd(["ssh", args.container_name, "cd /app && git add . && git diff --quiet base -- ."], capture_output=True, check=False)
+    # Add any untracked files and identify if a commit is needed.
+    _, returncode = run_cmd(["ssh", args.container_name, "cd /app && git add . && git diff --quiet HEAD -- ."], capture_output=True, check=False)
     if returncode != 0:
+        commit_msg = "Pull from md"
         if os.environ.get("ASK_PROVIDER") and shutil.which("ask"):
+            # Generate a commit message based on the pending changes.
             prompt = "Analyze the git context below (branch, file changes, recent commits, and diff). Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
             remote_cmd = "cd /app && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base -- . ':!*.yaml'"
             git_context, _ = run_cmd(["ssh", args.container_name, remote_cmd], capture_output=True)
@@ -305,11 +310,16 @@ def cmd_pull(args):
                 commit_msg, _ = run_cmd(["ask", "-q", prompt], input=git_context, capture_output=True, timeout=10)
             except subprocess.TimeoutExpired:
                 pass
+        git_user_name, _ = run_cmd(["git", "config", "user.name"], capture_output=True)
+        git_user_email, _ = run_cmd(["git", "config", "user.email"], capture_output=True)
+        git_author = f"{git_user_name} <{git_user_email}>"
         commit_cmd = f"cd /app && echo {shlex.quote(commit_msg)} | git commit -a -q --author {shlex.quote(git_author)} -F -"
         run_cmd(["ssh", args.container_name, commit_cmd])
 
-    run_cmd(["git", "pull", "--rebase", "-q", args.container_name, remote_branch])
-    run_cmd(["ssh", args.container_name, f"cd /app && git branch -f base {remote_branch}"])
+    # Pull changes from the container. It's possible that the container is ahead of the local repo.
+    run_cmd(["git", "pull", "--rebase", "-q", args.container_name, args.git_current_branch])
+    # Update the base branch to match the current branch.
+    run_cmd(["git", "push", "-q", "-f", args.container_name, f"{args.git_current_branch}:base"])
     return 0
 
 
@@ -366,7 +376,7 @@ def main():
     subparsers = parser.add_subparsers(dest="cmd")
     for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction):
         if name.startswith("cmd_"):
-            subparsers.add_parser(name[4:].replace("_", "-"), help=func.__doc__.strip() if func.__doc__ else "").set_defaults(func=func)
+            subparsers.add_parser(name[4:].replace("_", "-"), help=func.__doc__.splitlines()[0]).set_defaults(func=func)
     args = parser.parse_args()
     if not args.cmd:
         parser.print_help()

@@ -60,7 +60,7 @@ export PATH="$PATH:$(pwd)/md"
 
 Each container is named `md-<repo-name>-<branch-name>` with:
 
-- **Isolated git clone** - Your local checkout is never mapped into the container
+- **Isolated git clone** - `/app` inside the container is a git clone of your local repository. It tracks branch `base` which matches your local branch. This is useful for commit-happy agents like Codex to track pending changes.
 - **User-mapped permissions** - Container runs as your local user ID for proper file permissions
 - **SSH access** - Connect via `ssh md-<repo>-<branch>`
 - **Minimal overhead** - Only sshd runs; no unnecessary background services

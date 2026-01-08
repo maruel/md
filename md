@@ -282,7 +282,7 @@ def cmd_push(args):
         print("- There are pending changes locally. Please commit or stash them before pushing.", file=sys.stderr)
         return 1
     # If there are any pending changes inside the container, commit them so they are saved in the backup branch.
-    run_cmd(["ssh", args.container_name, "cd /app && git add . && git commit -q -m 'Backup before push'"], check=False)
+    run_cmd(["ssh", args.container_name, "cd /app && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"], check=False)
     container_commit, _ = run_cmd(["ssh", args.container_name, "cd /app && git rev-parse HEAD"], capture_output=True)
     backup_branch = f"backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     run_cmd(["ssh", args.container_name, f"cd /app && git branch -f {backup_branch} {container_commit}"])

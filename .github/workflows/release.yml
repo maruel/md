@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Every Sunday at midnight
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0). Leave empty to auto-increment patch version.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write # Required for attestation in docker-build
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Required to fetch tags for version calculation
+      - name: Determine Version
+        id: get_version
+        run: |
+          INPUT_VERSION="${{ inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "Using provided version: $INPUT_VERSION"
+            echo "VERSION=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "No version provided. Calculating next patch version..."
+            # Fetch tags just in case
+            git fetch --tags --force
+            # Get latest tag (suppress error if no tags exist)
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            echo "Latest tag found: $LATEST_TAG"
+            # Strip leading 'v'
+            VERSION_NO_V="${LATEST_TAG#v}"
+            # Split into array by dot
+            IFS='.' read -r -a parts <<< "$VERSION_NO_V"
+            # Ensure we have Major, Minor, Patch (handle short tags like v1.0)
+            MAJOR="${parts[0]:-0}"
+            MINOR="${parts[1]:-0}"
+            PATCH="${parts[2]:-0}"
+            # Increment patch
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="v$MAJOR.$MINOR.$NEW_PATCH"
+            echo "Auto-incremented version: $NEW_VERSION"
+            echo "VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-container:
+    needs: setup
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      version: ${{ needs.setup.outputs.version }}
+    secrets: inherit
+
+  finalize-release:
+    needs: [setup, build-container]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Update version in files
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          echo "Applying version: $VERSION"
+          # Update md script
+          sed -i "s|base_image = \"ghcr.io/maruel/md:.*\"|base_image = \"ghcr.io/maruel/md:$VERSION\"|" md
+          # Update rsc/Dockerfile
+          sed -i "s|ARG BASE_IMAGE=ghcr.io/maruel/md:.*|ARG BASE_IMAGE=ghcr.io/maruel/md:$VERSION|" rsc/Dockerfile
+          # Verify changes
+          grep "ghcr.io/maruel/md:$VERSION" md
+          grep "ghcr.io/maruel/md:$VERSION" rsc/Dockerfile
+      - name: Commit and Tag
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add md rsc/Dockerfile
+          git commit -m "Release $VERSION"
+          git tag $VERSION
+          git push origin HEAD --tags
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          gh release create "$VERSION" --title "$VERSION" --generate-notes

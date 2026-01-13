@@ -12,37 +12,15 @@ jobs:
   cleanup:
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v6
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq jq
       - name: Delete old images
-        run: |
-          OWNER="${{ github.repository_owner }}"
-          REPO="${{ github.event.repository.name }}"
-          CUTOFF_DATE=$(date -d '30 days ago' +%s)
-
-          # Get all package versions
-          VERSIONS=$(curl -s -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/users/$OWNER/packages/container/$REPO/versions" | jq -r '.[] | "\(.id)|\(.name)|\(.created_at)"')
-
-          while IFS='|' read -r VERSION_ID TAG CREATED_AT; do
-            [ -z "$VERSION_ID" ] && continue
-            [ "$TAG" = "latest" ] && { echo "Skipping tag: latest"; continue; }
-            [[ "$TAG" =~ ^v[0-9]+ ]] && { echo "Skipping tag: $TAG"; continue; }
-            
-            CREATED=$(date -d "$CREATED_AT" +%s)
-            if [ "$CREATED" -lt "$CUTOFF_DATE" ]; then
-              echo "Deleting image: $TAG (created: $(date -d @$CREATED))"
-              curl -s -X DELETE \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                "https://api.github.com/users/$OWNER/packages/container/$REPO/versions/$VERSION_ID" && echo "Deleted successfully" || echo "Failed to delete $TAG"
-            else
-              echo "Keeping image: $TAG (created: $(date -d @$CREATED))"
-            fi
-          done <<< "$VERSIONS"
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/cleanup_docker_images.sh

@@ -162,7 +162,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         f"{home}/.local/share/goose:/home/user/.local/share/goose",
     ]
 
-    docker_cmd = ["docker", "run", "-d", "--name", container_name, "-p", "127.0.0.1:0:22"] + kvm_args + localtime_args + mounts + [image_name]
+    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + kvm_args + localtime_args + mounts + [image_name]
     run_cmd(docker_cmd, check=False)
 
     port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}', container_name], capture_output=True)

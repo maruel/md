@@ -34,6 +34,7 @@ jobs:
           while IFS='|' read -r VERSION_ID TAG CREATED_AT; do
             [ -z "$VERSION_ID" ] && continue
             [ "$TAG" = "latest" ] && { echo "Skipping tag: latest"; continue; }
+            [[ "$TAG" =~ ^v[0-9]+ ]] && { echo "Skipping tag: $TAG"; continue; }
             
             CREATED=$(date -d "$CREATED_AT" +%s)
             if [ "$CREATED" -lt "$CUTOFF_DATE" ]; then

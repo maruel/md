@@ -75,7 +75,7 @@ while true; do
 		if [ "$CREATED" -lt "$CUTOFF_DATE" ]; then
 			echo "Deleting image: $TAG (created: $(date -d @"$CREATED"))"
 
-			DELETE_STATUS=$(curl -s -o /dev/null -w "% {http_code}" -X DELETE \
+			DELETE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
 				-H "Authorization: token ${GITHUB_TOKEN}" \
 				"https://api.github.com/users/$OWNER/packages/container/$REPO/versions/$VERSION_ID")
 

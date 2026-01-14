@@ -4,32 +4,6 @@
 
 # Load user environment if possible
 export HOME="/home/user"
-# Source bashrc to get PATHs if set there
-if [ -f "$HOME/.bashrc" ]; then
-	# shellcheck disable=SC1091
-	source "$HOME/.bashrc" 2>/dev/null || true
-fi
-# Explicitly source known config files if bashrc didn't catch them (non-interactive shell issues)
-if [ -f "$HOME/.nvm/nvm.sh" ]; then
-	# shellcheck disable=SC1091
-	source "$HOME/.nvm/nvm.sh"
-fi
-if [ -f "$HOME/.cargo/env" ]; then
-	# shellcheck disable=SC1091
-	source "$HOME/.cargo/env"
-fi
-if [ -d "$HOME/.local/go/bin" ]; then
-	export PATH="$HOME/.local/go/bin:$PATH"
-fi
-if [ -d "$HOME/.local/bin" ]; then
-	export PATH="$HOME/.local/bin:$PATH"
-fi
-if [ -d "$HOME/.local/share/android-sdk/platform-tools" ]; then
-	export PATH="$HOME/.local/share/android-sdk/platform-tools:$PATH"
-fi
-if [ -d "$HOME/.bun/bin" ]; then
-	export PATH="$HOME/.bun/bin:$PATH"
-fi
 
 {
 	echo "# Image Tool Versions"

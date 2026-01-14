@@ -8,6 +8,7 @@ A file to [guide coding agents](https://agents.md/).
 - Update this file (AGENTS.md) everytime you make a change that affects the agent. This may include adding new
   entries, sections or removing old ones.
 - When adding a new setup script in `rsc/root/setup/` or `rsc/home/user/setup/`, add a corresponding `RUN` command to `rsc/Dockerfile.base` to execute it during the build.
+- When modifying scripts that require specific environment setup, consider using the login shell option (`#!/bin/bash -l`) in wrapper scripts like `measure_exec.sh` to ensure proper environment loading instead of modifying environment variables directly in the scripts.
 
 ## Directory Layout (rsc/)
 

@@ -85,8 +85,8 @@ jobs:
           outputs: type=local,dest=reports
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          #cache-from: type=gha
+          #cache-to: type=gha,mode=max
       - name: Extract tool versions and timings
         run: |
           PLATFORM="${{ matrix.platform }}"
@@ -110,7 +110,7 @@ jobs:
           provenance: false
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
-          cache-from: type=gha
+          #cache-from: type=gha
       - uses: actions/attest-build-provenance@v3
         if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
         with:

@@ -63,7 +63,7 @@ RUN --mount=type=secret,id=github_token \
 RUN su user -c "measure_exec.sh 'Python' /home/user/setup/6_python.sh"
 
 # Generate tool version report
-RUN su user -c "measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh"
+RUN su user -c "measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /var/log/tool_versions.md"
 
 # Start SSH server by default
 CMD ["/root/start.sh"]

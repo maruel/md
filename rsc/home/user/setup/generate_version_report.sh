@@ -31,8 +31,6 @@ if [ -d "$HOME/.bun/bin" ]; then
 	export PATH="$HOME/.bun/bin:$PATH"
 fi
 
-OUTPUT_FILE="/var/log/tool_versions.md"
-
 {
 	echo "# Image Tool Versions"
 	echo "Generated on $(date)"
@@ -134,6 +132,4 @@ OUTPUT_FILE="/var/log/tool_versions.md"
 	check_version "ESLint" "eslint" "--version"
 	check_version "tsx" "tsx" "--version"
 
-} >"$OUTPUT_FILE"
-
-echo "Report generated at $OUTPUT_FILE"
+}

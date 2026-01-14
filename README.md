@@ -54,7 +54,17 @@ export PATH="$PATH:$(pwd)/md"
 
 **Recommended:** Also install [git-maruel](https://github.com/maruel/git-maruel) for the `git squash` and `git rb` helpers.
 
-**For coding agents:** Link your coding agent's AGENTS.md to `~/.config/agents/AGENTS.md` to provide information about preinstalled tools and system configuration. This helps agents understand the available development environment.
+**For coding agents:** Link your coding agent's AGENTS.md to read `~/.config/agents/AGENTS.md` to provide
+information about preinstalled tools and system configuration inside the container. This helps agents
+understand the available development environment and save on tokens.
+
+- [amp](https://ampcode.com/manual#AGENTS.md): `~/.config/amp/AGENTS.md`
+- [claude](https://www.anthropic.com/engineering/claude-code-best-practices): `~/.claude/CLAUDE.md`
+- [codex](https://developers.openai.com/codex/guides/agents-md/): `~/.codex/AGENTS.md`
+- [gemini](https://geminicli.com/docs/cli/gemini-md/): `~/.gemini/GEMINI.md`
+- [opencode](https://opencode.ai/docs/rules/): `~/.config/opencode/AGENTS.md`
+- [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md): `~/.pi/agent/AGENTS.md`
+- [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/#example-context-file-content-eg-qwenmd): `~/.qwen/QWEN.md`
 
 ## How It Works
 

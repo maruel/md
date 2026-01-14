@@ -36,6 +36,7 @@ AGENT_CONFIG = {
         "amp",
         "goose",
         "md",
+        "opencode",
     ],
     # Local share paths (mounted to .local/share/)
     "local_share_paths": [

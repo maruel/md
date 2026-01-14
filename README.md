@@ -88,9 +88,9 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 
 Agent configurations and credentials are automatically mounted:
 
-- `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.pi`, `~/.qwen`, `~/.local/state/opencode`, `~/.local/share/opencode` - Agent configurations
-- `~/.android` - Android ADB keys
-- `~/.config/md` - md configuration
+- Agent configurations: `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.pi`, `~/.qwen`, `~/.config/opencode`,
+  `~/.local/state/opencode`, `~/.local/share/opencode`
+- Android ADB keys: `~/.android`
 
 Environment variables can be passed via:
 

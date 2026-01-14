@@ -19,6 +19,36 @@ from pathlib import Path
 
 SCRIPT_DIR = str(Path(__file__).parent.resolve())
 
+# Global constant for agent configuration paths
+AGENT_CONFIG = {
+    # Home directory paths (mounted as-is)
+    "home_paths": [
+        ".amp",
+        ".android",
+        ".codex",
+        ".claude",
+        ".gemini",
+        ".pi",
+        ".qwen",
+    ],
+    # XDG config paths (mounted to .config/)
+    "xdg_config_paths": [
+        "amp",
+        "goose",
+        "md",
+    ],
+    # Local share paths (mounted to .local/share/)
+    "local_share_paths": [
+        "amp",
+        "goose",
+        "opencode",
+    ],
+    # Local state paths (mounted to .local/state/)
+    "local_state_paths": [
+        "opencode",
+    ],
+}
+
 
 def argument(*name_or_flags, **kwargs):
     """Decorator to add arguments to a command."""
@@ -130,7 +160,23 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
         return base_image
 
     print(f"- Building Docker image {image_name} ...")
-    run_cmd(["docker", "build", "--platform", f"linux/{host_arch}", "--build-arg", f"BASE_IMAGE={base_image}", "--build-arg", f"BASE_IMAGE_DIGEST={base_digest}", "--build-arg", f"CONTEXT_SHA={context_sha}", "-t", image_name, rsc_dir])
+    run_cmd(
+        [
+            "docker",
+            "build",
+            "--platform",
+            f"linux/{host_arch}",
+            "--build-arg",
+            f"BASE_IMAGE={base_image}",
+            "--build-arg",
+            f"BASE_IMAGE_DIGEST={base_digest}",
+            "--build-arg",
+            f"CONTEXT_SHA={context_sha}",
+            "-t",
+            image_name,
+            rsc_dir,
+        ]
+    )
     return base_image
 
 
@@ -142,35 +188,22 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     localtime_args = ["-v", "/etc/localtime:/etc/localtime:ro"] if sys.platform == "linux" else []
 
     home = Path.home()
-    xdg_config = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
-    mounts = [
-        "-v",
-        f"{home}/.amp:/home/user/.amp",
-        "-v",
-        f"{home}/.android:/home/user/.android",
-        "-v",
-        f"{home}/.codex:/home/user/.codex",
-        "-v",
-        f"{home}/.claude:/home/user/.claude",
-        "-v",
-        f"{home}/.gemini:/home/user/.gemini",
-        "-v",
-        f"{home}/.qwen:/home/user/.qwen",
-        "-v",
-        f"{xdg_config}/amp:/home/user/.config/amp",
-        "-v",
-        f"{xdg_config}/goose:/home/user/.config/goose",
-        "-v",
-        f"{xdg_config}/md:/home/user/.config/md:ro",
-        "-v",
-        f"{home}/.local/share/amp:/home/user/.local/share/amp",
-        "-v",
-        f"{home}/.local/share/goose:/home/user/.local/share/goose",
-        "-v",
-        f"{home}/.local/share/opencode:/home/user/.local/share/opencode",
-        "-v",
-        f"{home}/.local/state/opencode:/home/user/.local/state/opencode",
-    ]
+    # Use XDG environment variables with proper fallbacks
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
+    xdg_data_home = os.environ.get("XDG_DATA_HOME", str(home / ".local" / "share"))
+    xdg_state_home = os.environ.get("XDG_STATE_HOME", str(home / ".local" / "state"))
+
+    # Build mounts from agent configuration
+    mounts = []
+    for agent_path in AGENT_CONFIG["home_paths"]:
+        mounts.extend(["-v", f"{home}/{agent_path}:/home/user/{agent_path}"])
+    for config_path in AGENT_CONFIG["xdg_config_paths"]:
+        read_only = "ro" if config_path == "md" else ""
+        mounts.extend(["-v", f"{xdg_config_home}/{config_path}:/home/user/.config/{config_path}:{read_only}"])
+    for share_path in AGENT_CONFIG["local_share_paths"]:
+        mounts.extend(["-v", f"{xdg_data_home}/{share_path}:/home/user/.local/share/{share_path}"])
+    for state_path in AGENT_CONFIG["local_state_paths"]:
+        mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
     docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + kvm_args + localtime_args + mounts + [image_name]
     run_cmd(docker_cmd, check=False)
@@ -241,23 +274,24 @@ def cmd_start(args):
     base_image = f"ghcr.io/maruel/md:{tag_to_use}"
     md_user_key = str(home / ".ssh" / "md")
 
-    paths = (
-        home / ".amp",
-        home / ".android",
-        home / ".codex",
-        home / ".claude",
-        home / ".gemini",
-        home / ".qwen",
-        home / ".config" / "amp",
-        home / ".config" / "goose",
-        home / ".config" / "md",
-        home / ".local" / "share" / "amp",
-        home / ".local" / "share" / "goose",
-        home / ".local" / "share" / "opencode",
-        home / ".local" / "state" / "opencode",
-        host_key_path.parent,
-        user_auth_keys.parent,
-        home / ".ssh" / "config.d",
+    # Use XDG environment variables with proper fallbacks
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
+    xdg_data_home = os.environ.get("XDG_DATA_HOME", str(home / ".local" / "share"))
+    xdg_state_home = os.environ.get("XDG_STATE_HOME", str(home / ".local" / "state"))
+
+    # Build paths from agent configuration
+    paths = []
+    paths.extend(home / path for path in AGENT_CONFIG["home_paths"])
+    paths.extend(os.path.join(xdg_config_home, path) for path in AGENT_CONFIG["xdg_config_paths"])
+    paths.extend(os.path.join(xdg_data_home, path) for path in AGENT_CONFIG["local_share_paths"])
+    paths.extend(os.path.join(xdg_state_home, path) for path in AGENT_CONFIG["local_state_paths"])
+    # Additional paths
+    paths.extend(
+        [
+            host_key_path.parent,
+            user_auth_keys.parent,
+            home / ".ssh" / "config.d",
+        ]
     )
     for p in paths:
         Path(p).mkdir(parents=True, exist_ok=True)

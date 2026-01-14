@@ -12,6 +12,7 @@ fi
 
 npm install --silent --no-fund -g \
 	@google/gemini-cli \
+	@mariozechner/pi-coding-agent \
 	@openai/codex \
 	@qwen-code/qwen-code@latest \
 	vscode-langservers-extracted

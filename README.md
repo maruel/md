@@ -1,7 +1,7 @@
 # md: Parallel Development Containers for AI Coding Agents
 
 **Safe parallel work with multiple AI coding agents.** Run Claude Code, Codex,
-Amp CLI, Gemini CLI, and other tools in isolated containers without branch
+Amp CLI, Gemini CLI, Pi, and other tools in isolated containers without branch
 conflicts, file interference, or environmental headaches.
 
 ## The Problem
@@ -17,11 +17,11 @@ AI coding agents work best when given full command execution (YOLO mode). But ru
 
 `md` gives each AI agent a **complete, isolated container** with a full git clone. You can:
 
-✓ Run agents on multiple branches simultaneously
-✓ Switch local branches without affecting running agents
-✓ Run tests in parallel without conflicts
-✓ Keep your local checkout clean
-✓ Delete containers cleanly when done
+- Run agents on multiple branches simultaneously
+- Switch local branches without affecting running agents
+- Run tests in parallel without conflicts
+- Keep your local checkout clean
+- Delete containers cleanly when done
 
 ## Quick Start
 
@@ -76,7 +76,7 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 
 Agent configurations and credentials are automatically mounted:
 
-- `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.qwen`, `~/.local/state/opencode` , `~/.local/share/opencode` - Agent configurations
+- `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.pi`, `~/.qwen`, `~/.local/state/opencode`, `~/.local/share/opencode` - Agent configurations
 - `~/.android` - Android ADB keys
 - `~/.config/md` - md configuration
 

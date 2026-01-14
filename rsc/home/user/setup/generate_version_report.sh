@@ -58,6 +58,8 @@
 	check_version "curl" "curl" "--version"
 	check_version "SQLite" "sqlite3" "--version"
 	check_version "asciinema" "asciinema" "--version"
+	check_version "FFmpeg" "ffmpeg" "-hide_banner -version | head -n 1"
+	check_version "ImageMagick" "magick" "--version | head -n 1"
 
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"

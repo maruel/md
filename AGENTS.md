@@ -11,7 +11,8 @@ A file to [guide coding agents](https://agents.md/).
 - When modifying scripts that require specific environment setup, consider using the login shell option (`#!/bin/bash -l`) in wrapper scripts like `measure_exec.sh` to ensure proper environment loading instead of modifying environment variables directly in the scripts.
 - No tests should be written for any changes made to the codebase.
 - For Python code changes, ensure code passes `pylint` and `ruff` checks as defined in `.github/workflows/docker-build.yml`
-- When adding new tools to the system, they must also be added to `rsc/home/user/setup/generate_version_report.sh` to ensure they appear in version reports. The script generates `/var/log/tool_versions.md` which is used in release notes and build reports.
+- When adding new tools to the system, they must also be added to `rsc/home/user/setup/generate_version_report.sh` to ensure they appear in version reports
+- The script generates `/var/log/tool_versions.md` which is used in release notes and build reports
 
 ## Directory Layout (rsc/)
 

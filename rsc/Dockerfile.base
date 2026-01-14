@@ -9,7 +9,7 @@
 # This is the generic portion of the image which is then specialized for your SSH keys.
 
 # We don't need it to be stuck on old images so just fetch whatever is current latest.
-FROM docker.io/debian:stable
+FROM docker.io/debian:stable AS final
 # FROM ghcr.io/linuxcontainers/debian-slim:latest
 
 ## First phase, setup as root.
@@ -66,3 +66,8 @@ RUN su user -c "measure_exec.sh 'Version Report' /home/user/setup/generate_versi
 
 # Start SSH server by default
 CMD ["/root/start.sh"]
+
+# Stage to export reports
+FROM scratch AS reports
+COPY --from=final /var/log/tool_versions.md /
+COPY --from=final /var/log/build_timings.md /

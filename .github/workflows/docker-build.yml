@@ -73,35 +73,31 @@ jobs:
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' && inputs.version == '' }}
             type=raw,value=latest,enable=${{ inputs.version != '' }}
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
-      - name: Build and Load
-        uses: docker/build-push-action@v6
+      - name: Prepare reports directory
+        run: mkdir -p reports
+      - uses: docker/build-push-action@v6
         id: build
         with:
           context: rsc
           file: rsc/Dockerfile.base
           platforms: ${{ matrix.platform }}
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
+          target: reports
+          outputs: type=local,dest=reports
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Extract tool versions and timings
         run: |
-          docker create --name extractor "${{ steps.build.outputs.imageid }}"
-          docker cp extractor:/var/log/tool_versions.md tool_versions.md
-          docker cp extractor:/var/log/build_timings.md build_timings.md
-          docker rm extractor
           PLATFORM="${{ matrix.platform }}"
           PLATFORM_SLUG="${PLATFORM//\//-}"
           echo "PLATFORM_SLUG=$PLATFORM_SLUG" >> "$GITHUB_ENV"
           echo "# ${{ matrix.platform }}" >> $GITHUB_STEP_SUMMARY
-          cat tool_versions.md >> $GITHUB_STEP_SUMMARY
+          cat reports/tool_versions.md >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "#### Build Timings" >> $GITHUB_STEP_SUMMARY
-          cat build_timings.md >> $GITHUB_STEP_SUMMARY
-      - name: Push image
-        uses: docker/build-push-action@v6
+          cat reports/build_timings.md >> $GITHUB_STEP_SUMMARY
+      - uses: docker/build-push-action@v6
         id: push
         if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
         with:
@@ -124,4 +120,4 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: tool-versions-${{ env.PLATFORM_SLUG }}
-          path: tool_versions.md
+          path: reports/tool_versions.md

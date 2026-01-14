@@ -33,6 +33,7 @@ AGENT_CONFIG = {
     ],
     # XDG config paths (mounted to .config/)
     "xdg_config_paths": [
+        "agents",
         "amp",
         "goose",
         "md",

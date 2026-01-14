@@ -54,9 +54,9 @@ export PATH="$PATH:$(pwd)/md"
 
 **Recommended:** Also install [git-maruel](https://github.com/maruel/git-maruel) for the `git squash` and `git rb` helpers.
 
-**For coding agents:** Link your coding agent's AGENTS.md to read `/home/user/.config/agents/AGENTS.md` to provide
-information about preinstalled tools and system configuration inside the container. This helps agents
-understand the available development environment and save on tokens.
+**For coding agents:** The container includes `~/AGENTS.md` which provides
+information about preinstalled tools and system configuration. This helps
+agents understand the available development environment.
 
 ### Readme for agents (https://agents.md)
 
@@ -100,8 +100,8 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 
 Agent configurations and credentials are automatically mounted:
 
-- Agent configurations: `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.pi`, `~/.qwen`, `~/.config/opencode`,
-  `~/.local/state/opencode`, `~/.local/share/opencode`
+- Agent configurations: `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.pi`, `~/.qwen`,
+  `~/.config/agents`, `~/.config/opencode`, `~/.local/state/opencode`, `~/.local/share/opencode`
 - Android ADB keys: `~/.android`
 
 Environment variables can be passed via:

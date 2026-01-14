@@ -6,7 +6,7 @@ A file to [guide coding agents](https://agents.md/).
 
 - Make sure the code passes shellcheck after every change. Then format with `shfmt -l -w $script_name`
 - Update this file (AGENTS.md) everytime you make a change that affects this project's requirements.
-- Update rsc/home/user/.config/agents/AGENTS.md everytime you make a change that affects the agent inside the container.
+- Update rsc/home/user/AGENTS.md everytime you make a change that affects the agent inside the container.
 - When adding a new setup script in `rsc/root/setup/` or `rsc/home/user/setup/`, add a corresponding `RUN` command to `rsc/Dockerfile.base` to execute it during the build.
 - When modifying scripts that require specific environment setup, consider using the login shell option (`#!/bin/bash -l`) in wrapper scripts like `measure_exec.sh` to ensure proper environment loading instead of modifying environment variables directly in the scripts.
 - No tests should be written for any changes made to the codebase.
@@ -26,4 +26,4 @@ The `rsc/` directory contains Docker build context and system configuration:
   - `rsc/root/start.sh` - Container entrypoint
 - `rsc/home/user/` - User-context setup (copied as user to `/home/user/`)
   - `rsc/home/user/setup/` - User-level installation scripts (numbered 1+)
-  - `rsc/home/user/.config/agents/AGENTS.md` - Agent documentation inside container (keep in sync)
+  - `rsc/home/user/AGENTS.md` - Agent documentation inside container (keep in sync)

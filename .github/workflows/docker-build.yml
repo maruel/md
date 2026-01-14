@@ -44,7 +44,7 @@ jobs:
       - run: ruff check md
 
   docker-build:
-    needs: [setup, linter]
+    needs: [setup]
     strategy:
       fail-fast: false
       matrix:
@@ -144,10 +144,7 @@ jobs:
           merge-multiple: false
       - name: Merge and Upload Reports
         run: |
-          mkdir -p reports/amd64 reports/arm64
-          mv reports-amd64/* reports/amd64/
-          mv reports-arm64/* reports/arm64/
-          python3 .github/scripts/merge_tool_versions.py --amd64 reports/amd64/tool_versions.md --arm64 reports/arm64/tool_versions.md --output reports/tool_versions.md >> $GITHUB_STEP_SUMMARY
+          python3 .github/scripts/merge_tool_versions.py --amd64 reports/reports-amd64/tool_versions.md --arm64 reports/reports-arm64/tool_versions.md --output reports/tool_versions.md >> $GITHUB_STEP_SUMMARY
       - name: Create and Push Manifests
         run: |
           echo "${{ steps.meta.outputs.tags }}" | xargs -I {} sh -c 'docker buildx imagetools create -t {} {}-amd64 {}-arm64'

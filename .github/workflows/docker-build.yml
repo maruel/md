@@ -65,14 +65,36 @@ jobs:
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' && inputs.version == '' }}
             type=raw,value=latest,enable=${{ inputs.version != '' }}
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
-      - uses: docker/build-push-action@v6
-        id: push
+      - name: Build and Load
+        uses: docker/build-push-action@v6
+        id: build
         with:
           context: rsc
           file: rsc/Dockerfile.base
           platforms: ${{ matrix.platform }}
-          push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
-          load: ${{ github.event_name == 'pull_request' }}
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Extract tool versions
+        run: |
+          docker create --name extractor "${{ steps.build.outputs.imageid }}"
+          docker cp extractor:/home/user/tool_versions.md tool_versions.txt
+          docker rm extractor
+          PLATFORM="${{ matrix.platform }}"
+          PLATFORM_SLUG="${PLATFORM//\//-}"
+          echo "PLATFORM_SLUG=$PLATFORM_SLUG" >> "$GITHUB_ENV"
+      - name: Push image
+        uses: docker/build-push-action@v6
+        id: push
+        if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
+        with:
+          context: rsc
+          file: rsc/Dockerfile.base
+          platforms: ${{ matrix.platform }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
@@ -84,23 +106,6 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
-      - name: Extract tool versions
-        run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-             TAGs="${{ steps.meta.outputs.tags }}"
-             FIRST_TAG=$(echo "$TAGs" | head -n 1)
-             docker create --name extractor "$FIRST_TAG"
-          else
-             IMAGE_NAME="ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}"
-             docker create --name extractor "$IMAGE_NAME"
-          fi
-
-          docker cp extractor:/home/user/tool_versions.md tool_versions.txt
-          docker rm extractor
-
-          PLATFORM="${{ matrix.platform }}"
-          PLATFORM_SLUG="${PLATFORM//\//-}"
-          echo "PLATFORM_SLUG=$PLATFORM_SLUG" >> "$GITHUB_ENV"
       - name: Upload tool versions
         uses: actions/upload-artifact@v6
         with:

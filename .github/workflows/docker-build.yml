@@ -97,11 +97,6 @@ jobs:
           outputs: type=local,dest=reports/${{ matrix.arch }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
-      - name: Read tool versions
-        id: tool_versions
-        run: |
-          DESCRIPTION=$(cat reports/${{ matrix.arch }}/tool_versions.md | sed ':a;N;$!ba;s/\n/\\n/g')
-          echo "description=$DESCRIPTION" >> "$GITHUB_OUTPUT"
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push
@@ -114,7 +109,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           annotations: |
-            org.opencontainers.image.description=${{ steps.tool_versions.outputs.description }}
+            org.opencontainers.image.description=Dev environment with Go, Python, Node, Rust, and more.
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           provenance: false
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
@@ -171,9 +167,9 @@ jobs:
           TAGS="${{ steps.meta.outputs.tags }}"
           FIRST_TAG=$(echo "$TAGS" | head -n 1)
           TAG_ARGS=$(echo "$TAGS" | awk '{printf "-t %s ", $0}')
-          DESCRIPTION=$(cat reports/tool_versions.md)
           docker buildx imagetools create $TAG_ARGS \
-            --annotation "org.opencontainers.image.description=${DESCRIPTION}" \
+            --annotation "org.opencontainers.image.description=Dev environment with Go, Python, Node, Rust, and more." \
+            --annotation "org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             "${FIRST_TAG}-amd64" "${FIRST_TAG}-arm64"
           DIGEST=$(docker buildx imagetools inspect "${FIRST_TAG}" | grep "Digest:" | head -n 1 | awk '{print $2}')
           echo "image=${FIRST_TAG%:*}" >> "$GITHUB_OUTPUT"

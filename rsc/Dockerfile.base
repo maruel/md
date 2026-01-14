@@ -44,12 +44,11 @@ RUN mkdir /app && chown user:user /app
 
 ### Second phase, as user
 
+USER user
+SHELL ["/bin/bash", "-ilc"]
+
 # Copy all /home/user files.
 COPY --chown=user:user home/user/ /home/user/
-
-USER user
-WORKDIR /app
-SHELL ["/bin/bash", "-ilc"]
 
 RUN mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share && \
 	chmod 0700 /home/user/.ssh && \

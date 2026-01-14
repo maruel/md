@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
+import argparse
+import datetime
 import os
 import re
 import sys
-import datetime
 from pathlib import Path
 
 
@@ -16,7 +17,8 @@ def parse_markdown_table(file_path):
 
     with open(file_path, "r") as f:
         for line in f:
-            match = re.match(r"^|\s*(.*?)\s*|\s*(.*?)\s*|$", line)
+            # Match markdown table row: | Tool | Version |
+            match = re.match(r"^\|\s*(.*?)\s*\|\s*(.*?)\s*\|$", line)
             if match:
                 tool = match.group(1).strip()
                 version = match.group(2).strip()
@@ -28,37 +30,92 @@ def parse_markdown_table(file_path):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: merge_tool_versions.py <amd64_file> <arm64_file> <output_file>")
+    parser = argparse.ArgumentParser(description="Merge tool version reports from different architectures.")
+    parser.add_argument("--amd64", required=False, help="Path to amd64 tool versions report")
+    parser.add_argument("--arm64", required=False, help="Path to arm64 tool versions report")
+    parser.add_argument("--output", required=False, help="Path to save the unified output report")
+
+    args = parser.parse_args()
+
+    amd64_path = args.amd64
+    arm64_path = args.arm64
+
+    # At least one architecture must be provided
+    if not amd64_path and not arm64_path:
+        print("Error: At least one of --amd64 or --arm64 must be provided.", file=sys.stderr)
         sys.exit(1)
 
-    amd64_file = sys.argv[1]
-    arm64_file = sys.argv[2]
-    output_file = sys.argv[3]
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    amd64_tools = parse_markdown_table(amd64_file)
-    arm64_tools = parse_markdown_table(arm64_file)
+    amd64_tools = parse_markdown_table(amd64_path) if amd64_path else {}
+    arm64_tools = parse_markdown_table(arm64_path) if arm64_path else {}
 
-    # Get all unique tools in order of appearance
+    # Get all unique tools, maintaining order from amd64 then arm64
     all_tools = []
     seen = set()
-
-    # Maintain order from files
     for tools in [amd64_tools, arm64_tools]:
         for tool in tools:
             if tool not in seen:
                 all_tools.append(tool)
                 seen.add(tool)
 
-    with open(output_file, "w") as f:
-        f.write("# Image Tool Versions (Unified)\n\n")
-        f.write("| Tool | amd64 | arm64 |\n")
-        f.write("| :--- | :--- | :--- |\n")
-
+    # Generate unified tool versions content
+    content = [
+        "# Image Tool Versions (Unified)",
+        f"Generated on {now}",
+        "",
+    ]
+    # Determine which columns to include based on provided architectures
+    if amd64_path and arm64_path:
+        # Both architectures provided
+        content.extend([
+            "| Tool | amd64 | arm64 | ",
+            "| :--- | :--- | :--- |",
+        ])
         for tool in all_tools:
             v_amd64 = amd64_tools.get(tool, "Not found")
             v_arm64 = arm64_tools.get(tool, "Not found")
-            f.write(f"| {tool} | {v_amd64} | {v_arm64} |\n")
+            content.append(f"| {tool} | {v_amd64} | {v_arm64} |")
+    elif amd64_path:
+        # Only amd64 provided
+        content.extend([
+            "| Tool | amd64 |",
+            "| :--- | :--- |",
+        ])
+        for tool in all_tools:
+            v_amd64 = amd64_tools.get(tool, "Not found")
+            content.append(f"| {tool} | {v_amd64} |")
+    elif arm64_path:
+        # Only arm64 provided
+        content.extend([
+            "| Tool | arm64 |",
+            "| :--- | :--- |",
+        ])
+        for tool in all_tools:
+            v_arm64 = arm64_tools.get(tool, "Not found")
+            content.append(f"| {tool} | {v_arm64} |")
+    unified_content = "\n".join(content) + "\n"
+
+    # Save the unified report
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(unified_content)
+    print(unified_content)
+
+    # Find and append all build_timings.md (still discoverable in reports/)
+    reports_root = Path("reports")
+    timings = sorted(reports_root.glob("**/build_timings.md"))
+    if timings:
+        print("\n## Build Timings\n")
+        for timing_file in timings:
+            try:
+                platform = timing_file.parent.relative_to(reports_root)
+            except ValueError:
+                platform = timing_file.parent
+            print(f"\n### {platform}\n")
+            print(timing_file.read_text())
+            print("\n")
 
 
 if __name__ == "__main__":

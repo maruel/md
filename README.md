@@ -54,7 +54,7 @@ export PATH="$PATH:$(pwd)/md"
 
 **Recommended:** Also install [git-maruel](https://github.com/maruel/git-maruel) for the `git squash` and `git rb` helpers.
 
-**For coding agents:** Link your coding agent's AGENTS.md to read `~/.config/agents/AGENTS.md` to provide
+**For coding agents:** Link your coding agent's AGENTS.md to read `/home/user/.config/agents/AGENTS.md` to provide
 information about preinstalled tools and system configuration inside the container. This helps agents
 understand the available development environment and save on tokens.
 

@@ -36,7 +36,7 @@ jobs:
             # Fetch tags just in case
             git fetch --tags --force
             # Get latest tag (suppress error if no tags exist)
-            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0")
             echo "Latest tag found: $LATEST_TAG"
             # Strip leading 'v'
             VERSION_NO_V="${LATEST_TAG#v}"
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
-          name: tool-versions-linux-amd64
+          name: tool-versions
       - name: Tag and Push
         run: |
           VERSION="${{ needs.setup.outputs.version }}"

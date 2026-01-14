@@ -216,8 +216,9 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
 
     print(f"\nBase branch '{git_current_branch}' has been set up in the container as 'base' for easy diffing.")
     print("Inside the container, you can use 'git diff base' to see your changes.\n")
-    print("When done:")
-    print(f"  docker rm -f {container_name}")
+    print(f"When done while on branch {git_current_branch}:")
+    print("  md kill")
+    return 0
 
 
 @argument("--tag", default="latest", help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
@@ -269,7 +270,9 @@ def cmd_start(args):
         sys.exit(1)
     if not build_customized_image(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image):
         return 1
-    run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch)
+    result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch)
+    if result != 0:
+        return 1
     run_cmd(["ssh", args.container_name])
     return 0
 

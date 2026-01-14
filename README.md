@@ -76,7 +76,7 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 
 Agent configurations and credentials are automatically mounted:
 
-- `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.qwen`, `~/.opencode` - Agent configurations
+- `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.qwen`, `~/.local/share/opencode` - Agent configurations
 - `~/.android` - Android ADB keys
 - `~/.config/md` - md configuration
 - `~/.local/share/` - Agent data directories

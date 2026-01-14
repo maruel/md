@@ -198,8 +198,8 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     for agent_path in AGENT_CONFIG["home_paths"]:
         mounts.extend(["-v", f"{home}/{agent_path}:/home/user/{agent_path}"])
     for config_path in AGENT_CONFIG["xdg_config_paths"]:
-        read_only = "ro" if config_path == "md" else ""
-        mounts.extend(["-v", f"{xdg_config_home}/{config_path}:/home/user/.config/{config_path}:{read_only}"])
+        read_only = ":ro" if config_path == "md" else ""
+        mounts.extend(["-v", f"{xdg_config_home}/{config_path}:/home/user/.config/{config_path}{read_only}"])
     for share_path in AGENT_CONFIG["local_share_paths"]:
         mounts.extend(["-v", f"{xdg_data_home}/{share_path}:/home/user/.local/share/{share_path}"])
     for state_path in AGENT_CONFIG["local_state_paths"]:

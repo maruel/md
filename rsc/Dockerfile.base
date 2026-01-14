@@ -19,16 +19,26 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Copy all /etc files.
 COPY etc/ /etc/
 
+# Copy all /usr files.
+COPY usr/ /usr/
+
 # Copy all /root files.
 COPY root/ /root/
+
+# Setup measurement tool and version report file
+RUN echo "| Step | Command | Duration |" > /var/log/build_timings.md && \
+    echo "|---|---|---|" >> /var/log/build_timings.md && \
+    touch /var/log/tool_versions.md && \
+    chmod 666 /var/log/build_timings.md /var/log/tool_versions.md
+
 # Install tools (as root)
-RUN /root/setup/1_packages.sh
+RUN measure_exec.sh "System Packages" /root/setup/1_packages.sh
 RUN --mount=type=secret,id=github_token \
-	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" /root/setup/2_neovim.sh'
+	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "Neovim" /root/setup/2_neovim.sh'
 RUN --mount=type=secret,id=github_token \
-	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" /root/setup/3_geckodriver.sh'
-RUN /root/setup/4_create_user.sh
-RUN /root/setup/5_kvm.sh
+	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "GeckoDriver" /root/setup/3_geckodriver.sh'
+RUN measure_exec.sh "Create User" /root/setup/4_create_user.sh
+RUN measure_exec.sh "KVM Setup" /root/setup/5_kvm.sh
 
 
 ### Second phase, as user
@@ -44,15 +54,15 @@ RUN chown user:user /app
 RUN su user -c "git init /app"
 
 # Install tools (as user)
-RUN su user -c /home/user/setup/1_go.sh
-RUN su user -c /home/user/setup/2_nodejs.sh
-RUN su user -c /home/user/setup/3_llm.sh
-RUN su user -c /home/user/setup/4_android.sh
-RUN su user -c /home/user/setup/5_rust.sh
-RUN su user -c /home/user/setup/6_python.sh
+RUN su user -c "measure_exec.sh 'Go' /home/user/setup/1_go.sh"
+RUN su user -c "measure_exec.sh 'Node.js' /home/user/setup/2_nodejs.sh"
+RUN su user -c "measure_exec.sh 'LLM Tools' /home/user/setup/3_llm.sh"
+RUN su user -c "measure_exec.sh 'Android SDK' /home/user/setup/4_android.sh"
+RUN su user -c "measure_exec.sh 'Rust' /home/user/setup/5_rust.sh"
+RUN su user -c "measure_exec.sh 'Python' /home/user/setup/6_python.sh"
 
 # Generate tool version report
-RUN su user -c /home/user/generate_version_report.sh
+RUN su user -c "measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh"
 
 # Start SSH server by default
 CMD ["/root/start.sh"]

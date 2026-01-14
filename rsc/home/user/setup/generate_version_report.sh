@@ -21,8 +21,11 @@ fi
 if [ -d "$HOME/.local/go/bin" ]; then
 	export PATH="$HOME/.local/go/bin:$PATH"
 fi
+if [ -d "$HOME/.local/bin" ]; then
+	export PATH="$HOME/.local/bin:$PATH"
+fi
 
-OUTPUT_FILE="/home/user/tool_versions.md"
+OUTPUT_FILE="/var/log/tool_versions.md"
 
 {
 	echo "# Image Tool Versions"

@@ -72,13 +72,37 @@ jobs:
           file: rsc/Dockerfile.base
           platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - uses: actions/attest-build-provenance@v3
+        if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+      - name: Extract tool versions
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+             TAGs="${{ steps.meta.outputs.tags }}"
+             FIRST_TAG=$(echo "$TAGs" | head -n 1)
+             docker create --name extractor "$FIRST_TAG"
+          else
+             IMAGE_NAME="ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}"
+             docker create --name extractor "$IMAGE_NAME"
+          fi
+
+          docker cp extractor:/home/user/tool_versions.md tool_versions.txt
+          docker rm extractor
+
+          PLATFORM="${{ matrix.platform }}"
+          PLATFORM_SLUG="${PLATFORM//\//-}"
+          echo "PLATFORM_SLUG=$PLATFORM_SLUG" >> "$GITHUB_ENV"
+      - name: Upload tool versions
+        uses: actions/upload-artifact@v6
+        with:
+          name: tool-versions-${{ env.PLATFORM_SLUG }}
+          path: tool_versions.txt

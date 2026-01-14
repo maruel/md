@@ -65,6 +65,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: tool-versions-linux-amd64
       - name: Tag and Push
         run: |
           VERSION="${{ needs.setup.outputs.version }}"
@@ -75,4 +78,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.setup.outputs.version }}"
-          gh release create "$VERSION" --title "$VERSION" --generate-notes
+          gh release create "$VERSION" tool_versions.txt --title "$VERSION" --generate-notes

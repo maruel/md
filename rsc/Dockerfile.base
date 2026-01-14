@@ -51,5 +51,8 @@ RUN su user -c /home/user/setup/4_android.sh
 RUN su user -c /home/user/setup/5_rust.sh
 RUN su user -c /home/user/setup/6_python.sh
 
+# Generate tool version report
+RUN su user -c /home/user/generate_version_report.sh
+
 # Start SSH server by default
 CMD ["/root/start.sh"]

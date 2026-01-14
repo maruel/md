@@ -2,7 +2,8 @@
 # Common shell defaults for interactive sessions.
 
 export SHELL="${SHELL:-/bin/bash}"
-export PATH="$HOME/.local/bin:$PATH"
+export PNPM_HOME="$HOME/.local/share/pnpm"
+export PATH="$PNPM_HOME:$HOME/.local/bin:$PATH"
 export EDITOR=nvim
 
 if command -v dircolors >/dev/null 2>&1; then

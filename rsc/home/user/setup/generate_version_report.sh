@@ -41,19 +41,20 @@ export HOME="/home/user"
 	check_version "Node.js" "node" "--version"
 	check_version "Rust" "rustc" "--version"
 	check_version "Java" "java" "-version"
-	check_version "TypeScript" "tsc" "--version"
-	check_version "Bun" "bun" "--version"
 
 	# Build Tools
+	check_version "awk" "awk" "--version"
 	check_version "Git" "git" "--version"
 	check_version "Make" "make" "--version"
 	check_version "CMake" "cmake" "--version"
+	check_version "Clang" "clang" "--version"
 	check_version "GCC" "gcc" "--version"
 	check_version "G++" "g++" "--version"
 
 	# Utilities
 	check_version "ShellCheck" "shellcheck" "--version"
 	check_version "shfmt" "shfmt" "--version"
+	check_version "yq" "yq" "--version"
 	check_version "bubblewrap" "bwrap" "--version"
 	check_version "jq" "jq" "--version"
 	check_version "actionlint" "actionlint" "--version"
@@ -66,8 +67,17 @@ export HOME="/home/user"
 
 	# Python Tools
 	check_version "uv" "uv" "--version"
+	check_version "black" "black" "--version"
 	check_version "Pylint" "pylint" "--version"
 	check_version "Ruff" "ruff" "--version"
+
+	# Node.js Tools
+	check_version "TypeScript" "tsc" "--version"
+	check_version "Bun" "bun" "--version"
+	check_version "pnpm" "pnpm" "--version"
+	check_version "prettier" "prettier" "--version"
+	check_version "ESLint" "eslint" "--version"
+	check_version "tsx" "tsx" "--version"
 
 	# Android
 	check_version "ADB" "adb" "version"
@@ -94,7 +104,5 @@ export HOME="/home/user"
 	check_version "Qwen Code" "qwen" "--version"
 	check_version "OpenCode" "opencode" "--version"
 	check_version "Amp" "amp" "--version"
-	check_version "ESLint" "eslint" "--version"
-	check_version "tsx" "tsx" "--version"
 
 }

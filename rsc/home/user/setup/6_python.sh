@@ -10,5 +10,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
 . "$HOME/.local/bin/env" 2>/dev/null || true
 
 # Install Python development tools
+uv tool install --quiet black
 uv tool install --quiet pylint
 uv tool install --quiet ruff

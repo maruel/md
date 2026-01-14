@@ -16,6 +16,7 @@ apt-get install -qq -y --no-install-recommends \
 	bubblewrap \
 	build-essential \
 	ca-certificates \
+	clang \
 	cmake \
 	cpu-checker \
 	curl \

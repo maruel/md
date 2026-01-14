@@ -4,6 +4,8 @@ For agents running in this container environment.
 
 ## Preinstalled Tools
 
+For a complete and up-to-date list of tool versions, see `/var/log/tool_versions.md`.
+
 Notable executables available in the container:
 
 - **Core utilities**: bash, git, curl, wget, rsync, jq, grep (ripgrep), less, file, find, xargs, sed, awk, bubblewrap, xvfb

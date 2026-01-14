@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.6
 
 # Copyright 2025 Marc-Antoine Ruel. All Rights Reserved. Use of this
-# source code is governed by a BSD-style license that can be found in the
-# LICENSE file.
+# source code is governed by an Apache License, Version 2.0 that can be found
+# in the LICENSE file.
 #
 # Dockerfile to create md.base
 #
@@ -10,6 +10,7 @@
 
 # We don't need it to be stuck on old images so just fetch whatever is current latest.
 FROM docker.io/debian:stable AS final
+LABEL org.opencontainers.image.licenses=Apache-2.0
 # FROM ghcr.io/linuxcontainers/debian-slim:latest
 
 ## First phase, setup as root.

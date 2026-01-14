@@ -1,6 +1,6 @@
 # Copyright 2025 Marc-Antoine Ruel. All Rights Reserved. Use of this
-# source code is governed by a BSD-style license that can be found in the
-# LICENSE file.
+# source code is governed by an Apache License, Version 2.0 that can be found
+# in the LICENSE file.
 
 ARG BASE_IMAGE=ghcr.io/maruel/md:latest
 FROM ${BASE_IMAGE}
@@ -12,6 +12,7 @@ ARG CONTEXT_SHA=unknown
 ARG ENV_FILE
 
 LABEL \
+	org.opencontainers.image.licenses=Apache-2.0 \
 	md.base_image="${BASE_IMAGE}" \
 	md.base_digest="${BASE_IMAGE_DIGEST}" \
 	md.context_sha="${CONTEXT_SHA}"

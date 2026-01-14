@@ -39,30 +39,36 @@ RUN --mount=type=secret,id=github_token \
 RUN measure_exec.sh "Create User" /root/setup/3_create_user.sh
 RUN measure_exec.sh "KVM Setup" /root/setup/4_kvm.sh
 
+# Create app directory
+RUN mkdir /app && chown user:user /app
 
 ### Second phase, as user
 
 # Copy all /home/user files.
 COPY --chown=user:user home/user/ /home/user/
-RUN su -l user -c "mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share"
-RUN chmod 0700 /home/user/.ssh
 
-# Create app directory (as user)
-RUN mkdir /app
-RUN chown user:user /app
-RUN su -l user -c "git init /app"
+USER user
+WORKDIR /app
+SHELL ["/bin/bash", "-ilc"]
+
+RUN mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share && \
+	chmod 0700 /home/user/.ssh && \
+	git init /app
 
 # Install tools (as user)
-RUN su -l user -c "measure_exec.sh 'Go' /home/user/setup/1_go.sh"
-RUN su -l user -c "measure_exec.sh 'Node.js' /home/user/setup/2_nodejs.sh"
-RUN su -l user -c "measure_exec.sh 'LLM Tools' /home/user/setup/3_llm.sh"
-RUN su -l user -c "measure_exec.sh 'Android SDK' /home/user/setup/4_android.sh"
+RUN measure_exec.sh 'Go' /home/user/setup/1_go.sh
+RUN measure_exec.sh 'Node.js' /home/user/setup/2_nodejs.sh
+RUN measure_exec.sh 'LLM Tools' /home/user/setup/3_llm.sh
+RUN measure_exec.sh 'Android SDK' /home/user/setup/4_android.sh
 RUN --mount=type=secret,id=github_token \
-	su -l user -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "Rust" /home/user/setup/5_rust.sh'
-RUN su -l user -c "measure_exec.sh 'Python' /home/user/setup/6_python.sh"
+	GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "Rust" /home/user/setup/5_rust.sh
+RUN measure_exec.sh 'Python' /home/user/setup/6_python.sh
 
 # Generate tool version report
-RUN su -l user -c "measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /var/log/tool_versions.md"
+RUN measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /var/log/tool_versions.md
+
+USER root
+SHELL ["/bin/bash", "-c"]
 
 # Start SSH server by default
 CMD ["/root/start.sh"]

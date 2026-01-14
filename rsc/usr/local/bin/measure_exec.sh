@@ -4,8 +4,8 @@
 set -e
 
 if [ "$#" -lt 2 ]; then
-  echo "Usage: $0 <Label> <Command> [Args...]"
-  exit 1
+	echo "Usage: $0 <Label> <Command> [Args...]"
+	exit 1
 fi
 
 LABEL="$1"
@@ -26,4 +26,4 @@ SEC=$((ELAPSED % 60))
 DURATION=$(printf "%dm%02ds" $MIN $SEC)
 
 OUTPUT_FILE="/var/log/build_timings.md"
-echo "| $LABEL | $CMD_BASENAME | $DURATION |" >> "$OUTPUT_FILE"
+echo "| $LABEL | $CMD_BASENAME | $DURATION |" >>"$OUTPUT_FILE"

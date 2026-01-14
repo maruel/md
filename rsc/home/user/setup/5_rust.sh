@@ -11,7 +11,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 # Install additional rust tools
 rustup component add clippy rust-analyzer rustfmt
-cargo install cargo-edit cargo-update
 
-# Install asciinema from source at the moment since it's not the right package;
-cargo install --locked --quiet --git https://github.com/asciinema/asciinema asciinema
+# Install cargo-binstall for fast binary installations
+curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
+# Install tools using binstall to avoid compiling from source
+cargo binstall -y cargo-edit cargo-update asciinema

@@ -6,6 +6,5 @@
 *~
 .DS_Store
 .coverage
-.letta
 .vscode
 cover.cov

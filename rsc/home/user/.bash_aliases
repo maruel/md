@@ -8,7 +8,6 @@ alias amp="\$(which amp) --dangerously-allow-all"
 alias claude="\$(which claude) --dangerously-skip-permissions --allow-dangerously-skip-permissions"
 alias codex="\$(which codex) --dangerously-bypass-approvals-and-sandbox"
 alias gemini="\$(which gemini) --yolo"
-alias letta="\$(which letta) --yolo"
 alias qwen="\$(which qwen) --yolo"
 
 if [ -f "$HOME/.env" ]; then

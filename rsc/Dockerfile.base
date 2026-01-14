@@ -35,10 +35,8 @@ RUN echo "| Step | Command | Duration |" > /var/log/build_timings.md && \
 RUN measure_exec.sh "System Packages" /root/setup/1_packages.sh
 RUN --mount=type=secret,id=github_token \
 	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "Neovim" /root/setup/2_neovim.sh'
-RUN --mount=type=secret,id=github_token \
-	/bin/bash -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "GeckoDriver" /root/setup/3_geckodriver.sh'
-RUN measure_exec.sh "Create User" /root/setup/4_create_user.sh
-RUN measure_exec.sh "KVM Setup" /root/setup/5_kvm.sh
+RUN measure_exec.sh "Create User" /root/setup/3_create_user.sh
+RUN measure_exec.sh "KVM Setup" /root/setup/4_kvm.sh
 
 
 ### Second phase, as user

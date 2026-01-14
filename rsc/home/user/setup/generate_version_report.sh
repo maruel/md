@@ -89,14 +89,6 @@ fi
 
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"
-	if command -v firefox >/dev/null 2>&1; then
-		# specific handling for firefox to avoid sandbox error in container
-		FF_VER=$(dpkg-query -W -f='${Version}' firefox 2>/dev/null || echo "Error")
-		echo "| Firefox | $FF_VER |"
-	else
-		echo "| Firefox | Not found |"
-	fi
-	check_version "Geckodriver" "geckodriver" "--version"
 
 	# Python Tools
 	check_version "uv" "uv" "--version"
@@ -128,7 +120,6 @@ fi
 	check_version "Qwen Code" "qwen" "--version"
 	check_version "OpenCode" "opencode" "--version"
 	check_version "Amp" "amp" "--version"
-	check_version "Letta Code" "letta" "--version"
 	check_version "ESLint" "eslint" "--version"
 	check_version "tsx" "tsx" "--version"
 

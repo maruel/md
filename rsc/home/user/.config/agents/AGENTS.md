@@ -8,11 +8,10 @@ Notable executables available in the container:
 
 - **Core utilities**: bash, git, curl, wget, rsync, jq, grep (ripgrep), less, file, find, xargs, sed, awk, bubblewrap, xvfb
 - **Editors**: nvim (vi, vim, vimdiff)
-- **Web**: firefox, geckodriver
 - **Compression**: brotli, zstd, unzip
 - **Development**: build-essential, git, actionlint, shellcheck, shfmt, cmake, make, gcc, g++, cargo-binstall, pylint, ruff, uv, asciinema
 - **Languages**: node (v24), npm, go, python3, java, typescript, eslint, tsx, rust (cargo, rustc), bun
-- **AI Tools**: claude, gemini, codex, qwen-code, opencode, amp, letta-code
+- **AI Tools**: claude, gemini, codex, qwen-code, opencode, amp
 - **Virtualization**: qemu-kvm, libvirt-clients, podman
 - **Media**: ffmpeg, imagemagick
 - **Containers**: podman, docker

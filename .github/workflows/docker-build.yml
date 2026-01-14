@@ -104,6 +104,7 @@ jobs:
           context: rsc
           file: rsc/Dockerfile.base
           platforms: ${{ matrix.platform }}
+          target: final
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           provenance: false

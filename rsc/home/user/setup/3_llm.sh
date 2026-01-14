@@ -15,9 +15,11 @@ npm install --silent --no-fund -g \
 	@letta-ai/letta-code \
 	@openai/codex \
 	@qwen-code/qwen-code@latest \
-	@sourcegraph/amp \
-	opencode-ai \
 	vscode-langservers-extracted
+
+# Install OpenCode and Amp
+curl -fsSL https://opencode.ai/install | bash
+curl -fsSL https://ampcode.com/install.sh | bash
 
 # This is SO annoying. What were they thinking?
 ln -s "$HOME/.claude/claude.json" "$HOME/.claude.json"

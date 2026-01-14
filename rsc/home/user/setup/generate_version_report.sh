@@ -101,5 +101,6 @@
 	check_version "Qwen Code" "qwen" "--version"
 	check_version "OpenCode" "opencode" "--version"
 	check_version "Amp" "amp" "--version"
+	check_version "pi" "pi" "--version"
 
 }

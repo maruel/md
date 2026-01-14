@@ -59,6 +59,12 @@ jobs:
     with:
       version: ${{ needs.setup.outputs.version }}
     secrets: inherit
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
 
   finalize-release:
     needs: [setup, build-container]

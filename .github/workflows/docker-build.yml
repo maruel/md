@@ -28,6 +28,8 @@ jobs:
       - run: shellcheck -x rsc/**/*.sh
       - run: $HOME/go/bin/shfmt -d rsc/**/*.sh
       - uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
       - run: pip install pylint ruff
       - run: pylint md
       - run: ruff check md

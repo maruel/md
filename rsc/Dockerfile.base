@@ -64,6 +64,7 @@ RUN --mount=type=secret,id=github_token \
 RUN measure_exec.sh 'Python' /home/user/setup/6_python.sh
 
 # Generate tool version report
+SHELL ["/bin/bash", "-ilc"]
 RUN measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /var/log/tool_versions.md
 
 USER root

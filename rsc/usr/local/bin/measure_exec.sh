@@ -1,4 +1,4 @@
-#!/bin/bash -l
+#!/bin/bash
 # Wrapper script to measure execution time of a command and log it to a markdown table.
 
 set -e

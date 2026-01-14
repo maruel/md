@@ -58,6 +58,8 @@ export PATH="$PATH:$(pwd)/md"
 information about preinstalled tools and system configuration inside the container. This helps agents
 understand the available development environment and save on tokens.
 
+### Readme for agents (https://agents.md)
+
 - [amp](https://ampcode.com/manual#AGENTS.md): `~/.config/amp/AGENTS.md`
 - [claude](https://www.anthropic.com/engineering/claude-code-best-practices): `~/.claude/CLAUDE.md`
 - [codex](https://developers.openai.com/codex/guides/agents-md/): `~/.codex/AGENTS.md`
@@ -65,6 +67,16 @@ understand the available development environment and save on tokens.
 - [opencode](https://opencode.ai/docs/rules/): `~/.config/opencode/AGENTS.md`
 - [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md): `~/.pi/agent/AGENTS.md`
 - [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/#example-context-file-content-eg-qwenmd): `~/.qwen/QWEN.md`
+
+### Skills (https://agentskills.io)
+
+- [amp](https://ampcode.com/manual#agent-skills): `~/.config/agents/skills/**/SKILL.md` (recursive)
+- [claude](https://code.claude.com/docs/en/skills): `~/.claude/skill/<name>/SKILL.md`
+- [codex](https://developers.openai.com/codex/skills): `~/.codex/skill/**/SKILL.md` (recursive)
+- [gemini](https://geminicli.com/docs/cli/skills/): `~/.gemini/skill/<name>/SKILL.md`
+- [opencode](https://opencode.ai/docs/skills/): `~/.config/opencode/skill/<name>/SKILL.md`
+- [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills): `~/.pi/skill/**/SKILL.md` (recursive)
+- [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/): `~/.qwen/skill/<name>/SKILL.md`
 
 ## How It Works
 

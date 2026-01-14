@@ -81,6 +81,7 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
             base_image = "md-base"
         elif date_to_epoch(local_base) > date_to_epoch(remote_base):
             print(f"- Local md-base image is newer, using local build instead of {base_image}")
+            print(f"  Run 'docker image rm md-base' to delete the local image.")
             base_image = "md-base"
 
     if base_image != "md-base":

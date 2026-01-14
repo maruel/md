@@ -76,7 +76,7 @@ def date_to_epoch(date_str):
         return 0
 
 
-def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, base_image):
+def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, base_image, tag_explicitly_provided=False):
     """Build the user customized Docker image."""
     rsc_dir = f"{script_dir}/rsc"
     machine = platform.machine().lower()
@@ -91,16 +91,18 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
         f.write(pub_key)
     os.chmod(user_auth_keys, 0o600)
 
-    local_base = get_image_created_time("md-base")
-    if local_base:
-        remote_base = get_image_created_time(base_image)
-        if not remote_base:
-            print(f"- Remote {base_image} image not found, using local build instead")
-            base_image = "md-base"
-        elif date_to_epoch(local_base) > date_to_epoch(remote_base):
-            print(f"- Local md-base image is newer, using local build instead of {base_image}")
-            print("  Run 'docker image rm md-base' to delete the local image.")
-            base_image = "md-base"
+    # Only check for md-base if --tag was not explicitly provided (i.e., using default "latest")
+    if not tag_explicitly_provided and base_image == "ghcr.io/maruel/md:latest":
+        local_base = get_image_created_time("md-base")
+        if local_base:
+            remote_base = get_image_created_time(base_image)
+            if not remote_base:
+                print(f"- Remote {base_image} image not found, using local build instead")
+                base_image = "md-base"
+            elif date_to_epoch(local_base) > date_to_epoch(remote_base):
+                print(f"- Local md-base image is newer, using local build instead of {base_image}")
+                print("  Run 'docker image rm md-base' to delete the local image.")
+                base_image = "md-base"
 
     if base_image != "md-base":
         print(f"- Pulling base image {base_image} ...")
@@ -166,6 +168,8 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         f"{home}/.local/share/goose:/home/user/.local/share/goose",
         "-v",
         f"{home}/.local/share/opencode:/home/user/.local/share/opencode",
+        "-v",
+        f"{home}/.local/state/opencode:/home/user/.local/state/opencode",
     ]
 
     docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + kvm_args + localtime_args + mounts + [image_name]
@@ -219,7 +223,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     return 0
 
 
-@argument("--tag", default="latest", help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
+@argument("--tag", default=None, help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
 def cmd_start(args):
     """Pull base image with specified tag, rebuild if needed, start container, open shell."""
     host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
@@ -227,7 +231,14 @@ def cmd_start(args):
     user_auth_keys = Path(SCRIPT_DIR) / "rsc" / "home" / "user" / ".ssh" / "authorized_keys"
     home = Path.home()
     image_name = "md"
-    base_image = f"ghcr.io/maruel/md:{args.tag}"
+
+    # Determine the tag to use
+    # If --tag was not provided, use "latest" and check for md-base
+    # If --tag was provided, use the specified value and don't check for md-base
+    tag_explicitly_provided = args.tag is not None
+    tag_to_use = args.tag if tag_explicitly_provided else "latest"
+
+    base_image = f"ghcr.io/maruel/md:{tag_to_use}"
     md_user_key = str(home / ".ssh" / "md")
 
     paths = (
@@ -243,6 +254,7 @@ def cmd_start(args):
         home / ".local" / "share" / "amp",
         home / ".local" / "share" / "goose",
         home / ".local" / "share" / "opencode",
+        home / ".local" / "state" / "opencode",
         host_key_path.parent,
         user_auth_keys.parent,
         home / ".ssh" / "config.d",
@@ -265,7 +277,7 @@ def cmd_start(args):
     if returncode == 0:
         print(f"Container {args.container_name} already exists. SSH in with 'ssh {args.container_name}' or clean it up via 'md kill' first.", file=sys.stderr)
         sys.exit(1)
-    if not build_customized_image(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image):
+    if not build_customized_image(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image, tag_explicitly_provided):
         return 1
     result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch)
     if result != 0:

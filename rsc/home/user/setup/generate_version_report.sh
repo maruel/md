@@ -27,6 +27,9 @@ fi
 if [ -d "$HOME/.local/share/android-sdk/platform-tools" ]; then
 	export PATH="$HOME/.local/share/android-sdk/platform-tools:$PATH"
 fi
+if [ -d "$HOME/.bun/bin" ]; then
+	export PATH="$HOME/.bun/bin:$PATH"
+fi
 
 OUTPUT_FILE="/var/log/tool_versions.md"
 
@@ -67,6 +70,7 @@ OUTPUT_FILE="/var/log/tool_versions.md"
 	check_version "Rust" "rustc" "--version"
 	check_version "Java" "java" "-version"
 	check_version "TypeScript" "tsc" "--version"
+	check_version "Bun" "bun" "--version"
 
 	# Build Tools
 	check_version "Git" "git" "--version"

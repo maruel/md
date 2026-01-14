@@ -17,4 +17,6 @@ if ! which node &>/dev/null; then
 	nvm install --no-progress v24
 fi
 
+curl -fsSL https://bun.sh/install | bash
+
 npm install --silent --no-fund -g eslint tsx typescript typescript-eslint

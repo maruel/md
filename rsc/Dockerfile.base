@@ -58,7 +58,8 @@ RUN su user -c "measure_exec.sh 'Go' /home/user/setup/1_go.sh"
 RUN su user -c "measure_exec.sh 'Node.js' /home/user/setup/2_nodejs.sh"
 RUN su user -c "measure_exec.sh 'LLM Tools' /home/user/setup/3_llm.sh"
 RUN su user -c "measure_exec.sh 'Android SDK' /home/user/setup/4_android.sh"
-RUN su user -c "measure_exec.sh 'Rust' /home/user/setup/5_rust.sh"
+RUN --mount=type=secret,id=github_token \
+	su user -c 'GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "Rust" /home/user/setup/5_rust.sh'
 RUN su user -c "measure_exec.sh 'Python' /home/user/setup/6_python.sh"
 
 # Generate tool version report

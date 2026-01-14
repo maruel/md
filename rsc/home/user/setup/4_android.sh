@@ -34,11 +34,28 @@ SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 # Accept all licenses
 yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 
+echo "Determining latest SDK versions..."
+AVAILABLE_PACKAGES=$("$SDKMANAGER" --list | grep '^[[:space:]]' | awk '{print $1}')
+
+LATEST_BUILD_TOOLS=$(echo "$AVAILABLE_PACKAGES" | grep -E '^build-tools;[0-9.]+$' | sort -V | tail -n 1)
+LATEST_PLATFORM=$(echo "$AVAILABLE_PACKAGES" | grep -E '^platforms;android-[0-9]+$' | sort -V | tail -n 1)
+
+if [ -z "$LATEST_BUILD_TOOLS" ] || [ -z "$LATEST_PLATFORM" ]; then
+	echo "Error: Could not determine latest Android SDK versions."
+	exit 1
+fi
+
+echo "Selected Build Tools: $LATEST_BUILD_TOOLS"
+echo "Selected Platform: $LATEST_PLATFORM"
+
+# shellcheck disable=SC2034
+PLATFORM_VERSION=${LATEST_PLATFORM#platforms;}
+
 # Install required SDK components (emulator and system-images not available on arm64)
 SDK_PACKAGES=(
-	"build-tools;36.0.0"
+	"$LATEST_BUILD_TOOLS"
 	"platform-tools"
-	"platforms;android-36"
+	"$LATEST_PLATFORM"
 )
 
 # Emulator and system images take 3GiB which is a bit too large to always include in the base image.
@@ -56,7 +73,7 @@ SDK_PACKAGES=(
 #   	;;
 #   esac
 #	  SDK_PACKAGES+=(
-#	 	  "system-images;android-36;google_apis;${SYS_IMAGE_ABI}"
+#	 	  "system-images;${PLATFORM_VERSION};google_apis;${SYS_IMAGE_ABI}"
 # 	  "emulator"
 #   )
 # fi

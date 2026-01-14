@@ -24,6 +24,9 @@ fi
 if [ -d "$HOME/.local/bin" ]; then
 	export PATH="$HOME/.local/bin:$PATH"
 fi
+if [ -d "$HOME/.local/share/android-sdk/platform-tools" ]; then
+	export PATH="$HOME/.local/share/android-sdk/platform-tools:$PATH"
+fi
 
 OUTPUT_FILE="/var/log/tool_versions.md"
 
@@ -77,15 +80,44 @@ OUTPUT_FILE="/var/log/tool_versions.md"
 	check_version "jq" "jq" "--version"
 	check_version "curl" "curl" "--version"
 	check_version "SQLite" "sqlite3" "--version"
+	check_version "asciinema" "asciinema" "--version"
 
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"
-	check_version "Firefox" "firefox" "--version"
-	check_version "Geckodriver" "geckodriver" "--version"
+	# check_version "Firefox" "firefox" "--version"
+	# check_version "Geckodriver" "geckodriver" "--version"
+
+	# Python Tools
+	check_version "uv" "uv" "--version"
+	check_version "Pylint" "pylint" "--version"
+	check_version "Ruff" "ruff" "--version"
+
+	# Android
+	check_version "ADB" "adb" "version"
+	ANDROID_SDK_ROOT="$HOME/.local/share/android-sdk"
+	if [ -d "$ANDROID_SDK_ROOT/build-tools" ]; then
+		# shellcheck disable=SC2012
+		VERSION=$(ls -1 "$ANDROID_SDK_ROOT/build-tools" 2>/dev/null | sort -V | tail -n 1)
+		if [ -n "$VERSION" ]; then
+			echo "| Android Build-Tools | $VERSION |"
+		fi
+	fi
+	if [ -d "$ANDROID_SDK_ROOT/platforms" ]; then
+		# shellcheck disable=SC2012
+		VERSION=$(ls -1 "$ANDROID_SDK_ROOT/platforms" 2>/dev/null | sort -V | tail -n 1)
+		if [ -n "$VERSION" ]; then
+			echo "| Android Platform | $VERSION |"
+		fi
+	fi
 
 	# AI Tools
 	check_version "Claude CLI" "claude" "--version"
 	check_version "Gemini CLI" "gemini" "--version"
+	check_version "Codex" "codex" "--version"
+	check_version "Qwen Code" "qwen-code" "--version"
+	check_version "OpenCode" "opencode" "--version"
+	check_version "Amp" "amp" "--version"
+	check_version "Letta Code" "letta-code" "--version"
 	check_version "ESLint" "eslint" "--version"
 	check_version "tsx" "tsx" "--version"
 

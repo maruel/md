@@ -75,7 +75,7 @@ available development environment. Here's the locations:
 - [codex](https://developers.openai.com/codex/skills): `~/.codex/skill/**/SKILL.md` (recursive)
 - [gemini](https://geminicli.com/docs/cli/skills/): `~/.gemini/skill/<name>/SKILL.md`
 - [opencode](https://opencode.ai/docs/skills/): `~/.config/opencode/skill/<name>/SKILL.md`
-- [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills): `~/.pi/skill/**/SKILL.md` (recursive)
+- [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills): `~/.pi/agent/skills/**/SKILL.md` (recursive)
 - [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/): `~/.qwen/skill/<name>/SKILL.md`
 
 ## How It Works

@@ -1,9 +1,7 @@
-#!/bin/bash
+#!/bin/bash -l
 # Generate version report for installed tools
 # Should be run as 'user' to access user-installed tools (go, node, rust, etc.)
-
-# Load user environment if possible
-export HOME="/home/user"
+# -l flag ensures login shell sources ~/.profile for proper PATH setup
 
 {
 	echo "# Image Tool Versions"

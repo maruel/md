@@ -7,6 +7,7 @@ import argparse
 import inspect
 import json
 import os
+import platform
 import shlex
 import shutil
 import subprocess
@@ -108,6 +109,24 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
             # Unlikely?
             print("  Fallingback to local 'md-base'", file=sys.stderr)
             base_image = "md-base"
+
+    if base_image != "md-base":
+        stdout, _ = run_cmd(["docker", "image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", base_image], capture_output=True, check=False)
+        if stdout:
+            parts = stdout.strip().split("/")
+            if len(parts) == 2:
+                img_arch = parts[1]
+                host_arch = platform.machine().lower()
+                if host_arch == "x86_64":
+                    host_arch = "amd64"
+                elif host_arch == "aarch64":
+                    host_arch = "arm64"
+
+                if img_arch != host_arch:
+                    print(f"- Warning: Base image {base_image} platform ({img_arch}) does not match host ({host_arch}).")
+                    print("- Falling back to local build of md-base.")
+                    cmd_build_base(None)
+                    base_image = "md-base"
 
     stdout, returncode = run_cmd(["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", base_image], capture_output=True, check=False)
     if returncode == 0:

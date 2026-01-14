@@ -81,6 +81,8 @@ OUTPUT_FILE="/var/log/tool_versions.md"
 
 	# Utilities
 	check_version "ShellCheck" "shellcheck" "--version"
+	check_version "shfmt" "shfmt" "--version"
+	check_version "bubblewrap" "bwrap" "--version"
 	check_version "jq" "jq" "--version"
 	check_version "actionlint" "actionlint" "--version"
 	check_version "curl" "curl" "--version"
@@ -89,8 +91,14 @@ OUTPUT_FILE="/var/log/tool_versions.md"
 
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"
-	# check_version "Firefox" "firefox" "--version"
-	# check_version "Geckodriver" "geckodriver" "--version"
+	if command -v firefox >/dev/null 2>&1; then
+		# specific handling for firefox to avoid sandbox error in container
+		FF_VER=$(dpkg-query -W -f='${Version}' firefox 2>/dev/null || echo "Error")
+		echo "| Firefox | $FF_VER |"
+	else
+		echo "| Firefox | Not found |"
+	fi
+	check_version "Geckodriver" "geckodriver" "--version"
 
 	# Python Tools
 	check_version "uv" "uv" "--version"

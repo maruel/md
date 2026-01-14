@@ -19,6 +19,18 @@ from pathlib import Path
 SCRIPT_DIR = str(Path(__file__).parent.resolve())
 
 
+def argument(*name_or_flags, **kwargs):
+    """Decorator to add arguments to a command."""
+
+    def _decorator(func):
+        if not hasattr(func, "arguments"):
+            func.arguments = []
+        func.arguments.append((name_or_flags, kwargs))
+        return func
+
+    return _decorator
+
+
 def run_cmd(cmd, check=True, **kwargs):
     """Execute shell command, return (stdout, returncode) tuple."""
     if kwargs.get("capture_output", False) or "stdout" in kwargs:
@@ -213,14 +225,15 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     print(f"  docker rm -f {container_name}")
 
 
+@argument("--tag", default="latest", help="Tag for the base image (ghcr.io/maruel/md:<tag>)")
 def cmd_start(args):
-    """Pull latest base image, rebuild if needed, start container, open shell."""
+    """Pull base image with specified tag, rebuild if needed, start container, open shell."""
     host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
     host_key_pub_path = str(host_key_path) + ".pub"
     user_auth_keys = Path(SCRIPT_DIR) / "rsc" / "home" / "user" / ".ssh" / "authorized_keys"
     home = Path.home()
     image_name = "md"
-    base_image = "ghcr.io/maruel/md:latest"
+    base_image = f"ghcr.io/maruel/md:{args.tag}"
     md_user_key = str(home / ".ssh" / "md")
 
     paths = (
@@ -379,7 +392,11 @@ def main():
     subparsers = parser.add_subparsers(dest="cmd")
     for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction):
         if name.startswith("cmd_"):
-            subparsers.add_parser(name[4:].replace("_", "-"), help=func.__doc__.splitlines()[0]).set_defaults(func=func)
+            sub_parser = subparsers.add_parser(name[4:].replace("_", "-"), help=func.__doc__.splitlines()[0])
+            sub_parser.set_defaults(func=func)
+            if hasattr(func, "arguments"):
+                for args_tuple, kwargs_dict in reversed(func.arguments):
+                    sub_parser.add_argument(*args_tuple, **kwargs_dict)
     args = parser.parse_args()
     if not args.cmd:
         parser.print_help()

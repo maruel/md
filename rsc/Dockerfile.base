@@ -45,7 +45,7 @@ RUN mkdir /app && chown user:user /app
 ### Second phase, as user
 
 USER user
-SHELL ["/bin/bash", "-ilc"]
+SHELL ["/bin/bash", "-lc"]
 
 # Copy all /home/user files.
 COPY --chown=user:user home/user/ /home/user/
@@ -76,3 +76,5 @@ CMD ["/root/start.sh"]
 FROM scratch AS reports
 COPY --from=final /var/log/tool_versions.md /
 COPY --from=final /var/log/build_timings.md /
+
+FROM final

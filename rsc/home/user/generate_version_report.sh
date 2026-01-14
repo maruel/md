@@ -28,6 +28,8 @@ OUTPUT_FILE="/home/user/tool_versions.md"
 	echo "# Image Tool Versions"
 	echo "Generated on $(date)"
 	echo ""
+	echo "| Tool | Version |"
+	echo "| :--- | :--- |"
 
 	check_version() {
 		local name=$1
@@ -35,68 +37,54 @@ OUTPUT_FILE="/home/user/tool_versions.md"
 		local version_flag=${3:---version}
 
 		if command -v "$cmd" >/dev/null 2>&1; then
-			echo "### $name"
-			echo '```'
+			local version
 			# specific handling for some tools that output to stderr or have weird formats
-			output=$("$cmd" "$version_flag" 2>&1)
-			# trim whitespace
-			echo "$output" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-			echo '```'
-			echo ""
+			version=$("$cmd" "$version_flag" 2>&1 | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+			# Escape pipe symbols for markdown table
+			version=${version//|/\\|}
+			echo "| $name | $version |"
 		else
-			echo "### $name"
-			echo "Not found"
-			echo ""
+			echo "| $name | Not found |"
 		fi
 	}
 
 	# OS Info
 	if [ -f /etc/os-release ]; then
-		echo "### OS"
-		echo '```'
-		grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"'
-		echo '```'
-		echo ""
+		OS=$(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')
+		echo "| OS | $OS |"
 	fi
 
 	# Languages
-	if command -v go >/dev/null; then
-		check_version "Go" "go" "version"
-	fi
+	check_version "Go" "go" "version"
+	check_version "Python" "python3" "--version"
+	check_version "Node.js" "node" "--version"
+	check_version "Rust" "rustc" "--version"
+	check_version "Java" "java" "-version"
+	check_version "TypeScript" "tsc" "--version"
 
-	if command -v python3 >/dev/null; then
-		check_version "Python" "python3" "--version"
-	fi
+	# Build Tools
+	check_version "Git" "git" "--version"
+	check_version "Make" "make" "--version"
+	check_version "CMake" "cmake" "--version"
+	check_version "GCC" "gcc" "--version"
+	check_version "G++" "g++" "--version"
 
-	if command -v node >/dev/null; then
-		check_version "Node.js" "node" "--version"
-	fi
+	# Utilities
+	check_version "ShellCheck" "shellcheck" "--version"
+	check_version "jq" "jq" "--version"
+	check_version "curl" "curl" "--version"
+	check_version "SQLite" "sqlite3" "--version"
 
-	if command -v rustc >/dev/null; then
-		check_version "Rust" "rustc" "--version"
-	fi
-
-	# Tools
-	if command -v nvim >/dev/null; then
-		check_version "Neovim" "nvim" "--version"
-	fi
-
-	if command -v firefox >/dev/null; then
-		check_version "Firefox" "firefox" "--version"
-	fi
-
-	if command -v geckodriver >/dev/null; then
-		check_version "Geckodriver" "geckodriver" "--version"
-	fi
+	# Editors / Tools
+	check_version "Neovim" "nvim" "--version"
+	check_version "Firefox" "firefox" "--version"
+	check_version "Geckodriver" "geckodriver" "--version"
 
 	# AI Tools
-	if command -v claude >/dev/null; then
-		check_version "Claude CLI" "claude" "--version"
-	fi
-
-	if command -v gemini >/dev/null; then
-		check_version "Gemini CLI" "gemini" "--version"
-	fi
+	check_version "Claude CLI" "claude" "--version"
+	check_version "Gemini CLI" "gemini" "--version"
+	check_version "ESLint" "eslint" "--version"
+	check_version "tsx" "tsx" "--version"
 
 } >"$OUTPUT_FILE"
 

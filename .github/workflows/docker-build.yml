@@ -81,11 +81,13 @@ jobs:
       - name: Extract tool versions
         run: |
           docker create --name extractor "${{ steps.build.outputs.imageid }}"
-          docker cp extractor:/home/user/tool_versions.md tool_versions.txt
+          docker cp extractor:/home/user/tool_versions.md tool_versions.md
           docker rm extractor
           PLATFORM="${{ matrix.platform }}"
           PLATFORM_SLUG="${PLATFORM//\//-}"
           echo "PLATFORM_SLUG=$PLATFORM_SLUG" >> "$GITHUB_ENV"
+          echo "### ${{ matrix.platform }}" >> $GITHUB_STEP_SUMMARY
+          cat tool_versions.md >> $GITHUB_STEP_SUMMARY
       - name: Push image
         uses: docker/build-push-action@v6
         id: push
@@ -110,4 +112,4 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: tool-versions-${{ env.PLATFORM_SLUG }}
-          path: tool_versions.txt
+          path: tool_versions.md

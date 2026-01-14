@@ -82,6 +82,7 @@ OUTPUT_FILE="/var/log/tool_versions.md"
 	# Utilities
 	check_version "ShellCheck" "shellcheck" "--version"
 	check_version "jq" "jq" "--version"
+	check_version "actionlint" "actionlint" "--version"
 	check_version "curl" "curl" "--version"
 	check_version "SQLite" "sqlite3" "--version"
 	check_version "asciinema" "asciinema" "--version"

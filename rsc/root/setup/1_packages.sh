@@ -45,6 +45,7 @@ apt-get install -qq -y --no-install-recommends \
 	python-is-python3 \
 	python3 \
 	python3-venv \
+	python3-yaml \
 	qemu-kvm \
 	qemu-system-arm \
 	qemu-system-x86 \

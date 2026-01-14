@@ -76,9 +76,14 @@ def date_to_epoch(date_str):
         return 0
 
 
-def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
-    """Build Docker image."""
+def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, base_image):
+    """Build the user customized Docker image."""
     rsc_dir = f"{script_dir}/rsc"
+    machine = platform.machine().lower()
+    host_arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64", "amd64": "amd64"}.get(machine)
+    if not host_arch:
+        print(f"- Unknown architecture: {machine}", file=sys.stderr)
+        return None
 
     with open(md_user_key + ".pub", encoding="utf-8") as f:
         pub_key = f.read()
@@ -99,34 +104,7 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
 
     if base_image != "md-base":
         print(f"- Pulling base image {base_image} ...")
-        _, returncode = run_cmd(["docker", "pull", base_image], check=False)
-        if returncode:
-            print("- Pulling base image {base_image} failed, this is likely because the GitHub Actions ", file=sys.stderr)
-            print("  workflow to build the image failed. Sorry about that!", file=sys.stderr)
-            if not local_base:
-                print("  Try building one locally with 'md build-base' for now.", file=sys.stderr)
-                return None
-            # Unlikely?
-            print("  Fallingback to local 'md-base'", file=sys.stderr)
-            base_image = "md-base"
-
-    if base_image != "md-base":
-        stdout, _ = run_cmd(["docker", "image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", base_image], capture_output=True, check=False)
-        if stdout:
-            parts = stdout.strip().split("/")
-            if len(parts) == 2:
-                img_arch = parts[1]
-                host_arch = platform.machine().lower()
-                if host_arch == "x86_64":
-                    host_arch = "amd64"
-                elif host_arch == "aarch64":
-                    host_arch = "arm64"
-
-                if img_arch != host_arch:
-                    print(f"- Warning: Base image {base_image} platform ({img_arch}) does not match host ({host_arch}).")
-                    print("- Falling back to local build of md-base.")
-                    cmd_build_base(None)
-                    base_image = "md-base"
+        run_cmd(["docker", "pull", "--platform", f"linux/{host_arch}", base_image])
 
     stdout, returncode = run_cmd(["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", base_image], capture_output=True, check=False)
     if returncode == 0:
@@ -150,7 +128,7 @@ def build(script_dir, user_auth_keys, md_user_key, image_name, base_image):
         return base_image
 
     print(f"- Building Docker image {image_name} ...")
-    run_cmd(["docker", "build", "--build-arg", f"BASE_IMAGE={base_image}", "--build-arg", f"BASE_IMAGE_DIGEST={base_digest}", "--build-arg", f"CONTEXT_SHA={context_sha}", "-t", image_name, rsc_dir])
+    run_cmd(["docker", "build", "--platform", f"linux/{host_arch}", "--build-arg", f"BASE_IMAGE={base_image}", "--build-arg", f"BASE_IMAGE_DIGEST={base_digest}", "--build-arg", f"CONTEXT_SHA={context_sha}", "-t", image_name, rsc_dir])
     return base_image
 
 
@@ -242,7 +220,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     print(f"  docker rm -f {container_name}")
 
 
-@argument("--tag", default="latest", help="Tag for the base image (ghcr.io/maruel/md:<tag>)")
+@argument("--tag", default="latest", help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
 def cmd_start(args):
     """Pull base image with specified tag, rebuild if needed, start container, open shell."""
     host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
@@ -289,7 +267,7 @@ def cmd_start(args):
     if returncode == 0:
         print(f"Container {args.container_name} already exists. SSH in with 'ssh {args.container_name}' or clean it up via 'md kill' first.", file=sys.stderr)
         sys.exit(1)
-    if not build(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image):
+    if not build_customized_image(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image):
         return 1
     run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch)
     run_cmd(["ssh", args.container_name])
@@ -298,8 +276,13 @@ def cmd_start(args):
 
 def cmd_build_base(args):  # pylint: disable=unused-argument
     """Build the base Docker image locally from rsc/Dockerfile.base."""
+    machine = platform.machine().lower()
+    host_arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64", "amd64": "amd64"}.get(machine)
+    if not host_arch:
+        print(f"- Unknown architecture: {machine}", file=sys.stderr)
+        return 1
     print("- Building base Docker image from rsc/Dockerfile.base ...")
-    run_cmd(["docker", "build", "-f", f"{SCRIPT_DIR}/rsc/Dockerfile.base", "-t", "md-base", f"{SCRIPT_DIR}/rsc"])
+    run_cmd(["docker", "build", "--platform", f"linux/{host_arch}", "-f", f"{SCRIPT_DIR}/rsc/Dockerfile.base", "-t", "md-base", f"{SCRIPT_DIR}/rsc"])
     print("- Base image built as 'md-base'.")
     return 0
 

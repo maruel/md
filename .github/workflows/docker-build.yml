@@ -110,10 +110,10 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          provenance: false
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
       - uses: actions/attest-build-provenance@v3
         if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
         with:

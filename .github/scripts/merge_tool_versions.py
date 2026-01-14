@@ -103,20 +103,6 @@ def main():
         output_path.write_text(unified_content)
     print(unified_content)
 
-    # Find and append all build_timings.md (still discoverable in reports/)
-    reports_root = Path("reports")
-    timings = sorted(reports_root.glob("**/build_timings.md"))
-    if timings:
-        print("\n## Build Timings\n")
-        for timing_file in timings:
-            try:
-                platform = timing_file.parent.relative_to(reports_root)
-            except ValueError:
-                platform = timing_file.parent
-            print(f"\n### {platform}\n")
-            print(timing_file.read_text())
-            print("\n")
-
 
 if __name__ == "__main__":
     main()

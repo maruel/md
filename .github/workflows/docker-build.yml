@@ -99,6 +99,10 @@ jobs:
           outputs: type=local,dest=reports/${{ matrix.arch }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
+      - name: Report Build Timings
+        run: |
+          echo "### Build Timings (${{ matrix.arch }})" >> $GITHUB_STEP_SUMMARY
+          cat reports/${{ matrix.arch }}/build_timings.md >> $GITHUB_STEP_SUMMARY
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push

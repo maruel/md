@@ -84,4 +84,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.setup.outputs.version }}"
-          gh release create "$VERSION" tool_versions.md --title "$VERSION" --generate-notes
+          TOOL_VERSIONS_CONTENT=$(cat tool_versions.md)
+          RELEASE_NOTES="### Tool Versions\n\n$TOOL_VERSIONS_CONTENT\n\n---\n\n$(gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name=$VERSION | jq -r '.body')"
+          gh release create "$VERSION" --title "$VERSION" --notes "$RELEASE_NOTES"

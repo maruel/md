@@ -1,10 +1,11 @@
 #!/bin/bash
-# Install nvm, node.js, npm, typescript, eslint (as user)
+# Install nvm, node.js, npm, typescript, eslint, and global LLM packages (as user)
 set -euo pipefail
 echo "- $0"
 
 cd "$HOME"
 
+# 1. Setup Node.js via NVM
 if ! which nvm &>/dev/null; then
 	# TODO: Update from time to time.
 	curl -sSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
@@ -19,6 +20,15 @@ fi
 
 corepack enable pnpm
 
-curl -fsSL https://bun.sh/install | bash
-
-pnpm add -g eslint prettier tsx typescript typescript-eslint
+# 2. Install Global Node Packages
+pnpm add -g \
+	eslint \
+		prettier \
+		tsx \
+		typescript \
+		typescript-eslint \
+		@google/gemini-cli \
+		@mariozechner/pi-coding-agent \
+		@openai/codex \
+		@qwen-code/qwen-code \
+		vscode-langservers-extracted

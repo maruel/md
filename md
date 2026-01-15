@@ -430,28 +430,27 @@ def cmd_vnc(args):
 
     if sys.platform == "darwin":
         _, returncode = run_cmd(["open", vnc_url], check=False)
-        return returncode
     elif sys.platform == "linux":
         _, returncode = run_cmd(["xdg-open", vnc_url], check=False)
         if returncode != 0:
             # Try direct VNC viewer as fallback
             _, returncode = run_cmd(["vncviewer", f"127.0.0.1:{vnc_port}"], check=False)
             if returncode != 0:
-                print(f"\nNo VNC client found. Connect manually:")
-                print(f"  Address: 127.0.0.1")
+                print("\nNo VNC client found. Connect manually:")
+                print("  Address: 127.0.0.1")
                 print(f"  Port: {vnc_port}")
-                print(f"\nInstall a VNC client:")
+                print("\nInstall a VNC client:")
                 print("  Ubuntu/Debian: sudo apt install tigervnc-viewer")
                 print("  Fedora/RHEL: sudo dnf install tigervnc")
                 print("  Or use any remote desktop client (Remmina, RealVNC, TigerVNC, etc.)")
-                return 0
-        return returncode
+                returncode = 0
     elif sys.platform == "win32":
         _, returncode = run_cmd(["start", vnc_url], shell=True, check=False)
-        return returncode
     else:
         print(f"Unsupported platform: {sys.platform}", file=sys.stderr)
         return 1
+
+    return returncode
 
 
 def cmd_list(args):  # pylint: disable=unused-argument

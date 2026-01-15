@@ -81,11 +81,17 @@ done
 ### Skills (https://agentskills.io)
 
 - [amp](https://ampcode.com/manual#agent-skills): `~/.config/agents/skills/**/SKILL.md` (recursive)
+    - Fallbacks to `~/.claude/skills/`
+- [antigravity](https://antigravity.google/docs/skills): `~/.gemini/antigravity/skills/<name>/SKILL.md`
 - [claude](https://code.claude.com/docs/en/skills): `~/.claude/skills/<name>/SKILL.md`
 - [codex](https://developers.openai.com/codex/skills): `~/.codex/skills/**/SKILL.md` (recursive)
+- [cursor](https://cursor.com/docs/context/skills): `~/.cursor/skills/<name>/SKILL.md`
+    - Fallbacks to `~/.claude/skills/`
 - [gemini](https://geminicli.com/docs/cli/skills/): `~/.gemini/skills/<name>/SKILL.md`
 - [opencode](https://opencode.ai/docs/skills/): `~/.config/opencode/skill/<name>/SKILL.md`
+    - Fallbacks to `~/.claude/skills/`
 - [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills): `~/.pi/agent/skills/**/SKILL.md` (recursive)
+    - Fallbacks to `~/.claude/skills/`, `~/.codex/skills/` (recursive)
 - [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/): `~/.qwen/skills/<name>/SKILL.md`
 
 Centralize your skills with symlinks:
@@ -93,6 +99,8 @@ Centralize your skills with symlinks:
 ```bash
 ln -s ../.config/agents/skills/ ~/.claude/skills
 ln -s ../.config/agents/skills/ ~/.codex/skills
+ln -s ../.config/agents/skills/ ~/.cursor/skills
+ln -s ../../.config/agents/skills/ ~/.gemini/antigravity/skills
 ln -s ../.config/agents/skills/ ~/.gemini/skills
 ln -s ../../.config/agents/skills/ ~/.config/opencode/skill
 ln -s ../../.config/agents/skills/ ~/.pi/agent/skills

@@ -35,7 +35,7 @@ if [ -n "${MD_DISPLAY:-}" ]; then
 				{
 					echo "# VNC Display - set by container startup"
 					echo "export DISPLAY=$display"
-				} > /etc/profile.d/vnc-display.sh
+				} >/etc/profile.d/vnc-display.sh
 				chmod 644 /etc/profile.d/vnc-display.sh
 			fi
 		fi

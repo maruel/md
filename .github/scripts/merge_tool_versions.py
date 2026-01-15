@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import datetime
-import os
 import re
 import sys
 from pathlib import Path
@@ -15,7 +14,7 @@ def parse_markdown_table(file_path):
         print(f"Warning: {file_path} not found.")
         return tools
 
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             # Match markdown table row: | Tool | Version |
             match = re.match(r"^\|\s*(.*?)\s*\|\s*(.*?)\s*\|$", line)
@@ -30,6 +29,7 @@ def parse_markdown_table(file_path):
 
 
 def main():
+    """Main function to merge tool version reports."""
     parser = argparse.ArgumentParser(description="Merge tool version reports from different architectures.")
     parser.add_argument("--amd64", required=False, help="Path to amd64 tool versions report")
     parser.add_argument("--arm64", required=False, help="Path to arm64 tool versions report")
@@ -68,29 +68,35 @@ def main():
     # Determine which columns to include based on provided architectures
     if amd64_path and arm64_path:
         # Both architectures provided
-        content.extend([
-            "| Tool | amd64 | arm64 | ",
-            "| :--- | :--- | :--- |",
-        ])
+        content.extend(
+            [
+                "| Tool | amd64 | arm64 | ",
+                "| :--- | :--- | :--- |",
+            ]
+        )
         for tool in all_tools:
             v_amd64 = amd64_tools.get(tool, "Not found")
             v_arm64 = arm64_tools.get(tool, "Not found")
             content.append(f"| {tool} | {v_amd64} | {v_arm64} |")
     elif amd64_path:
         # Only amd64 provided
-        content.extend([
-            "| Tool | amd64 |",
-            "| :--- | :--- |",
-        ])
+        content.extend(
+            [
+                "| Tool | amd64 |",
+                "| :--- | :--- |",
+            ]
+        )
         for tool in all_tools:
             v_amd64 = amd64_tools.get(tool, "Not found")
             content.append(f"| {tool} | {v_amd64} |")
     elif arm64_path:
         # Only arm64 provided
-        content.extend([
-            "| Tool | arm64 |",
-            "| :--- | :--- |",
-        ])
+        content.extend(
+            [
+                "| Tool | arm64 |",
+                "| :--- | :--- |",
+            ]
+        )
         for tool in all_tools:
             v_arm64 = arm64_tools.get(tool, "Not found")
             content.append(f"| {tool} | {v_arm64} |")
@@ -100,7 +106,7 @@ def main():
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(unified_content)
+        output_path.write_text(unified_content, encoding="utf-8")
     print(unified_content)
 
 

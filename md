@@ -182,12 +182,13 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     return base_image
 
 
-def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch):
+def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display):
     """Start Docker container."""
     print(f"- Starting container {container_name} ...")
 
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
     localtime_args = ["-v", "/etc/localtime:/etc/localtime:ro"] if sys.platform == "linux" else []
+    display_args = ["-p", "127.0.0.1:0:5901", "-e", "MD_DISPLAY=1"] if display else []
 
     home = Path.home()
     # Use XDG environment variables with proper fallbacks
@@ -207,11 +208,18 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     for state_path in AGENT_CONFIG["local_state_paths"]:
         mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
-    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + kvm_args + localtime_args + mounts + [image_name]
+    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + display_args + kvm_args + localtime_args + mounts + [image_name]
     run_cmd(docker_cmd, check=False)
 
     port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}', container_name], capture_output=True)
     print(f"- Found ssh port {port}")
+
+    # Old images may not have VNC yet.
+    vnc_port = None
+    if display:
+        vnc_port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "5901/tcp" 0).HostPort}}', container_name], capture_output=True, check=False)
+        if vnc_port:
+            print(f"- Found VNC port {vnc_port} (display :1)")
 
     ssh_config_dir = home / ".ssh" / "config.d"
     ssh_config_dir.mkdir(parents=True, exist_ok=True)
@@ -260,11 +268,16 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
 
     print(f"\nBase branch '{git_current_branch}' has been set up in the container as 'base' for easy diffing.")
     print("Inside the container, you can use 'git diff base' to see your changes.\n")
+    print("Remote access:")
+    print(f"  SSH: ssh {container_name}")
+    if vnc_port:
+        print(f"  VNC: connect to localhost:{vnc_port} with a VNC client\n")
     print(f"When done while on branch {git_current_branch}:")
     print("  md kill")
     return 0
 
 
+@argument("--display", "-d", action="store_true", help="Enable X11/VNC display")
 @argument("--tag", default=None, help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
 def cmd_start(args):
     """Pull base image with specified tag, rebuild if needed, start container, open shell."""
@@ -322,7 +335,7 @@ def cmd_start(args):
         sys.exit(1)
     if not build_customized_image(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image, tag_explicitly_provided):
         return 1
-    result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch)
+    result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch, args.display)
     if result != 0:
         return 1
     run_cmd(["ssh", args.container_name])
@@ -397,6 +410,48 @@ def cmd_diff(args):
     """Show differences between base branch and current changes in container."""
     run_cmd(["ssh", "-q", "-t", args.container_name, "cd /app && git add . && git diff base -- ."])
     return 0
+
+
+def cmd_vnc(args):
+    """Open VNC connection to the container."""
+    _, returncode = run_cmd(["docker", "inspect", args.container_name], capture_output=True, check=False)
+    if returncode != 0:
+        print(f"Container {args.container_name} is not running", file=sys.stderr)
+        return 1
+
+    vnc_port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "5901/tcp" 0).HostPort}}', args.container_name], capture_output=True, check=False)
+    if not vnc_port:
+        print(f"VNC port not found for {args.container_name}. Did you start it with --display?", file=sys.stderr)
+        print("To enable display, run:\n  md kill\n  md start --display", file=sys.stderr)
+        return 1
+
+    vnc_url = f"vnc://127.0.0.1:{vnc_port}"
+    print(f"VNC connection: {vnc_url}")
+
+    if sys.platform == "darwin":
+        _, returncode = run_cmd(["open", vnc_url], check=False)
+        return returncode
+    elif sys.platform == "linux":
+        _, returncode = run_cmd(["xdg-open", vnc_url], check=False)
+        if returncode != 0:
+            # Try direct VNC viewer as fallback
+            _, returncode = run_cmd(["vncviewer", f"127.0.0.1:{vnc_port}"], check=False)
+            if returncode != 0:
+                print(f"\nNo VNC client found. Connect manually:")
+                print(f"  Address: 127.0.0.1")
+                print(f"  Port: {vnc_port}")
+                print(f"\nInstall a VNC client:")
+                print("  Ubuntu/Debian: sudo apt install tigervnc-viewer")
+                print("  Fedora/RHEL: sudo dnf install tigervnc")
+                print("  Or use any remote desktop client (Remmina, RealVNC, TigerVNC, etc.)")
+                return 0
+        return returncode
+    elif sys.platform == "win32":
+        _, returncode = run_cmd(["start", vnc_url], shell=True, check=False)
+        return returncode
+    else:
+        print(f"Unsupported platform: {sys.platform}", file=sys.stderr)
+        return 1
 
 
 def cmd_list(args):  # pylint: disable=unused-argument

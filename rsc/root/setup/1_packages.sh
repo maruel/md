@@ -20,6 +20,7 @@ apt-get install -qq -y --no-install-recommends \
 	cmake \
 	cpu-checker \
 	curl \
+	dbus-x11 \
 	ffmpeg \
 	file \
 	git \
@@ -56,8 +57,13 @@ apt-get install -qq -y --no-install-recommends \
 	shared-mime-info \
 	shellcheck \
 	sqlite3 \
+	tigervnc-standalone-server \
+	tigervnc-tools \
+	tigervnc-viewer \
 	unzip \
 	wget \
+	xfce4 \
+	xfce4-terminal \
 	xvfb \
 	zstd >/dev/null
 

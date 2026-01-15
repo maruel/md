@@ -28,7 +28,7 @@ AI coding agents work best when given full command execution (YOLO mode). But ru
 ```bash
 # Start container for your current branch
 git checkout -b wip origin/main
-md start
+md start --display  # Add --display if you need VNC support
 
 # SSH in and run your coding agent, where "wip" is the branch associated with this container
 ssh md-<repo>-wip
@@ -108,7 +108,8 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 - **Isolated git clone** - `/app` inside the container is a git clone of your local repository. It tracks branch `base` which matches your local branch. This is useful for commit-happy agents like Codex to track pending changes.
 - **User-mapped permissions** - Container runs as your local user ID for proper file permissions
 - **SSH access** - Connect via `ssh md-<repo>-<branch>`
-- **Minimal overhead** - Only sshd runs; no unnecessary background services
+- **Remote GUI (VNC)** - Optional full desktop environment (via `--display`) accessible via VNC on a dynamic port
+- **Minimal overhead** - Only sshd runs by default; no unnecessary background services
 
 ### Preinstalled Tools
 
@@ -143,12 +144,32 @@ OPENAI_API_KEY=your_key
 | Command | Purpose |
 |---------|---------|
 | `md start` | Create and start a container for the current branch |
+| `md start --display` | Start container with X11/VNC desktop environment enabled |
 | `md list` | List all md containers |
-| `ssh md-<repo>-<branch>` | Access the container |
+| `ssh md-<repo>-<branch>` | Access the container via SSH |
+| `md vnc` | Open VNC connection to the container |
 | `md diff` | Show all changes in the container (runs `git diff base`) |
 | `md pull` | Pull changes from container back to local branch |
 | `md push` | Push local changes to the container |
 | `md kill` | Stop and remove the container |
+
+## Remote GUI Access (VNC)
+
+Each container can include a full XFCE4 desktop environment. It must be enabled at startup:
+
+```bash
+md start --display
+md vnc
+```
+
+`md vnc` opens the VNC connection in your default VNC client.
+
+**Recommended VNC clients by OS:**
+- **Windows**: [RealVNC Viewer](https://www.realvnc.com/download/viewer/), [TightVNC](https://www.tightvnc.com/), or [UltraVNC](https://www.uvnc.com/)
+- **macOS**: Built-in VNC support or [RealVNC Viewer](https://www.realvnc.com/download/viewer/)
+- **Linux**: `tigervnc-viewer`, `vinagre`, or `vncviewer` command-line tools
+
+The DISPLAY environment variable is automatically set in SSH sessions, so X11 applications launched from SSH will appear on the VNC desktop.
 
 ## Contributing
 

@@ -63,6 +63,7 @@
 
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"
+	check_version "TigerVNC" "vncserver" "-version"
 
 	# Python Tools
 	check_version "uv" "uv" "--version"

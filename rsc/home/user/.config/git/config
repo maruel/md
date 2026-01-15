@@ -3,7 +3,7 @@
 [grep]
 	patternType = perl
 [receive]
-	denyCurrentBranch = warn
+	denyCurrentBranch = ignore
 [advice]
 	detachedHead = false
 	skippedCherryPicks = false

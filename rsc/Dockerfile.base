@@ -54,14 +54,9 @@ RUN mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share && \
 	chmod 0700 /home/user/.ssh && \
 	git init /app
 
-# Install tools (as user)
-RUN measure_exec.sh 'Go' /home/user/setup/1_go.sh
-RUN measure_exec.sh 'Node.js' /home/user/setup/2_nodejs.sh
-RUN measure_exec.sh 'LLM Tools' /home/user/setup/3_llm.sh
-RUN measure_exec.sh 'Android SDK' /home/user/setup/4_android.sh
+# Install tools (as user) in parallel
 RUN --mount=type=secret,id=github_token \
-	GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" measure_exec.sh "Rust" /home/user/setup/5_rust.sh
-RUN measure_exec.sh 'Python' /home/user/setup/6_python.sh
+    /home/user/setup/run_all.sh
 
 # Generate tool version report
 SHELL ["/bin/bash", "-ilc"]

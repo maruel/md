@@ -26,4 +26,4 @@ SEC=$((ELAPSED % 60))
 DURATION=$(printf "%dm%02ds" $MIN $SEC)
 
 OUTPUT_FILE="/var/log/build_timings.md"
-echo "| $LABEL | $CMD_BASENAME | $DURATION |" >>"$OUTPUT_FILE"
+flock "$OUTPUT_FILE" -c "echo \"| $LABEL | $CMD_BASENAME | $DURATION |\" >> \"$OUTPUT_FILE\""

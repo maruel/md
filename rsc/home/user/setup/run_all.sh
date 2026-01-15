@@ -2,7 +2,13 @@
 # Run user setup scripts in parallel to improve build time.
 set -euo pipefail
 
-export GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)"
+# Set GITHUB_TOKEN for all scripts if the secret is available
+if [ -f /run/secrets/github_token ]; then
+    token="$(cat /run/secrets/github_token)"
+    if [ -n "$token" ]; then
+        export GITHUB_TOKEN="$token"
+    fi
+fi
 
 echo "- $0: Starting parallel setup..."
 

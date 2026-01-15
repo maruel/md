@@ -350,7 +350,26 @@ def cmd_build_base(args):  # pylint: disable=unused-argument
         print(f"- Unknown architecture: {machine}", file=sys.stderr)
         return 1
     print("- Building base Docker image from rsc/Dockerfile.base ...")
-    run_cmd(["docker", "build", "--platform", f"linux/{host_arch}", "-f", f"{SCRIPT_DIR}/rsc/Dockerfile.base", "-t", "md-base", f"{SCRIPT_DIR}/rsc"])
+    cmd = [
+        "docker",
+        "build",
+        "--platform",
+        f"linux/{host_arch}",
+        "-f",
+        f"{SCRIPT_DIR}/rsc/Dockerfile.base",
+        "-t",
+        "md-base",
+    ]
+    if os.environ.get("GITHUB_TOKEN"):
+        cmd.extend(["--secret", "id=github_token,env=GITHUB_TOKEN"])
+    else:
+        print("WARNING: GITHUB_TOKEN not found. Some tools (neovim, rust-analyzer, etc) might fail to install or hit rate limits.", file=sys.stderr)
+        print("Please set GITHUB_TOKEN to avoid issues:", file=sys.stderr)
+        print("  https://github.com/settings/personal-access-tokens/new?name=md-build-base&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/maruel/md", file=sys.stderr)
+        print("  export GITHUB_TOKEN=...", file=sys.stderr)
+
+    cmd.append(f"{SCRIPT_DIR}/rsc")
+    run_cmd(cmd)
     print("- Base image built as 'md-base'.")
     return 0
 

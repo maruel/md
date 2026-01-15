@@ -61,7 +61,7 @@ def main():
 
     # Generate unified tool versions content
     content = [
-        "# Image Tool Versions (Unified)",
+        "# Tool Versions",
         f"Generated on {now}",
         "",
     ]

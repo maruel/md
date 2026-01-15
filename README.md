@@ -64,9 +64,19 @@ available development environment. Here's the locations:
 - [claude](https://www.anthropic.com/engineering/claude-code-best-practices): `~/.claude/CLAUDE.md`
 - [codex](https://developers.openai.com/codex/guides/agents-md/): `~/.codex/AGENTS.md`
 - [gemini](https://geminicli.com/docs/cli/gemini-md/): `~/.gemini/GEMINI.md`
+    - Recommended in `~/.qwen/settings.json` to change `"context"` / `"fileName"` to `AGENTS.md`
 - [opencode](https://opencode.ai/docs/rules/): `~/.config/opencode/AGENTS.md`
 - [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md): `~/.pi/agent/AGENTS.md`
 - [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/#example-context-file-content-eg-qwenmd): `~/.qwen/QWEN.md`
+    - Recommended in `~/.qwen/settings.json` to change `"context"` / `"fileName"` to `AGENTS.md`
+
+Here's a quick change:
+
+```bash
+for f in ~/.config/amp/AGENTS.md ~/.claude/CLAUDE.md ~/.codex/AGENTS.md ~/.gemini/AGENTS.md ~/.config/opencode/AGENTS.md ~/.pi/agent/AGENTS.md ~/.qwen/AGENTS.md; do
+  echo "Read ~/AGENTS.md if present." >> $f
+done
+```
 
 ### Skills (https://agentskills.io)
 
@@ -77,6 +87,17 @@ available development environment. Here's the locations:
 - [opencode](https://opencode.ai/docs/skills/): `~/.config/opencode/skill/<name>/SKILL.md`
 - [pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md#skills): `~/.pi/agent/skills/**/SKILL.md` (recursive)
 - [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/): `~/.qwen/skills/<name>/SKILL.md`
+
+Centralize your skills with symlinks:
+
+```bash
+ln -s ../.config/agents/skills/ ~/.claude/skills
+ln -s ../.config/agents/skills/ ~/.codex/skills
+ln -s ../.config/agents/skills/ ~/.gemini/skills
+ln -s ../../.config/agents/skills/ ~/.config/opencode/skill
+ln -s ../../.config/agents/skills/ ~/.pi/agent/skills
+ln -s ../.config/agents/skills/ ~/.qwen/skills
+```
 
 ## How It Works
 

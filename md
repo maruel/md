@@ -233,14 +233,21 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     run_cmd(["git", "remote", "rm", container_name], check=False, capture_output=True)
     run_cmd(["git", "remote", "add", container_name, f"user@{container_name}:/app"])
 
+    start = time.time()
     while True:
         try:
-            _, returncode = run_cmd(["ssh", container_name, "exit"], capture_output=True, timeout=1, check=False)
+            output, returncode = run_cmd(["ssh", "-o", "ConnectTimeout=2", container_name, "exit"],
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         timeout=10, check=False)
             if returncode == 0:
                 break
         except subprocess.TimeoutExpired:
             pass
         time.sleep(0.1)
+        if time.time() - start > 10:
+            print("Timed out waiting for container to start", file=sys.stderr)
+            print(output, file=sys.stderr)
+            return 1
 
     run_cmd(["git", "fetch", container_name])
     run_cmd(["git", "push", "-q", container_name, f"HEAD:refs/heads/{git_current_branch}"])

@@ -33,7 +33,10 @@ RUN echo "| Step | Command | Duration |" > /var/log/build_timings.md && \
     chmod 666 /var/log/build_timings.md /var/log/tool_versions.md
 
 # Install tools (as root)
-RUN measure_exec.sh "System Packages" /root/setup/1_packages.sh
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    measure_exec.sh "System Packages" /root/setup/1_packages.sh
 RUN --mount=type=secret,id=github_token \
     [ -f /run/secrets/github_token ] && export GITHUB_TOKEN=$(cat /run/secrets/github_token); \
     measure_exec.sh "Neovim" /root/setup/2_neovim.sh

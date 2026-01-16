@@ -73,9 +73,15 @@ available development environment. Here's the locations:
 Here's a quick change:
 
 ```bash
-for f in ~/.config/amp/AGENTS.md ~/.claude/CLAUDE.md ~/.codex/AGENTS.md ~/.gemini/AGENTS.md ~/.config/opencode/AGENTS.md ~/.pi/agent/AGENTS.md ~/.qwen/AGENTS.md; do
-  echo "Read ~/AGENTS.md if present." >> $f
-done
+mkdir -p ~/.config/agents ~/.config/amp ~/.claude ~/.codex ~/.gemini ~/.config/opencode ~/.pi/agent ~/.qwen
+echo "Read ~/AGENTS.md if present." >> ~/.config/agents/AGENTS.md
+ln -s ../../.config/agents/AGENTS.md ~/.config/amp/AGENTS.md
+ln -s ../.config/agents/AGENTS.md ~/.claude/CLAUDE.md
+ln -s ../.config/agents/AGENTS.md ~/.codex/AGENTS.md
+ln -s ../.config/agents/AGENTS.md ~/.gemini/AGENTS.md
+ln -s ../../.config/agents/AGENTS.md ~/.config/opencode/AGENTS.md
+ln -s ../../.config/agents/AGENTS.md ~/.pi/agent/AGENTS.md
+ln -s ../.config/agents/AGENTS.md ~/.qwen/AGENTS.md
 ```
 
 ### Skills (https://agentskills.io)
@@ -97,6 +103,7 @@ done
 Centralize your skills with symlinks:
 
 ```bash
+mkdir -p ~/.config/agents/skills ~/.claude ~/.codex ~/.cursor ~/.gemini/antigravity ~/.config/opencode ~/.pi/agent ~/.qwen
 ln -s ../.config/agents/skills/ ~/.claude/skills
 ln -s ../.config/agents/skills/ ~/.codex/skills
 ln -s ../.config/agents/skills/ ~/.cursor/skills

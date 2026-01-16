@@ -12,9 +12,25 @@ A file to [guide coding agents](https://agents.md/).
 - For Python code changes, ensure code passes `pylint` and `ruff` checks as defined in `.github/workflows/docker-build.yml`
 - When adding new tools to the system, they must also be added to `rsc/home/user/setup/generate_version_report.sh` to ensure they appear in version reports. The script generates `/var/log/tool_versions.md` which is used in release notes and build reports
 
-## Container Remote GUI Access
+## Adding a New Tool Checklist
 
-The container runs a VNC server (TigerVNC + XFCE4) on port 5901 accessible via any VNC client.
+When installing a new tool in the container, ensure you update:
+
+1. Create setup script in `rsc/root/setup/` or `rsc/home/user/setup/` (with appropriate numbering)
+2. Add `RUN measure_exec.sh` command to `rsc/Dockerfile.base`
+3. Add entry to "Installed Tools" section in this AGENTS.md
+4. Add version check to `rsc/home/user/setup/generate_version_report.sh`
+5. Update `rsc/home/user/AGENTS.md` with any relevant changes
+6. Run `shellcheck` and `shfmt` on any shell scripts
+
+## Installed Tools
+
+- Google Chrome (installed via extrepo during image build in rsc/root/setup/5_chrome.sh)
+- Chrome DevTools MCP (installed via npm in rsc/home/user/setup/2_nodejs.sh)
+
+## For End Users: Remote GUI Access
+
+The container runs a VNC server (TigerVNC + XFCE4) on port 5901 accessible via any VNC client on the host machine. This is for users who want to connect to the container's graphical environment from outside the container.
 
 ## Directory Layout (rsc/)
 

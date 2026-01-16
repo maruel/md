@@ -21,6 +21,7 @@ apt-get install -qq -y --no-install-recommends \
 	cpu-checker \
 	curl \
 	dbus-x11 \
+	extrepo \
 	ffmpeg \
 	file \
 	git \

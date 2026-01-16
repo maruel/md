@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install nvm, node.js, npm, typescript, eslint, and global LLM packages (as user)
+# Install nvm, node.js, npm, typescript, eslint, MCP servers, and global LLM packages (as user)
 set -euo pipefail
 echo "- $0"
 
@@ -22,13 +22,14 @@ corepack enable pnpm
 
 # 2. Install Global Node Packages
 pnpm add -g \
+	@google/gemini-cli \
+	@mariozechner/pi-coding-agent \
+	@openai/codex \
+	@qwen-code/qwen-code \
+	chrome-devtools-mcp \
 	eslint \
-		prettier \
-		tsx \
-		typescript \
-		typescript-eslint \
-		@google/gemini-cli \
-		@mariozechner/pi-coding-agent \
-		@openai/codex \
-		@qwen-code/qwen-code \
-		vscode-langservers-extracted
+	prettier \
+	tsx \
+	typescript \
+	typescript-eslint \
+	vscode-langservers-extracted

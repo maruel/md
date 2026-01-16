@@ -17,14 +17,10 @@ LABEL org.opencontainers.image.licenses=Apache-2.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Copy all /etc files.
 COPY etc/ /etc/
-
-# Copy all /usr files.
-COPY usr/ /usr/
-
-# Copy all /root files.
+COPY opt/ /opt/
 COPY root/ /root/
+COPY usr/ /usr/
 
 # Setup measurement tool and version report file
 RUN echo "| Step | Command | Duration |" > /var/log/build_timings.md && \
@@ -42,6 +38,7 @@ RUN --mount=type=secret,id=github_token \
     measure_exec.sh "Neovim" /root/setup/2_neovim.sh
 RUN measure_exec.sh "Create User" /root/setup/3_create_user.sh
 RUN measure_exec.sh "KVM Setup" /root/setup/4_kvm.sh
+RUN measure_exec.sh "Google Chrome" /root/setup/5_chrome.sh
 
 # Create app directory
 RUN mkdir /app && chown user:user /app

@@ -189,6 +189,10 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
     localtime_args = ["-v", "/etc/localtime:/etc/localtime:ro"] if sys.platform == "linux" else []
     display_args = ["-p", "127.0.0.1:0:5901", "-e", "MD_DISPLAY=1"] if display else []
+    # Grant just enough rights for Chrome sandbox to work.
+    # seccomp=unconfined: Allow CLONE_NEWUSER for user namespaces.
+    # apparmor=unconfined: Allow unprivileged user namespaces (Ubuntu 24.04+).
+    sandbox_args = ["--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined"]
 
     home = Path.home()
     # Use XDG environment variables with proper fallbacks
@@ -208,7 +212,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     for state_path in AGENT_CONFIG["local_state_paths"]:
         mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
-    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + display_args + kvm_args + localtime_args + mounts + [image_name]
+    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + display_args + kvm_args + localtime_args + sandbox_args + mounts + [image_name]
     run_cmd(docker_cmd, check=False)
 
     port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}', container_name], capture_output=True)

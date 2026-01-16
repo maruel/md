@@ -10,13 +10,22 @@ if [ -e /dev/kvm ]; then
 	fi
 fi
 
-# Start dbus service (required for XFCE4)
-if [ -n "${MD_DISPLAY:-}" ]; then
-	if [ -x /etc/init.d/dbus ]; then
-		echo "[start.sh] Starting dbus service..."
-		/etc/init.d/dbus start
-	fi
+# Start dbus service and ensure user has a DBus session available
+echo "[start.sh] Starting dbus service..."
+/etc/init.d/dbus start
+echo "[start.sh] Setting up persistent DBus session for user..."
+session_file="/home/user/.dbus-session-env"
+su - user -c "dbus-launch --sh-syntax > '$session_file'"
+chown user:user "$session_file"
+cat <<EOF >/etc/profile.d/dbus-session.sh
+if [ -f "$session_file" ]; then
+    . "$session_file"
+    export DBUS_SESSION_BUS_ADDRESS
+fi
+EOF
 
+# Start XFCE4 and VNC
+if [ -n "${MD_DISPLAY:-}" ]; then
 	# Start VNC server in background as user (before SSH to avoid race condition)
 	if command -v vncserver &>/dev/null; then
 		echo "[start.sh] Starting VNC server as user..."
@@ -42,6 +51,8 @@ if [ -n "${MD_DISPLAY:-}" ]; then
 	else
 		echo "[start.sh] vncserver not found, skipping VNC startup"
 	fi
+else
+	echo "[start.sh] MD_DISPLAY not set, skipping X/VNC startup"
 fi
 
 # Start SSH server (after VNC so DISPLAY is available)

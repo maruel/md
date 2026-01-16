@@ -22,3 +22,10 @@ Notable executables available in the container:
 - **Database**: sqlite3
 - **Network**: curl, wget, net-tools, iproute2
 - **Debugging**: gdb, strace, lsof
+
+## Browser & GUI Environment
+
+- **Browsers**: Google Chrome and Chromium are installed as standard packages.
+  - **Sandboxing**: They require the container to be run with `seccomp=unconfined` and `apparmor=unconfined` (handled automatically by the `md` launcher).
+  - **Headless**: Can be run headlessly without X. A DBus session is automatically configured for the user.
+- **GUI**: XFCE4/TigerVNC is available but only starts if the container is launched with `--display`.

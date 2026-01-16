@@ -17,6 +17,7 @@ apt-get install -qq -y --no-install-recommends \
 	build-essential \
 	ca-certificates \
 	chromium \
+	chromium-sandbox \
 	clang \
 	cmake \
 	cpu-checker \

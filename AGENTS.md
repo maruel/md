@@ -26,8 +26,13 @@ When installing a new tool in the container, ensure you update:
 ## Installed Tools
 
 - Google Chrome (amd64 only, installed via extrepo during image build in rsc/root/setup/5_chrome.sh)
-- Chromium Browser (arm64 fallback, installed via apt during image build in rsc/root/setup/5_chrome.sh)
+- Chromium Browser (arm64 fallback, installed via apt in rsc/root/setup/1_packages.sh)
+- chromium-sandbox (installed via apt in rsc/root/setup/1_packages.sh)
 - Chrome DevTools MCP (installed via npm in rsc/home/user/setup/2_nodejs.sh)
+
+## Runtime Requirements
+
+- **Chrome Sandbox**: To run Chrome/Chromium with the sandbox enabled, the container must be launched with `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined`. The `md` script handles this automatically.
 
 ## For End Users: Remote GUI Access
 

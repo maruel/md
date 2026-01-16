@@ -64,6 +64,7 @@
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"
 	check_version "Google Chrome" "google-chrome" "--version"
+	check_version "Chromium Browser" "chromium-browser" "--version"
 	check_version "Chrome DevTools MCP" "chrome-devtools-mcp" "--version"
 
 	# Python Tools

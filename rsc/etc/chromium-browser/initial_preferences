@@ -1,0 +1,34 @@
+{
+  "distribution": {
+    "skip_first_run_ui": true,
+    "suppress_first_run_default_browser_prompt": true,
+    "show_welcome_page": false,
+    "import_bookmarks": false,
+    "make_chrome_default": false,
+    "make_chrome_default_for_user": false
+  },
+  "first_run_tabs": [],
+  "homepage": "about:blank",
+  "homepage_is_newtabpage": false,
+  "show_home_button": false,
+  "restore_on_startup": 1,
+  "session": {
+    "restore_on_startup": 1
+  },
+  "notifications": {
+    "quiet_permission_ui_enabled": true
+  },
+  "download": {
+    "prompt_for_download": false
+  },
+  "plugins": {
+    "always_open_pdf_externally": true
+  },
+  "browser": {
+    "has_seen_welcome_page": true,
+    "check_default_browser": false
+  },
+  "profile": {
+    "has_seen_welcome_page": true
+  }
+}

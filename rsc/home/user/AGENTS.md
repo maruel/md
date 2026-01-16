@@ -10,6 +10,7 @@ Notable executables available in the container:
 
 - **Core utilities**: bash, git, curl, wget, rsync, jq, grep, ripgrep, less, file, find, xargs, sed, awk, bubblewrap, xvfb
 - **Editors**: nvim (vi, vim, vimdiff)
+- **Browsers**: google-chrome (amd64), chromium-browser (arm64 fallback), chrome-devtools-mcp
 - **Compression**: brotli, zstd, unzip
 - **Development**: build-essential, git, actionlint, shellcheck, shfmt, cmake, make, gcc, g++, cargo-binstall, pylint, ruff, uv, asciinema
 - **Languages**: node (v24), npm, go, python3, java, typescript, eslint, tsx, rust (cargo, rustc), bun

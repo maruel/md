@@ -18,10 +18,10 @@ Complete environment documentation for the md development container. For the aut
 - Extracting content or data from web pages
 - Automating multi-step workflows on websites
 
-**Google Chrome**: Latest stable version
-- Installed via extrepo
-- Configured to skip startup dialogs (OOBE disabled)
-- Location: `/usr/bin/google-chrome`
+**Google Chrome / Chromium Browser**:
+- **amd64**: Google Chrome (latest stable) via extrepo - `/usr/bin/google-chrome`
+- **arm64**: Chromium Browser as fallback - `/usr/bin/chromium-browser`
+- Both configured to skip startup dialogs (OOBE disabled)
 
 **Chrome DevTools MCP**: Official Google MCP server for browser automation and debugging
 - Installed globally via npm (`chrome-devtools-mcp` package)
@@ -126,7 +126,7 @@ pnpm list -g
 # Check versions
 go version && rustc --version && python3 --version && node --version
 
-# Chrome with debugging
+# Google Chrome with debugging
 google-chrome --remote-debugging-port=9222
 
 # View all tool versions

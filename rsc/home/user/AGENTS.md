@@ -14,11 +14,10 @@ Notable executables available in the container:
 - **Compression**: brotli, zstd, unzip
 - **Development**: build-essential, git, actionlint, shellcheck, shfmt, cmake, make, gcc, g++, cargo-binstall, pylint, ruff, uv, asciinema
 - **Languages**: node (v24), npm, go, python3, java, typescript, eslint, tsx, rust (cargo, rustc), bun
-- **AI Tools**: claude, gemini, codex, qwen-code, opencode, amp
-- **Virtualization**: qemu-kvm, libvirt-clients, podman
-- **Media**: ffmpeg, imagemagick
-- **Containers**: podman
-- **Android**: android-sdk, gradle, java, adb
+- AI Tools: claude, gemini, codex, qwen-code, opencode, amp
+- Virtualization: qemu-kvm, libvirt-clients
+- Media: ffmpeg, imagemagick
+- Android: android-sdk, gradle, java, adb
 - **Database**: sqlite3
 - **Network**: curl, wget, net-tools, iproute2
 - **Debugging**: gdb, strace, lsof

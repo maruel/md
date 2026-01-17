@@ -78,9 +78,8 @@ Complete environment documentation for the md development container. For the aut
 - **TypeScript**: eslint, prettier
 - **General**: actionlint
 
-### Virtualization & Containers
+### Virtualization
 - **KVM/QEMU**: VM with x86 and ARM emulation
-- **Podman**: Container runtime (Docker-compatible)
 - **Libvirt**: VM management
 
 ### Media Processing

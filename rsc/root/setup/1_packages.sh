@@ -46,7 +46,6 @@ apt-get install -qq -y --no-install-recommends \
 	openjdk-21-jdk-headless \
 	openssh-server \
 	pkg-config \
-	podman \
 	python-is-python3 \
 	python3 \
 	python3-venv \

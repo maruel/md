@@ -1,3 +1,5 @@
+[core]
+	pager = less -S
 [init]
 	defaultBranch = main
 [grep]

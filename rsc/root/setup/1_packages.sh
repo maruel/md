@@ -62,6 +62,7 @@ apt-get install -qq -y --no-install-recommends \
 	tigervnc-standalone-server \
 	tigervnc-tools \
 	tigervnc-viewer \
+	tokei \
 	unzip \
 	wget \
 	xfce4 \

@@ -8,7 +8,7 @@ For a complete and up-to-date list of tool versions, see `/var/log/tool_versions
 
 Notable executables available in the container:
 
-- **Core utilities**: bash, git, curl, wget, rsync, jq, grep, ripgrep, less, file, find, xargs, sed, awk, bubblewrap, xvfb
+- **Core utilities**: bash, git, curl, wget, rsync, jq, grep, ripgrep, less, file, find, xargs, sed, awk, bubblewrap, xvfb, tokei
 - **Editors**: nvim (vi, vim, vimdiff)
 - **Browsers**: google-chrome (amd64), chromium-browser (arm64 fallback), chrome-devtools-mcp
 - **Compression**: brotli, zstd, unzip

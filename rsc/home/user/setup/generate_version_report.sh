@@ -49,8 +49,9 @@
 	check_version "G++" "g++" "--version"
 
 	# Utilities
-	check_version "ShellCheck" "shellcheck" "--version"
-	check_version "shfmt" "shfmt" "--version"
+	check_version "shellcheck" "shellcheck --version" "shellcheck"
+	check_version "tokei" "tokei --version" "tokei"
+	check_version "shfmt" "shfmt --version" "shfmt"
 	check_version "yq" "yq" "--version"
 	check_version "bubblewrap" "bwrap" "--version"
 	check_version "jq" "jq" "--version"

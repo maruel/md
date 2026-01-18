@@ -30,6 +30,7 @@ When installing a new tool in the container, ensure you update:
 - chromium-sandbox (installed via apt in rsc/root/setup/1_packages.sh)
 - Chrome DevTools MCP (installed via npm in rsc/home/user/setup/2_nodejs.sh)
 - tokei (installed via apt in rsc/root/setup/1_packages.sh)
+- golangci-lint (installed via curl in rsc/home/user/setup/1_go.sh)
 
 ## Runtime Requirements
 

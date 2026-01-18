@@ -52,6 +52,7 @@
 	check_version "shellcheck" "shellcheck --version" "shellcheck"
 	check_version "tokei" "tokei --version" "tokei"
 	check_version "shfmt" "shfmt --version" "shfmt"
+	check_version "golangci-lint" "golangci-lint" "--version"
 	check_version "yq" "yq" "--version"
 	check_version "bubblewrap" "bwrap" "--version"
 	check_version "jq" "jq" "--version"

@@ -30,4 +30,7 @@ go install github.com/rhysd/actionlint/cmd/actionlint@latest
 go install golang.org/x/tools/cmd/goimports@latest
 go install golang.org/x/tools/gopls@latest
 go install mvdan.cc/sh/v3/cmd/shfmt@latest
+
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$HOME/go/bin"
+
 go clean -cache -testcache -modcache

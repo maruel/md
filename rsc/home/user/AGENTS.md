@@ -12,7 +12,7 @@ Notable executables available in the container:
 - **Editors**: nvim (vi, vim, vimdiff)
 - **Browsers**: google-chrome (amd64), chromium-browser (arm64 fallback), chrome-devtools-mcp
 - **Compression**: brotli, zstd, unzip
-- **Development**: build-essential, git, actionlint, shellcheck, shfmt, cmake, make, gcc, g++, cargo-binstall, pylint, ruff, uv, asciinema
+- **Development**: build-essential, git, actionlint, shellcheck, shfmt, golangci-lint, cmake, make, gcc, g++, cargo-binstall, pylint, ruff, uv, asciinema
 - **Languages**: node (v24), npm, go, python3, java, typescript, eslint, tsx, rust (cargo, rustc), bun
 - AI Tools: claude, gemini, codex, qwen-code, opencode, amp
 - Virtualization: qemu-kvm, libvirt-clients

@@ -429,9 +429,11 @@ def cmd_pull(args):
     return 0
 
 
+@argument("extra", nargs="*", help="Extra arguments to pass to git diff")
 def cmd_diff(args):
     """Show differences between base branch and current changes in container."""
-    run_cmd(["ssh", "-q", "-t", args.container_name, "cd /app && git add . && git diff base -- ."])
+    extra = " ".join(shlex.quote(a) for a in args.extra) if args.extra else ""
+    run_cmd(["ssh", "-q", "-t", args.container_name, f"cd /app && git add . && git diff base {extra} -- ."])
     return 0
 
 

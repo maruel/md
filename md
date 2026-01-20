@@ -8,6 +8,7 @@ import inspect
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -70,6 +71,37 @@ def run_cmd(cmd, check=True, **kwargs):
         kwargs.setdefault("text", True)
     result = subprocess.run(cmd, check=check, **kwargs)
     return (result.stdout.strip() if result.stdout else "", result.returncode)
+
+
+def convert_git_url_to_https(url):
+    """Convert a git URL to HTTPS format.
+
+    Supports:
+    - git@github.com:user/repo.git -> https://github.com/user/repo.git
+    - ssh://git@github.com/user/repo.git -> https://github.com/user/repo.git
+    - https://github.com/user/repo.git -> https://github.com/user/repo.git (unchanged)
+    """
+    url = url.strip()
+    # Already HTTPS
+    if url.startswith("https://"):
+        return url
+    # SSH format: git@host:user/repo.git
+    match = re.match(r"^git@([^:]+):(.+)$", url)
+    if match:
+        host, path = match.groups()
+        return f"https://{host}/{path}"
+    # SSH URL format: ssh://git@host/user/repo.git
+    match = re.match(r"^ssh://git@([^/]+)/(.+)$", url)
+    if match:
+        host, path = match.groups()
+        return f"https://{host}/{path}"
+    # Git protocol: git://host/user/repo.git
+    match = re.match(r"^git://([^/]+)/(.+)$", url)
+    if match:
+        host, path = match.groups()
+        return f"https://{host}/{path}"
+    # Unknown format, return as-is
+    return url
 
 
 def ensure_ed25519_key(path, comment):
@@ -265,6 +297,14 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     run_cmd(["git", "push", "-q", container_name, f"HEAD:refs/heads/{git_current_branch}"])
     run_cmd(["ssh", container_name, f"cd /app && git switch -q {git_current_branch}"])
     run_cmd(["ssh", container_name, f"cd /app && git branch -f base {git_current_branch} && git switch -q base && git switch -q {git_current_branch}"])
+
+    # Set up origin remote in the container pointing to the original project using HTTPS.
+    # This enables claude --teleport functionality which requires HTTPS access.
+    origin_url, returncode = run_cmd(["git", "remote", "get-url", "origin"], capture_output=True, check=False)
+    if returncode == 0 and origin_url:
+        https_url = convert_git_url_to_https(origin_url)
+        run_cmd(["ssh", container_name, f"cd /app && git remote add origin {shlex.quote(https_url)}"], check=False)
+        print(f"- Set container origin to {https_url}")
 
     if Path(".env").exists():
         print("- sending .env into container ...")

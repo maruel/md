@@ -92,8 +92,7 @@ Complete environment documentation for the md development container. For the aut
 - **cargo**: Rust package building
 
 ### System Inspection
-- **gdb**: Debugger
-- **strace**: System call tracing
+- **strace**: System call tracing (requires SYS_PTRACE capability, enabled by default)
 - **lsof**: Open file inspection
 
 ## Version Information

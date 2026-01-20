@@ -59,6 +59,7 @@ apt-get install -qq -y --no-install-recommends \
 	shared-mime-info \
 	shellcheck \
 	sqlite3 \
+	strace \
 	tigervnc-standalone-server \
 	tigervnc-tools \
 	tigervnc-viewer \

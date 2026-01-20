@@ -31,10 +31,12 @@ When installing a new tool in the container, ensure you update:
 - Chrome DevTools MCP (installed via npm in rsc/home/user/setup/2_nodejs.sh)
 - tokei (installed via apt in rsc/root/setup/1_packages.sh)
 - golangci-lint (installed via curl in rsc/home/user/setup/1_go.sh)
+- strace (installed via apt in rsc/root/setup/1_packages.sh)
 
 ## Runtime Requirements
 
 - **Chrome Sandbox**: To run Chrome/Chromium with the sandbox enabled, the container must be launched with `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined`. The `md` script handles this automatically.
+- **Debugging Tools**: strace requires `--cap-add=SYS_PTRACE`. The `md` script handles this automatically.
 
 ## For End Users: Remote GUI Access
 

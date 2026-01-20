@@ -40,6 +40,7 @@ apt-get install -qq -y --no-install-recommends \
 	libvirt-clients \
 	libvirt-daemon \
 	libvirt-daemon-system \
+	lldb \
 	locales \
 	lsof \
 	net-tools \

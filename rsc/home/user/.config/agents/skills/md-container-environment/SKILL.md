@@ -91,9 +91,11 @@ Complete environment documentation for the md development container. For the aut
 - **gradle**: Java/Android builds
 - **cargo**: Rust package building
 
-### System Inspection
+### System Inspection & Debugging
 - **strace**: System call tracing (requires SYS_PTRACE capability, enabled by default)
 - **lsof**: Open file inspection
+- **dlv**: Go debugger (delve) - goroutine-aware, can attach to running processes
+- **lldb / rust-lldb**: LLVM debugger with Rust pretty-printing support
 
 ## Version Information
 

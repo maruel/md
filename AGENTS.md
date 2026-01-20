@@ -32,6 +32,8 @@ When installing a new tool in the container, ensure you update:
 - tokei (installed via apt in rsc/root/setup/1_packages.sh)
 - golangci-lint (installed via curl in rsc/home/user/setup/1_go.sh)
 - strace (installed via apt in rsc/root/setup/1_packages.sh)
+- lldb (installed via apt in rsc/root/setup/1_packages.sh, enables rust-lldb)
+- delve/dlv (installed via go install in rsc/home/user/setup/1_go.sh)
 
 ## Runtime Requirements
 

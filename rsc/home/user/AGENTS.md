@@ -20,7 +20,7 @@ Notable executables available in the container:
 - Android: android-sdk, gradle, java, adb
 - **Database**: sqlite3
 - **Network**: curl, wget, net-tools, iproute2
-- **Debugging**: strace, lsof
+- **Debugging**: strace, lsof, dlv (Go), lldb/rust-lldb (Rust)
 
 ## Browser & GUI Environment
 

@@ -27,6 +27,7 @@ mkdir -p "$HOME/go/bin"
 go install github.com/maruel/ask@latest
 go install github.com/mikefarah/yq/v4@latest
 go install github.com/rhysd/actionlint/cmd/actionlint@latest
+go install github.com/go-delve/delve/cmd/dlv@latest
 go install golang.org/x/tools/cmd/goimports@latest
 go install golang.org/x/tools/gopls@latest
 go install mvdan.cc/sh/v3/cmd/shfmt@latest

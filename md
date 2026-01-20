@@ -65,6 +65,12 @@ def argument(*name_or_flags, **kwargs):
     return _decorator
 
 
+def accepts_extra_args(func):
+    """Decorator to mark a command as accepting extra arguments."""
+    func.accepts_extra_args = True
+    return func
+
+
 def run_cmd(cmd, check=True, **kwargs):
     """Execute shell command, return (stdout, returncode) tuple."""
     if kwargs.get("capture_output", False) or "stdout" in kwargs:
@@ -469,9 +475,9 @@ def cmd_pull(args):
     return 0
 
 
-@argument("extra", nargs=argparse.REMAINDER, help="Extra arguments to pass to git diff")
+@accepts_extra_args
 def cmd_diff(args):
-    """Show differences between base branch and current changes in container."""
+    """Show differences between base and current changes. Extra args passed to git diff."""
     extra = " ".join(shlex.quote(a) for a in args.extra) if args.extra else ""
     run_cmd(["ssh", "-q", "-t", args.container_name, f"cd /app && git add . && git diff base {extra} -- ."])
     return 0
@@ -565,15 +571,22 @@ def main():
     subparsers = parser.add_subparsers(dest="cmd")
     for name, func in inspect.getmembers(sys.modules[__name__], inspect.isfunction):
         if name.startswith("cmd_"):
-            sub_parser = subparsers.add_parser(name[4:].replace("_", "-"), help=func.__doc__.splitlines()[0])
+            epilog = "Extra arguments are passed through." if getattr(func, "accepts_extra_args", False) else None
+            desc = func.__doc__.splitlines()[0]
+            sub_parser = subparsers.add_parser(name[4:].replace("_", "-"), help=desc, description=desc, epilog=epilog)
             sub_parser.set_defaults(func=func)
             if hasattr(func, "arguments"):
                 for args_tuple, kwargs_dict in reversed(func.arguments):
                     sub_parser.add_argument(*args_tuple, **kwargs_dict)
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
     if not args.cmd:
         parser.print_help()
         return 2
+    # Pass unknown args to subcommands that accept extra arguments.
+    if getattr(args.func, "accepts_extra_args", False):
+        args.extra = unknown
+    elif unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     args.container_name = f"md-{Path(git_root_dir).name}-{git_current_branch}"
     args.git_current_branch = git_current_branch
     try:

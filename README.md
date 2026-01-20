@@ -163,7 +163,7 @@ OPENAI_API_KEY=your_key
 | `md list` | List all md containers |
 | `ssh md-<repo>-<branch>` | Access the container via SSH |
 | `md vnc` | Open VNC connection to the container |
-| `md diff` | Show all changes in the container (runs `git diff base`) |
+| `md diff` | Show changes (runs `git diff base`). Arguments are passed through, e.g. `md diff --stat` |
 | `md pull` | Pull changes from container back to local branch |
 | `md push` | Push local changes to the container |
 | `md kill` | Stop and remove the container |

@@ -303,7 +303,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     origin_url, returncode = run_cmd(["git", "remote", "get-url", "origin"], capture_output=True, check=False)
     if returncode == 0 and origin_url:
         https_url = convert_git_url_to_https(origin_url)
-        run_cmd(["ssh", container_name, f"cd /app && git remote add origin {shlex.quote(https_url)}"], check=False)
+        run_cmd(["ssh", container_name, f"cd /app && git remote add origin {shlex.quote(https_url)}"])
         print(f"- Set container origin to {https_url}")
 
     if Path(".env").exists():

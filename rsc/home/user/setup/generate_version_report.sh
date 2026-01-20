@@ -49,9 +49,9 @@
 	check_version "G++" "g++" "--version"
 
 	# Utilities
-	check_version "shellcheck" "shellcheck --version" "shellcheck"
-	check_version "tokei" "tokei --version" "tokei"
-	check_version "shfmt" "shfmt --version" "shfmt"
+	check_version "shellcheck" "shellcheck" "--version"
+	check_version "tokei" "tokei" "--version"
+	check_version "shfmt" "shfmt" "--version"
 	check_version "golangci-lint" "golangci-lint" "--version"
 	check_version "delve" "dlv" "version"
 	check_version "lldb" "lldb" "--version"
@@ -69,7 +69,7 @@
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"
 	check_version "Google Chrome" "google-chrome" "--version"
-	check_version "Chromium Browser" "chromium-browser" "--version"
+	check_version "Chromium" "chromium" "--version"
 	check_version "Chrome DevTools MCP" "chrome-devtools-mcp" "--version"
 
 	# Python Tools

@@ -20,7 +20,7 @@ Complete environment documentation for the md development container. For the aut
 
 **Google Chrome / Chromium Browser**:
 - **amd64**: Google Chrome (latest stable) via extrepo - `/usr/bin/google-chrome`
-- **arm64**: Chromium Browser as fallback - `/usr/bin/chromium-browser`
+- **arm64**: Chromium as fallback - `/usr/bin/chromium`
 - Both configured to skip startup dialogs (OOBE disabled)
 
 **Chrome DevTools MCP**: Official Google MCP server for browser automation and debugging

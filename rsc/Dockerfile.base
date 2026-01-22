@@ -41,9 +41,6 @@ RUN measure_exec.sh "Create User" /root/setup/3_create_user.sh
 RUN measure_exec.sh "KVM Setup" /root/setup/4_kvm.sh
 RUN measure_exec.sh "Google Chrome" /root/setup/5_chrome.sh
 
-# Create app directory
-RUN mkdir /app && chown user:user /app
-
 ### Second phase, as user
 
 USER user
@@ -53,8 +50,7 @@ SHELL ["/bin/bash", "-lc"]
 COPY --chown=user:user home/user/ /home/user/
 
 RUN mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share && \
-	chmod 0700 /home/user/.ssh && \
-	git init /app
+	chmod 0700 /home/user/.ssh
 
 # Install tools (as user) in parallel
 RUN --mount=type=secret,id=github_token,uid=1000 \

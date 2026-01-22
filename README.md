@@ -120,7 +120,7 @@ ln -s ../.config/agents/skills/ ~/.qwen/skills
 
 Each container is named `md-<repo-name>-<branch-name>` with:
 
-- **Isolated git clone** - `/app` inside the container is a git clone of your local repository. It tracks branch `base` which matches your local branch. This is useful for commit-happy agents like Codex to track pending changes.
+- **Isolated git clone** - `~/<repo-name>` inside the container is a git clone of your local repository. It tracks branch `base` which matches your local branch. This is useful for commit-happy agents like Codex to track pending changes.
 - **User-mapped permissions** - Container runs as your local user ID for proper file permissions
 - **SSH access** - Connect via `ssh md-<repo>-<branch>`
 - **Remote GUI (VNC)** - Optional full desktop environment (via `--display`) accessible via VNC on a dynamic port

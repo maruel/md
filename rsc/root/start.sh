@@ -1,6 +1,12 @@
 #!/bin/bash
 set -eu
 
+# Export MD_REPO_DIR to profile.d so SSH sessions can access it
+if [ -n "${MD_REPO_DIR:-}" ]; then
+	echo "export MD_REPO_DIR='$MD_REPO_DIR'" > /etc/profile.d/md-repo-dir.sh
+	chmod 644 /etc/profile.d/md-repo-dir.sh
+fi
+
 # If /dev/kvm exists, update the kvm group GID to match the host
 if [ -e /dev/kvm ]; then
 	host_kvm_gid=$(stat -c %g /dev/kvm)

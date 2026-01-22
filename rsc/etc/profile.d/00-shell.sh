@@ -16,9 +16,9 @@ case $- in
 	alias ls='ls $LS_OPTIONS'
 	alias ll='ls $LS_OPTIONS -la'
 	alias vimdiff='nvim -d'
-	if [ -n "$MD_REPO_DIR" ] && [ -d "./$MD_REPO_DIR" ]; then
+	if [ -n "$MD_REPO_DIR" ] && [ -d "$HOME/$MD_REPO_DIR" ]; then
 		# shellcheck disable=SC2164
-		cd "./$MD_REPO_DIR"
+		cd "$HOME/$MD_REPO_DIR"
 	fi
 	;;
 *)

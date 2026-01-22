@@ -3,7 +3,7 @@ set -eu
 
 # Export MD_REPO_DIR to profile.d so SSH sessions can access it
 if [ -n "${MD_REPO_DIR:-}" ]; then
-	echo "export MD_REPO_DIR='$MD_REPO_DIR'" > /etc/profile.d/md-repo-dir.sh
+	echo "export MD_REPO_DIR='$MD_REPO_DIR'" >/etc/profile.d/md-repo-dir.sh
 	chmod 644 /etc/profile.d/md-repo-dir.sh
 fi
 

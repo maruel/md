@@ -220,13 +220,15 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     return base_image
 
 
-def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display):
+def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name):
     """Start Docker container."""
     print(f"- Starting container {container_name} ...")
 
+    repo_name_q = shlex.quote(repo_name)
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
     localtime_args = ["-v", "/etc/localtime:/etc/localtime:ro"] if sys.platform == "linux" else []
     display_args = ["-p", "127.0.0.1:0:5901", "-e", "MD_DISPLAY=1"] if display else []
+    repo_dir_args = ["-e", f"MD_REPO_DIR={repo_name_q}"]
     # Grant just enough rights for Chrome sandbox and debugging tools to work.
     # seccomp=unconfined: Allow CLONE_NEWUSER for user namespaces.
     # apparmor=unconfined: Allow unprivileged user namespaces (Ubuntu 24.04+).
@@ -251,7 +253,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     for state_path in AGENT_CONFIG["local_state_paths"]:
         mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
-    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + display_args + kvm_args + localtime_args + sandbox_args + mounts + [image_name]
+    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + display_args + repo_dir_args + kvm_args + localtime_args + sandbox_args + mounts + [image_name]
     run_cmd(docker_cmd, check=False)
 
     port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}', container_name], capture_output=True)
@@ -282,7 +284,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
 
     print("- git clone into container ...")
     run_cmd(["git", "remote", "rm", container_name], check=False, capture_output=True)
-    run_cmd(["git", "remote", "add", container_name, f"user@{container_name}:/app"])
+    run_cmd(["git", "remote", "add", container_name, f"user@{container_name}:./{repo_name_q}"])
 
     start = time.time()
     while True:
@@ -300,17 +302,19 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
             print(output, file=sys.stderr)
             return 1
 
+    # Initialize git repo in the container (done here instead of Dockerfile since repo_name is dynamic)
+    run_cmd(["ssh", container_name, f"mkdir -p ./{repo_name_q} && git init -q ./{repo_name_q}"])
     run_cmd(["git", "fetch", container_name])
     run_cmd(["git", "push", "-q", container_name, f"HEAD:refs/heads/{git_current_branch}"])
-    run_cmd(["ssh", container_name, f"cd /app && git switch -q {git_current_branch}"])
-    run_cmd(["ssh", container_name, f"cd /app && git branch -f base {git_current_branch} && git switch -q base && git switch -q {git_current_branch}"])
+    run_cmd(["ssh", container_name, f"cd ./{repo_name_q} && git switch -q {git_current_branch}"])
+    run_cmd(["ssh", container_name, f"cd ./{repo_name_q} && git branch -f base {git_current_branch} && git switch -q base && git switch -q {git_current_branch}"])
 
     # Set up origin remote in the container pointing to the original project using HTTPS.
     # This enables claude --teleport functionality which requires HTTPS access.
     origin_url, returncode = run_cmd(["git", "remote", "get-url", "origin"], capture_output=True, check=False)
     if returncode == 0 and origin_url:
         https_url = convert_git_url_to_https(origin_url)
-        run_cmd(["ssh", container_name, f"cd /app && git remote add origin {shlex.quote(https_url)}"])
+        run_cmd(["ssh", container_name, f"cd ./{repo_name_q} && git remote add origin {shlex.quote(https_url)}"])
         print(f"- Set container origin to {https_url}")
 
     if Path(".env").exists():
@@ -386,7 +390,7 @@ def cmd_start(args):
         sys.exit(1)
     if not build_customized_image(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image, tag_explicitly_provided):
         return 1
-    result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch, args.display)
+    result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch, args.display, args.repo_name)
     if result != 0:
         return 1
     run_cmd(["ssh", args.container_name])
@@ -433,29 +437,31 @@ def cmd_push(args):
         print("- There are pending changes locally. Please commit or stash them before pushing.", file=sys.stderr)
         return 1
     # If there are any pending changes inside the container, commit them so they are saved in the backup branch.
-    run_cmd(["ssh", args.container_name, "cd /app && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"], check=False)
-    container_commit, _ = run_cmd(["ssh", args.container_name, "cd /app && git rev-parse HEAD"], capture_output=True)
+    repo_name = shlex.quote(args.repo_name)
+    run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"], check=False)
+    container_commit, _ = run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git rev-parse HEAD"], capture_output=True)
     backup_branch = f"backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    run_cmd(["ssh", args.container_name, f"cd /app && git branch -f {backup_branch} {container_commit}"])
+    run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git branch -f {backup_branch} {container_commit}"])
     print(f"- Previous state saved as git branch: {backup_branch}")
     # Update base first.
     run_cmd(["git", "push", "-q", "-f", args.container_name, f"{args.git_current_branch}:base"])
     # Recreate the branch from base.
-    run_cmd(["ssh", args.container_name, f"cd /app && git switch -q -C {args.git_current_branch} base"])
+    run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git switch -q -C {args.git_current_branch} base"])
     print("- Container updated.")
     return 0
 
 
 def cmd_pull(args):
     """Pull changes from the container back to the local repo."""
+    repo_name = shlex.quote(args.repo_name)
     # Add any untracked files and identify if a commit is needed.
-    _, returncode = run_cmd(["ssh", args.container_name, "cd /app && git add . && git diff --quiet HEAD -- ."], capture_output=True, check=False)
+    _, returncode = run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git add . && git diff --quiet HEAD -- ."], capture_output=True, check=False)
     if returncode != 0:
         commit_msg = "Pull from md"
         if os.environ.get("ASK_PROVIDER") and shutil.which("ask"):
             # Generate a commit message based on the pending changes.
             prompt = "Analyze the git context below (branch, file changes, recent commits, and diff). Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
-            remote_cmd = "cd /app && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base -- . ':!*.yaml'"
+            remote_cmd = f"cd ./{repo_name} && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- && echo && echo '=== Changes ===' && git diff --patience -U10 --cached base -- . ':!*.yaml'"
             git_context, _ = run_cmd(["ssh", args.container_name, remote_cmd], capture_output=True)
             try:
                 msg, rc = run_cmd(["ask", "-q", prompt], input=git_context, capture_output=True, timeout=10, check=False)
@@ -466,7 +472,7 @@ def cmd_pull(args):
         git_user_name, _ = run_cmd(["git", "config", "user.name"], capture_output=True)
         git_user_email, _ = run_cmd(["git", "config", "user.email"], capture_output=True)
         git_author = f"{git_user_name} <{git_user_email}>"
-        commit_cmd = f"cd /app && echo {shlex.quote(commit_msg)} | git commit -a -q --author {shlex.quote(git_author)} -F -"
+        commit_cmd = f"cd ./{repo_name} && echo {shlex.quote(commit_msg)} | git commit -a -q --author {shlex.quote(git_author)} -F -"
         run_cmd(["ssh", args.container_name, commit_cmd])
 
     # Pull changes from the container. It's possible that the container is ahead of the local repo.
@@ -480,7 +486,8 @@ def cmd_pull(args):
 def cmd_diff(args):
     """Show differences between base and current changes. Extra args passed to git diff."""
     extra = " ".join(shlex.quote(a) for a in args.extra) if args.extra else ""
-    run_cmd(["ssh", "-q", "-t", args.container_name, f"cd /app && git add . && git diff base {extra} -- ."])
+    repo_name = shlex.quote(args.repo_name)
+    run_cmd(["ssh", "-q", "-t", args.container_name, f"cd ./{repo_name} && git add . && git diff base {extra} -- ."])
     return 0
 
 
@@ -588,8 +595,10 @@ def main():
         args.extra = unknown
     elif unknown:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
-    args.container_name = f"md-{Path(git_root_dir).name}-{git_current_branch}"
+    repo_name = Path(git_root_dir).name
+    args.container_name = f"md-{repo_name}-{git_current_branch}"
     args.git_current_branch = git_current_branch
+    args.repo_name = repo_name
     try:
         return args.func(args)
     except subprocess.CalledProcessError as e:

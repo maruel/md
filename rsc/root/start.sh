@@ -3,8 +3,8 @@ set -eu
 
 # Export MD_REPO_DIR to profile.d so SSH sessions can access it
 if [ -n "${MD_REPO_DIR:-}" ]; then
-	echo "export MD_REPO_DIR='$MD_REPO_DIR'" >/etc/profile.d/md-repo-dir.sh
-	chmod 644 /etc/profile.d/md-repo-dir.sh
+	echo "export MD_REPO_DIR='$MD_REPO_DIR'" >/etc/profile.d/00-md-repo-dir.sh
+	chmod 644 /etc/profile.d/00-md-repo-dir.sh
 fi
 
 # If /dev/kvm exists, update the kvm group GID to match the host
@@ -23,7 +23,7 @@ echo "[start.sh] Setting up persistent DBus session for user..."
 session_file="/home/user/.dbus-session-env"
 su - user -c "dbus-launch --sh-syntax > '$session_file'"
 chown user:user "$session_file"
-cat <<EOF >/etc/profile.d/dbus-session.sh
+cat <<EOF >/etc/profile.d/50-dbus-session.sh
 if [ -f "$session_file" ]; then
     . "$session_file"
     export DBUS_SESSION_BUS_ADDRESS
@@ -50,8 +50,8 @@ if [ -n "${MD_DISPLAY:-}" ]; then
 				{
 					echo "# VNC Display - set by container startup"
 					echo "export DISPLAY=$display"
-				} >/etc/profile.d/vnc-display.sh
-				chmod 644 /etc/profile.d/vnc-display.sh
+				} >/etc/profile.d/60-vnc-display.sh
+				chmod 644 /etc/profile.d/60-vnc-display.sh
 			fi
 		fi
 	else

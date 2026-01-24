@@ -334,6 +334,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
 
 @argument("--display", "-d", action="store_true", help="Enable X11/VNC display")
 @argument("--tag", default=None, help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
+@argument("--no-ssh", action="store_true", help="Don't SSH into the container after starting")
 def cmd_start(args):
     """Pull base image with specified tag, rebuild if needed, start container, open shell."""
     host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
@@ -393,7 +394,8 @@ def cmd_start(args):
     result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch, args.display, args.repo_name)
     if result != 0:
         return 1
-    run_cmd(["ssh", args.container_name])
+    if not args.no_ssh:
+        run_cmd(["ssh", args.container_name])
     return 0
 
 

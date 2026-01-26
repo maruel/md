@@ -160,6 +160,7 @@ OPENAI_API_KEY=your_key
 |---------|---------|
 | `md start` | Create and start a container for the current branch |
 | `md start --display` | Start container with X11/VNC desktop environment enabled |
+| `md run <cmd>` | Start a temporary container, run a command, then clean up |
 | `md list` | List all md containers |
 | `ssh md-<repo>-<branch>` | Access the container via SSH |
 | `md vnc` | Open VNC connection to the container |

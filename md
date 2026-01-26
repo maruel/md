@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import traceback
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -146,7 +147,7 @@ def date_to_epoch(date_str):
         return 0
 
 
-def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, base_image, tag_explicitly_provided=False):
+def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, base_image, tag_explicitly_provided=False, quiet=False):
     """Build the user customized Docker image."""
     rsc_dir = f"{script_dir}/rsc"
     machine = platform.machine().lower()
@@ -167,16 +168,19 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
         if local_base:
             remote_base = get_image_created_time(base_image)
             if not remote_base:
-                print(f"- Remote {base_image} image not found, using local build instead")
+                if not quiet:
+                    print(f"- Remote {base_image} image not found, using local build instead")
                 base_image = "md-base"
             elif date_to_epoch(local_base) > date_to_epoch(remote_base):
-                print(f"- Local md-base image is newer, using local build instead of {base_image}")
-                print("  Run 'docker image rm md-base' to delete the local image.")
+                if not quiet:
+                    print(f"- Local md-base image is newer, using local build instead of {base_image}")
+                    print("  Run 'docker image rm md-base' to delete the local image.")
                 base_image = "md-base"
 
     if base_image != "md-base":
-        print(f"- Pulling base image {base_image} ...")
-        run_cmd(["docker", "pull", "--platform", f"linux/{host_arch}", base_image])
+        if not quiet:
+            print(f"- Pulling base image {base_image} ...")
+        run_cmd(["docker", "pull", "--platform", f"linux/{host_arch}", base_image], stdout=subprocess.DEVNULL if quiet else None)
 
     stdout, returncode = run_cmd(["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", base_image], capture_output=True, check=False)
     if returncode == 0:
@@ -196,33 +200,37 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
             current_context = stdout
 
     if current_digest == base_digest and current_context == context_sha:
-        print(f"- Docker image {image_name} already matches {base_image} ({base_digest}), skipping rebuild.")
+        if not quiet:
+            print(f"- Docker image {image_name} already matches {base_image} ({base_digest}), skipping rebuild.")
         return base_image
 
-    print(f"- Building Docker image {image_name} ...")
-    run_cmd(
-        [
-            "docker",
-            "build",
-            "--platform",
-            f"linux/{host_arch}",
-            "--build-arg",
-            f"BASE_IMAGE={base_image}",
-            "--build-arg",
-            f"BASE_IMAGE_DIGEST={base_digest}",
-            "--build-arg",
-            f"CONTEXT_SHA={context_sha}",
-            "-t",
-            image_name,
-            rsc_dir,
-        ]
-    )
+    if not quiet:
+        print(f"- Building Docker image {image_name} ...")
+    build_cmd = [
+        "docker",
+        "build",
+        "--platform",
+        f"linux/{host_arch}",
+        "--build-arg",
+        f"BASE_IMAGE={base_image}",
+        "--build-arg",
+        f"BASE_IMAGE_DIGEST={base_digest}",
+        "--build-arg",
+        f"CONTEXT_SHA={context_sha}",
+        "-t",
+        image_name,
+        rsc_dir,
+    ]
+    if quiet:
+        build_cmd.insert(2, "-q")
+    run_cmd(build_cmd)
     return base_image
 
 
-def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name):
+def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, quiet=False):
     """Start Docker container."""
-    print(f"- Starting container {container_name} ...")
+    if not quiet:
+        print(f"- Starting container {container_name} ...")
 
     repo_name_q = shlex.quote(repo_name)
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
@@ -254,16 +262,23 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
     docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + display_args + repo_dir_args + kvm_args + localtime_args + sandbox_args + mounts + [image_name]
-    run_cmd(docker_cmd, check=False)
+    if quiet:
+        result = subprocess.run(docker_cmd, check=False, capture_output=True, text=True)
+        if result.returncode:
+            print(result.stderr or result.stdout, file=sys.stderr)
+            return 1
+    else:
+        run_cmd(docker_cmd, check=False)
 
     port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}', container_name], capture_output=True)
-    print(f"- Found ssh port {port}")
+    if not quiet:
+        print(f"- Found ssh port {port}")
 
     # Old images may not have VNC yet.
     vnc_port = None
     if display:
         vnc_port, _ = run_cmd(["docker", "inspect", "--format", '{{(index .NetworkSettings.Ports "5901/tcp" 0).HostPort}}', container_name], capture_output=True, check=False)
-        if vnc_port:
+        if vnc_port and not quiet:
             print(f"- Found VNC port {vnc_port} (display :1)")
 
     ssh_config_dir = home / ".ssh" / "config.d"
@@ -282,7 +297,8 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     with open(host_known_hosts, "w", encoding="utf-8") as f:
         f.write(f"[127.0.0.1]:{port} {host_pub_key}\n")
 
-    print("- git clone into container ...")
+    if not quiet:
+        print("- git clone into container ...")
     run_cmd(["git", "remote", "rm", container_name], check=False, capture_output=True)
     run_cmd(["git", "remote", "add", container_name, f"user@{container_name}:./{repo_name_q}"])
 
@@ -315,21 +331,60 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     if returncode == 0 and origin_url:
         https_url = convert_git_url_to_https(origin_url)
         run_cmd(["ssh", container_name, f"cd ./{repo_name_q} && git remote add origin {shlex.quote(https_url)}"])
-        print(f"- Set container origin to {https_url}")
+        if not quiet:
+            print(f"- Set container origin to {https_url}")
 
     if Path(".env").exists():
-        print("- sending .env into container ...")
+        if not quiet:
+            print("- sending .env into container ...")
         run_cmd(["scp", ".env", f"{container_name}:/home/user/.env"])
 
-    print(f"\nBase branch '{git_current_branch}' has been set up in the container as 'base' for easy diffing.")
-    print("Inside the container, you can use 'git diff base' to see your changes.\n")
-    print("Remote access:")
-    print(f"  SSH: ssh {container_name}")
-    if vnc_port:
-        print(f"  VNC: connect to localhost:{vnc_port} with a VNC client\n")
-    print(f"When done while on branch {git_current_branch}:")
-    print("  md kill")
+    if not quiet:
+        print(f"\nBase branch '{git_current_branch}' has been set up in the container as 'base' for easy diffing.")
+        print("Inside the container, you can use 'git diff base' to see your changes.\n")
+        print("Remote access:")
+        print(f"  SSH: ssh {container_name}")
+        if vnc_port:
+            print(f"  VNC: connect to localhost:{vnc_port} with a VNC client\n")
+        print(f"When done while on branch {git_current_branch}:")
+        print("  md kill")
     return 0
+
+
+def prepare_container_env(tag):
+    """Set up directories and keys. Returns (host_key_pub_path, user_auth_keys, md_user_key, base_image, tag_explicitly_provided, image_name)."""
+    host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
+    user_auth_keys = str(Path(SCRIPT_DIR) / "rsc" / "home" / "user" / ".ssh" / "authorized_keys")
+    home = Path.home()
+
+    tag_explicitly_provided = tag is not None
+    base_image = f"ghcr.io/maruel/md:{tag if tag_explicitly_provided else 'latest'}"
+    md_user_key = str(home / ".ssh" / "md")
+
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
+    xdg_data_home = os.environ.get("XDG_DATA_HOME", str(home / ".local" / "share"))
+    xdg_state_home = os.environ.get("XDG_STATE_HOME", str(home / ".local" / "state"))
+
+    paths = []
+    paths.extend(home / path for path in AGENT_CONFIG["home_paths"])
+    paths.extend(os.path.join(xdg_config_home, path) for path in AGENT_CONFIG["xdg_config_paths"])
+    paths.extend(os.path.join(xdg_data_home, path) for path in AGENT_CONFIG["local_share_paths"])
+    paths.extend(os.path.join(xdg_state_home, path) for path in AGENT_CONFIG["local_state_paths"])
+    paths.extend([host_key_path.parent, Path(user_auth_keys).parent, home / ".ssh" / "config.d"])
+    for p in paths:
+        Path(p).mkdir(parents=True, exist_ok=True)
+
+    claude_json = home / ".claude.json"
+    if not claude_json.exists():
+        claude_json.symlink_to(home / ".claude" / "claude.json")
+    elif not claude_json.is_symlink():
+        print(f"File {claude_json} exists but is not a symlink", file=sys.stderr)
+        sys.exit(1)
+
+    ensure_ed25519_key(md_user_key, "md-user")
+    ensure_ed25519_key(str(host_key_path), "md-host")
+
+    return str(host_key_path) + ".pub", user_auth_keys, md_user_key, base_image, tag_explicitly_provided, "md"
 
 
 @argument("--display", "-d", action="store_true", help="Enable X11/VNC display")
@@ -337,66 +392,55 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
 @argument("--no-ssh", action="store_true", help="Don't SSH into the container after starting")
 def cmd_start(args):
     """Pull base image with specified tag, rebuild if needed, start container, open shell."""
-    host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
-    host_key_pub_path = str(host_key_path) + ".pub"
-    user_auth_keys = Path(SCRIPT_DIR) / "rsc" / "home" / "user" / ".ssh" / "authorized_keys"
-    home = Path.home()
-    image_name = "md"
-
-    # Determine the tag to use
-    # If --tag was not provided, use "latest" and check for md-base
-    # If --tag was provided, use the specified value and don't check for md-base
-    tag_explicitly_provided = args.tag is not None
-    tag_to_use = args.tag if tag_explicitly_provided else "latest"
-
-    base_image = f"ghcr.io/maruel/md:{tag_to_use}"
-    md_user_key = str(home / ".ssh" / "md")
-
-    # Use XDG environment variables with proper fallbacks
-    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
-    xdg_data_home = os.environ.get("XDG_DATA_HOME", str(home / ".local" / "share"))
-    xdg_state_home = os.environ.get("XDG_STATE_HOME", str(home / ".local" / "state"))
-
-    # Build paths from agent configuration
-    paths = []
-    paths.extend(home / path for path in AGENT_CONFIG["home_paths"])
-    paths.extend(os.path.join(xdg_config_home, path) for path in AGENT_CONFIG["xdg_config_paths"])
-    paths.extend(os.path.join(xdg_data_home, path) for path in AGENT_CONFIG["local_share_paths"])
-    paths.extend(os.path.join(xdg_state_home, path) for path in AGENT_CONFIG["local_state_paths"])
-    # Additional paths
-    paths.extend(
-        [
-            host_key_path.parent,
-            user_auth_keys.parent,
-            home / ".ssh" / "config.d",
-        ]
-    )
-    for p in paths:
-        Path(p).mkdir(parents=True, exist_ok=True)
-
-    claude_json = home / ".claude.json"
-    if not claude_json.exists():
-        claude_dir_json = home / ".claude" / "claude.json"
-        claude_json.symlink_to(claude_dir_json)
-    elif not claude_json.is_symlink():
-        print(f"File {claude_json} exists but is not a symlink", file=sys.stderr)
-        sys.exit(1)
-
-    ensure_ed25519_key(str(home / ".ssh" / "md"), "md-user")
-    ensure_ed25519_key(str(host_key_path), "md-host")
+    host_key_pub, user_auth_keys, md_user_key, base_image, tag_explicit, image_name = prepare_container_env(args.tag)
 
     _, returncode = run_cmd(["docker", "inspect", args.container_name], capture_output=True, check=False)
     if returncode == 0:
         print(f"Container {args.container_name} already exists. SSH in with 'ssh {args.container_name}' or clean it up via 'md kill' first.", file=sys.stderr)
         sys.exit(1)
-    if not build_customized_image(SCRIPT_DIR, str(user_auth_keys), md_user_key, image_name, base_image, tag_explicitly_provided):
+    if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit):
         return 1
-    result = run_container(args.container_name, image_name, md_user_key, host_key_pub_path, args.git_current_branch, args.display, args.repo_name)
+    result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name)
     if result != 0:
         return 1
     if not args.no_ssh:
         run_cmd(["ssh", args.container_name])
     return 0
+
+
+def cleanup_container(container_name):
+    """Remove ssh config/remote and stop/remove the container."""
+    ssh_config_dir = Path.home() / ".ssh" / "config.d"
+    (ssh_config_dir / f"{container_name}.conf").unlink(missing_ok=True)
+    (ssh_config_dir / f"{container_name}.known_hosts").unlink(missing_ok=True)
+    run_cmd(["git", "remote", "remove", container_name], check=False, capture_output=True)
+    run_cmd(["docker", "rm", "-f", "-v", container_name], check=False, capture_output=True)
+
+
+@argument("--tag", default=None, help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
+@accepts_extra_args
+def cmd_run(args):
+    """Start a temporary container, run a command, then clean up. Extra args are the command."""
+    if not args.extra:
+        print("No command specified", file=sys.stderr)
+        return 1
+
+    host_key_pub, user_auth_keys, md_user_key, base_image, tag_explicit, image_name = prepare_container_env(args.tag)
+    container_name = f"md-{args.repo_name}-run-{uuid.uuid4().hex[:8]}"
+
+    if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit, quiet=True):
+        return 1
+    result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, quiet=True)
+    if result != 0:
+        cleanup_container(container_name)
+        return 1
+
+    repo_name_q = shlex.quote(args.repo_name)
+    command = " ".join(shlex.quote(c) for c in args.extra)
+    _, exit_code = run_cmd(["ssh", container_name, f"cd ./{repo_name_q} && {command}"], check=False)
+
+    cleanup_container(container_name)
+    return exit_code
 
 
 def cmd_build_base(args):  # pylint: disable=unused-argument

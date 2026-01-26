@@ -50,10 +50,10 @@ The `rsc/` directory contains Docker build context and system configuration:
 
 - `rsc/Dockerfile` and `rsc/Dockerfile.base` - Docker build files
 - `rsc/etc/` - System-level configuration files (copied to `/etc/` in container)
-  - `rsc/etc/profile.d/` - Shell environment scripts sourced by login shells
 - `rsc/root/` - Root-context setup and utilities
   - `rsc/root/setup/` - Root-level installation scripts (numbered 1+)
   - `rsc/root/start.sh` - Container entrypoint
 - `rsc/home/user/` - User-context setup (copied as user to `/home/user/`)
+  - `rsc/home/user/.config/bash.d/` - Modular bash extensions sourced by `.bashrc`
   - `rsc/home/user/setup/` - User-level installation scripts (numbered 1+)
   - `rsc/home/user/AGENTS.md` - Agent documentation inside container (keep in sync)

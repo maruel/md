@@ -30,6 +30,7 @@ AGENT_CONFIG = {
         ".codex",
         ".claude",
         ".gemini",
+        ".kimi",
         ".pi",
         ".qwen",
     ],

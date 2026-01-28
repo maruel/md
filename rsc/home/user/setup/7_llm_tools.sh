@@ -12,6 +12,9 @@ curl -fsSL https://opencode.ai/install | bash
 # Note: Amp may require Node.js v24 environment to run, but the installer is standalone.
 curl -fsSL https://ampcode.com/install.sh | bash
 
+# Kimi Code
+uv tool install kimi-cli
+
 # Claude Code
 # Handling configuration linking for the installer
 mkdir -p "$HOME/.claude"

@@ -230,9 +230,6 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
 
 def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, quiet=False):
     """Start Docker container."""
-    if not quiet:
-        print(f"- Starting container {container_name} ...")
-
     repo_name_q = shlex.quote(repo_name)
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
     localtime_args = ["-v", "/etc/localtime:/etc/localtime:ro"] if sys.platform == "linux" else []
@@ -262,7 +259,18 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     for state_path in AGENT_CONFIG["local_state_paths"]:
         mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
-    docker_cmd = ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"] + display_args + repo_dir_args + kvm_args + localtime_args + sandbox_args + mounts + [image_name]
+    if not quiet:
+        print(f"- Starting container {container_name} ... ", end="", flush=True)
+    docker_cmd = (
+        ["docker", "run", "-d", "--name", container_name, "--hostname", container_name, "-p", "127.0.0.1:0:22"]
+        + display_args
+        + repo_dir_args
+        + kvm_args
+        + localtime_args
+        + sandbox_args
+        + mounts
+        + [image_name]
+    )
     if quiet:
         result = subprocess.run(docker_cmd, check=False, capture_output=True, text=True)
         if result.returncode:
@@ -306,9 +314,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     start = time.time()
     while True:
         try:
-            output, returncode = run_cmd(["ssh", "-o", "ConnectTimeout=2", container_name, "exit"],
-                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                         timeout=10, check=False)
+            output, returncode = run_cmd(["ssh", "-o", "ConnectTimeout=2", container_name, "exit"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10, check=False)
             if returncode == 0:
                 break
         except subprocess.TimeoutExpired:
@@ -467,7 +473,10 @@ def cmd_build_base(args):  # pylint: disable=unused-argument
     else:
         print("WARNING: GITHUB_TOKEN not found. Some tools (neovim, rust-analyzer, etc) might fail to install or hit rate limits.", file=sys.stderr)
         print("Please set GITHUB_TOKEN to avoid issues:", file=sys.stderr)
-        print("  https://github.com/settings/personal-access-tokens/new?name=md-build-base&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/maruel/md", file=sys.stderr)
+        print(
+            "  https://github.com/settings/personal-access-tokens/new?name=md-build-base&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/maruel/md",
+            file=sys.stderr,
+        )
         print("  export GITHUB_TOKEN=...", file=sys.stderr)
 
     cmd.append(f"{SCRIPT_DIR}/rsc")

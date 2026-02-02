@@ -34,11 +34,13 @@ When installing a new tool in the container, ensure you update:
 - strace (installed via apt in rsc/root/setup/1_packages.sh)
 - lldb (installed via apt in rsc/root/setup/1_packages.sh, enables rust-lldb)
 - delve/dlv (installed via go install in rsc/home/user/setup/1_go.sh)
+- Tailscale (installed via extrepo in rsc/root/setup/7_tailscale.sh)
 
 ## Runtime Requirements
 
 - **Chrome Sandbox**: To run Chrome/Chromium with the sandbox enabled, the container must be launched with `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined`. The `md` script handles this automatically.
 - **Debugging Tools**: strace requires `--cap-add=SYS_PTRACE`. The `md` script handles this automatically.
+- **Tailscale**: Requires `--cap-add=NET_ADMIN`, `--cap-add=NET_RAW`, and `--cap-add=MKNOD`. The TUN device is created inside the container's namespace. The `md` script handles this automatically when `--tailscale` is passed to `md start`.
 
 ## For End Users: Remote GUI Access
 

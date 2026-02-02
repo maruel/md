@@ -40,6 +40,7 @@ RUN --mount=type=secret,id=github_token \
 RUN measure_exec.sh "Google Chrome" /root/setup/4_chrome.sh
 RUN measure_exec.sh "Create User" /root/setup/5_create_user.sh
 RUN measure_exec.sh "KVM Setup" /root/setup/6_kvm.sh
+RUN measure_exec.sh "Tailscale" /root/setup/7_tailscale.sh
 
 ### Second phase, as user
 

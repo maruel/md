@@ -19,7 +19,7 @@ Notable executables available in the container:
 - Media: ffmpeg, imagemagick
 - Android: android-sdk, gradle, java, adb
 - **Database**: sqlite3
-- **Network**: curl, wget, net-tools, iproute2
+- **Network**: curl, wget, net-tools, iproute2, tailscale (when enabled via `md start --tailscale`)
 - **Debugging**: strace, lsof, dlv (Go), lldb/rust-lldb (Rust)
 
 ## Browser & GUI Environment

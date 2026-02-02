@@ -15,6 +15,8 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -110,6 +112,72 @@ def convert_git_url_to_https(url):
         return f"https://{host}/{path}"
     # Unknown format, return as-is
     return url
+
+
+def delete_tailscale_device(device_id):
+    """Delete a Tailscale device using the API. Requires TAILSCALE_API_KEY."""
+    api_key = os.environ.get("TAILSCALE_API_KEY")
+    if not api_key:
+        return
+    req = urllib.request.Request(
+        f"https://api.tailscale.com/api/v2/device/{device_id}",
+        method="DELETE",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+    except urllib.error.URLError:
+        pass
+
+
+def generate_tailscale_authkey():
+    """Try to generate a one-time Tailscale auth key using the Tailscale API.
+
+    Returns (key, error) tuple. Key is None on failure, error is None on success.
+    Requires TAILSCALE_API_KEY environment variable.
+    """
+    api_key = os.environ.get("TAILSCALE_API_KEY")
+    if not api_key:
+        return None, "TAILSCALE_API_KEY not set, create an API access key at https://login.tailscale.com/admin/settings/keys"
+    # Create an ephemeral, pre-authorized, one-time key
+    req = urllib.request.Request(
+        "https://api.tailscale.com/api/v2/tailnet/-/keys",
+        data=json.dumps({
+            "capabilities": {
+                "devices": {
+                    "create": {
+                        "reusable": False,
+                        "ephemeral": True,
+                        "preauthorized": True,
+                        "tags": ["tag:md"],
+                    }
+                }
+            },
+            "expirySeconds": 300,
+        }).encode(),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            key = json.loads(resp.read().decode()).get("key")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        if "tags" in body and "invalid" in body:
+            err = "tag:md not allowed, add it at https://login.tailscale.com/admin/acls/visual/tags"
+        else:
+            err = f"API error {e.code}: {body}"
+        return None, err
+    except urllib.error.URLError as e:
+        return None, f"network error: {e.reason}"
+    except json.JSONDecodeError:
+        key = None
+    if not key:
+        return None, "no key in response"
+    return key, None
 
 
 def ensure_ed25519_key(path, comment):
@@ -245,7 +313,7 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     return base_image
 
 
-def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, quiet=False):
+def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, quiet, tailscale, tailscale_authkey, tailscale_ephemeral):
     """Start Docker container."""
     repo_name_q = shlex.quote(repo_name)
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
@@ -257,6 +325,15 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     # apparmor=unconfined: Allow unprivileged user namespaces (Ubuntu 24.04+).
     # SYS_PTRACE: Allow strace and other debugging tools.
     sandbox_args = ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined"]
+
+    # Tailscale requires NET_ADMIN, NET_RAW, and MKNOD (to create TUN device inside container)
+    tailscale_args = []
+    if tailscale:
+        tailscale_args = ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW", "--cap-add=MKNOD", "-e", "MD_TAILSCALE=1"]
+        if tailscale_authkey:
+            tailscale_args.extend(["-e", f"TAILSCALE_AUTHKEY={tailscale_authkey}"])
+        if tailscale_ephemeral:
+            tailscale_args.extend(["-e", "MD_TAILSCALE_EPHEMERAL=1"])
 
     home = Path.home()
     # Use XDG environment variables with proper fallbacks
@@ -285,6 +362,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         + kvm_args
         + localtime_args
         + sandbox_args
+        + tailscale_args
         + mounts
         + [image_name]
     )
@@ -363,6 +441,22 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
             print("- sending .env into container ...")
         run_cmd(["scp", ".env", f"{container_name}:/home/user/.env"])
 
+    # Check for Tailscale auth URL (only when no authkey was provided)
+    tailscale_url = None
+    if tailscale and not tailscale_authkey:
+        # Wait for auth URL file to appear and contain a URL
+        with subprocess.Popen(
+            ["ssh", container_name, "tail -f /tmp/tailscale_auth_url"],
+            stdout=subprocess.PIPE, text=True
+        ) as proc:
+            try:
+                for line in proc.stdout:
+                    if "https://" in line:
+                        tailscale_url = line.strip()
+                        break
+            finally:
+                proc.terminate()
+
     if not quiet:
         print("- Cool facts:")
         print("  > Remote access:")
@@ -371,6 +465,8 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
             print(f"  >  VNC: connect to localhost:{vnc_port} with a VNC client or: `md vnc`")
         else:
             print("  >  Next time pass --display to have a virtual display")
+        if tailscale_url:
+            print(f"  >  Tailscale: {tailscale_url}")
         print(f"  > Host branch '{git_current_branch}' is mapped in the container as 'base'")
         print("  > See changes (in container): `git diff base`")
         print("  > See changes    (on host)  : `md diff`")
@@ -415,6 +511,7 @@ def prepare_container_env(tag):
 
 
 @argument("--display", "-d", action="store_true", help="Enable X11/VNC display")
+@argument("--tailscale", action="store_true", help="Enable Tailscale networking (use TAILSCALE_AUTHKEY env var for unattended auth)")
 @argument("--tag", default=None, help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
 @argument("--no-ssh", action="store_true", help="Don't SSH into the container after starting")
 def cmd_start(args):
@@ -425,9 +522,20 @@ def cmd_start(args):
     if returncode == 0:
         print(f"Container {args.container_name} already exists. SSH in with 'ssh {args.container_name}' or clean it up via 'md kill' first.", file=sys.stderr)
         sys.exit(1)
+
+    # Try to generate a Tailscale auth key from the host if not already provided
+    tailscale_authkey = os.environ.get("TAILSCALE_AUTHKEY")
+    tailscale_ephemeral = False
+    if args.tailscale and not tailscale_authkey:
+        tailscale_authkey, err = generate_tailscale_authkey()
+        if err:
+            print(f"- Could not generate Tailscale auth key ({err}), will use browser auth")
+        else:
+            tailscale_ephemeral = True
+
     if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit):
         return 1
-    result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name)
+    result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name, False, args.tailscale, tailscale_authkey, tailscale_ephemeral)
     if result != 0:
         return 1
     if not args.no_ssh:
@@ -457,7 +565,7 @@ def cmd_run(args):
 
     if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit, quiet=True):
         return 1
-    result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, quiet=True)
+    result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, True, False, None, False)
     if result != 0:
         cleanup_container(container_name)
         return 1
@@ -628,6 +736,19 @@ def cmd_list(args):  # pylint: disable=unused-argument
 
 def cmd_kill(args):
     """Remove ssh config/remote and stop/remove the container."""
+    # If container has non-ephemeral Tailscale, delete node from tailnet (ephemeral nodes auto-delete)
+    env_out, rc = run_cmd(["docker", "inspect", "--format", '{{range .Config.Env}}{{println .}}{{end}}', args.container_name], capture_output=True, check=False)
+    if rc == 0 and "MD_TAILSCALE=1" in env_out and "MD_TAILSCALE_EPHEMERAL=1" not in env_out:
+        status_json, rc = run_cmd(["docker", "exec", args.container_name, "tailscale", "status", "--json"], capture_output=True, check=False)
+        if rc == 0:
+            try:
+                device_id = json.loads(status_json).get("Self", {}).get("ID")
+                if device_id:
+                    print("- Removing Tailscale node from tailnet...")
+                    delete_tailscale_device(device_id)
+            except json.JSONDecodeError:
+                pass
+
     ssh_config_dir = Path.home() / ".ssh" / "config.d"
     (ssh_config_dir / f"{args.container_name}.conf").unlink(missing_ok=True)
     (ssh_config_dir / f"{args.container_name}.known_hosts").unlink(missing_ok=True)

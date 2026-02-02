@@ -64,6 +64,33 @@ else
 	echo "[start.sh] MD_DISPLAY not set, skipping X/VNC startup"
 fi
 
+# Start Tailscale if enabled
+if [ -n "${MD_TAILSCALE:-}" ]; then
+	echo "[start.sh] Starting Tailscale..."
+	# Create TUN device inside container's namespace (don't use host's /dev/net/tun)
+	mkdir -p /dev/net
+	mknod /dev/net/tun c 10 200 2>/dev/null || true
+	chmod 600 /dev/net/tun
+	tailscaled --state=/var/lib/tailscale/tailscaled.state &
+	# Wait for tailscaled to be ready
+	for _ in $(seq 1 30); do
+		if tailscale status >/dev/null 2>&1; then
+			break
+		fi
+		sleep 0.1
+	done
+	ts_args="--hostname=$(hostname) --ssh"
+	if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
+		ts_args="$ts_args --authkey=$TAILSCALE_AUTHKEY"
+		# shellcheck disable=SC2086
+		tailscale up $ts_args
+	else
+		# Capture auth URL for the host to display
+		# shellcheck disable=SC2086
+		tailscale up $ts_args 2>&1 | tee /tmp/tailscale_auth_url &
+	fi
+fi
+
 # Start SSH server (after VNC so DISPLAY is available)
 service ssh start
 

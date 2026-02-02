@@ -104,6 +104,9 @@
 		fi
 	fi
 
+	# Network Tools
+	check_version "Tailscale" "tailscale" "version"
+
 	# AI Tools
 	check_version "Claude CLI" "claude" "--version"
 	check_version "Gemini CLI" "gemini" "--version"

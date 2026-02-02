@@ -1,6 +1,9 @@
 #!/bin/bash
 set -eu
 
+# Generate dynamic motd with hostname
+echo "Connected to $(hostname)" >/etc/motd
+
 # Export MD_REPO_DIR to profile.d so SSH sessions can access it
 if [ -n "${MD_REPO_DIR:-}" ]; then
 	echo "export MD_REPO_DIR='$MD_REPO_DIR'" >/etc/profile.d/00-md-repo-dir.sh

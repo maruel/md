@@ -130,6 +130,18 @@ def get_image_created_time(image_name):
     return stdout
 
 
+def get_image_version_label(image_name):
+    """Get image version from org.opencontainers.image.version label."""
+    stdout, returncode = run_cmd(
+        ["docker", "image", "inspect", image_name, "--format", '{{index .Config.Labels "org.opencontainers.image.version"}}'],
+        capture_output=True,
+        check=False,
+    )
+    if returncode == 0 and stdout and stdout != "<no value>":
+        return stdout
+    return None
+
+
 def date_to_epoch(date_str):
     """Convert date string to epoch."""
     try:
@@ -182,6 +194,11 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
         if not quiet:
             print(f"- Pulling base image {base_image} ...")
         run_cmd(["docker", "pull", "--platform", f"linux/{host_arch}", base_image], stdout=subprocess.DEVNULL if quiet else None)
+        # Show version when using "latest" tag
+        if not quiet and base_image.endswith(":latest"):
+            version = get_image_version_label(base_image)
+            if version and version.startswith("v"):
+                print(f"  Version: {version}")
 
     stdout, returncode = run_cmd(["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", base_image], capture_output=True, check=False)
     if returncode == 0:
@@ -353,10 +370,11 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         if vnc_port:
             print(f"  >  VNC: connect to localhost:{vnc_port} with a VNC client or: `md vnc`")
         else:
-            print(f"  >  Next time pass --display to have a virtual display")
+            print("  >  Next time pass --display to have a virtual display")
         print(f"  > Host branch '{git_current_branch}' is mapped in the container as 'base'")
-        print("  > See changes:    `git diff base`")
-        print("  > Kill container: `md kill`")
+        print("  > See changes (in container): `git diff base`")
+        print("  > See changes    (on host)  : `md diff`")
+        print("  > Kill container (on host)  : `md kill`")
     return 0
 
 

@@ -114,6 +114,7 @@ jobs:
           target: final
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           annotations: |
             org.opencontainers.image.description=Dev environment with Go, Python, Node, Rust, and more.
             org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

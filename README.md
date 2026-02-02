@@ -57,8 +57,8 @@ export PATH="$PATH:$(pwd)/md"
 ### Readme for agents (https://agents.md)
 
 **For coding agents:** The container includes `/home/user/AGENTS.md` which provides information about
-preinstalled tools and system configuration. Reference it in your AGENTS.md to help agents understand the
-available development environment. Here's the locations:
+preinstalled tools (list available in `~/tool_versions.md`) and system configuration. Reference it in your
+AGENTS.md to help agents understand the available development environment. Here's the locations:
 
 - [amp](https://ampcode.com/manual#AGENTS.md): `~/.config/amp/AGENTS.md`
 - [claude](https://www.anthropic.com/engineering/claude-code-best-practices): `~/.claude/CLAUDE.md`

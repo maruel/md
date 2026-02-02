@@ -26,8 +26,7 @@ COPY usr/ /usr/
 # Setup measurement tool and version report file
 RUN echo "| Step | Command | Duration |" > /var/log/build_timings.md && \
     echo "|---|---|---|" >> /var/log/build_timings.md && \
-    touch /var/log/tool_versions.md && \
-    chmod 666 /var/log/build_timings.md /var/log/tool_versions.md
+    chmod 666 /var/log/build_timings.md
 
 # Install tools (as root)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -59,7 +58,7 @@ RUN --mount=type=secret,id=github_token,uid=1000 \
 
 # Generate tool version report
 SHELL ["/bin/bash", "-ilc"]
-RUN measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /var/log/tool_versions.md
+RUN measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /home/user/tool_versions.md
 
 USER root
 SHELL ["/bin/bash", "-c"]
@@ -69,7 +68,7 @@ CMD ["/root/start.sh"]
 
 # Stage to export reports
 FROM scratch AS reports
-COPY --from=final /var/log/tool_versions.md /
+COPY --from=final /home/user/tool_versions.md /
 COPY --from=final /var/log/build_timings.md /
 
 FROM final

@@ -4,7 +4,7 @@ For agents running in this container environment.
 
 ## Preinstalled Tools
 
-For a complete and up-to-date list of tool versions, see `/var/log/tool_versions.md`.
+For a complete and up-to-date list of tool versions, see `~/tool_versions.md`.
 
 Notable executables available in the container:
 

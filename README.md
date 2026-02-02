@@ -22,6 +22,7 @@ AI coding agents work best when given full command execution (YOLO mode). But ru
 - Run tests in parallel without conflicts
 - Keep your local checkout clean
 - Delete containers cleanly when done
+- Accessible over [Tailscale](TAILSCALE.md)
 
 ## Quick Start
 

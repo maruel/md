@@ -347,14 +347,16 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         run_cmd(["scp", ".env", f"{container_name}:/home/user/.env"])
 
     if not quiet:
-        print(f"\nBase branch '{git_current_branch}' has been set up in the container as 'base' for easy diffing.")
-        print("Inside the container, you can use 'git diff base' to see your changes.\n")
-        print("Remote access:")
-        print(f"  SSH: ssh {container_name}")
+        print("- Cool facts:")
+        print("  > Remote access:")
+        print(f"  >  SSH: `ssh {container_name}`")
         if vnc_port:
-            print(f"  VNC: connect to localhost:{vnc_port} with a VNC client\n")
-        print(f"When done while on branch {git_current_branch}:")
-        print("  md kill")
+            print(f"  >  VNC: connect to localhost:{vnc_port} with a VNC client or: `md vnc`")
+        else:
+            print(f"  >  Next time pass --display to have a virtual display")
+        print(f"  > Host branch '{git_current_branch}' is mapped in the container as 'base'")
+        print("  > See changes:    `git diff base`")
+        print("  > Kill container: `md kill`")
     return 0
 
 

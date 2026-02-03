@@ -77,7 +77,13 @@ ssh <host>.<tailnet>.ts.net
 
 ### VNC
 
-Install a VNC client. Start a VNC session:
+Start a container with Tailscale **and** Xvfb, Xfce and a VNC server:
+
+```bash
+md start --tailscale --display
+```
+
+Install a VNC client locally and start a VNC session:
 
 ```bash
 vncviewer <host>.<tailnet>.ts.net:5901
@@ -88,4 +94,4 @@ vncviewer <host>.<tailnet>.ts.net:5901
 When you run `md kill`:
 
 - Ephemeral nodes (created with API key) are automatically removed from the tailnet
-- Browser-authenticated nodes are deleted via the API (requires `TAILSCALE_API_KEY`)
+- Browser-authenticated nodes have to be deleted via the web interface at https://login.tailscale.com/admin/machines

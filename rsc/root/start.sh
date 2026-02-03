@@ -80,21 +80,23 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 		sleep 0.1
 	done
 	if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
-		tailscale up --hostname=$(hostname) --ssh --authkey=$TAILSCALE_AUTHKEY
-		# Update MOTD with Tailscale FQDN
+		tailscale up --hostname="$(hostname)" --ssh --authkey="$TAILSCALE_AUTHKEY"
+		# Update MOTD with Tailscale FQDN and VNC URL if display is enabled
 		ts_fqdn=$(tailscale status --json | jq -r '.Self.DNSName // empty' | sed 's/\.$//')
 		if [ -n "$ts_fqdn" ]; then
 			echo "Connected to $ts_fqdn" >/etc/motd
+			if [ -n "${MD_DISPLAY:-}" ]; then
+				echo "VNC: vnc://$ts_fqdn:5901" >>/etc/motd
+			fi
 			echo "[start.sh] Tailscale connected: $ts_fqdn"
 		fi
 	else
 		# Capture auth URL for the host to display (MOTD not updated without authkey)
-		# shellcheck disable=SC2086
-		tailscale up --hostname=$(hostname) --ssh 2>&1 | tee /tmp/tailscale_auth_url &
+		tailscale up --hostname="$(hostname)" --ssh 2>&1 | tee /tmp/tailscale_auth_url &
 	fi
 fi
 
-echo "⚠️ Tell your agent to read ~/AGENTS.md" >> /etc/motd
+echo "⚠️ Tell your agent to read ~/AGENTS.md" >>/etc/motd
 
 # Start SSH server (after VNC so DISPLAY is available)
 service ssh start

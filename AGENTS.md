@@ -36,6 +36,15 @@ When installing a new tool in the container, ensure you update:
 - delve/dlv (installed via go install in rsc/home/user/setup/1_go.sh)
 - Tailscale (installed via extrepo in rsc/root/setup/7_tailscale.sh)
 
+## Chrome/Chromium Configuration
+
+Initial preferences are configured via:
+- `/opt/google/chrome/initial_preferences` - Chrome
+- `/etc/chromium/initial_preferences` - Chromium
+
+Reference for all available preference names. The file is large so first download it and then take a look:
+https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/common/pref_names.h?format=TEXT
+
 ## Runtime Requirements
 
 - **Chrome Sandbox**: To run Chrome/Chromium with the sandbox enabled, the container must be launched with `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined`. The `md` script handles this automatically.

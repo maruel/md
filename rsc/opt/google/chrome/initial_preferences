@@ -1,34 +1,31 @@
 {
   "distribution": {
-    "skip_first_run_ui": true,
-    "suppress_first_run_default_browser_prompt": true,
-    "show_welcome_page": false,
+    "check_default_browser": false,
     "import_bookmarks": false,
     "make_chrome_default": false,
-    "make_chrome_default_for_user": false
+    "make_chrome_default_for_user": false,
+    "show_welcome_page": false,
+    "skip_first_run_ui": true,
+    "suppress_first_run_bubble": true,
+    "suppress_first_run_default_browser_prompt": true
   },
-  "first_run_tabs": [],
-  "homepage": "about:blank",
-  "homepage_is_newtabpage": false,
-  "show_home_button": false,
-  "restore_on_startup": 1,
-  "session": {
-    "restore_on_startup": 1
-  },
-  "notifications": {
-    "quiet_permission_ui_enabled": true
+  "browser": {
+    "default_browser_setting_enabled": false
   },
   "download": {
     "prompt_for_download": false
   },
+  "feedback_allowed": false,
+  "first_run_tabs": [],
+  "homepage": "about:blank",
+  "homepage_is_newtabpage": false,
   "plugins": {
     "always_open_pdf_externally": true
   },
-  "browser": {
-    "has_seen_welcome_page": true,
-    "check_default_browser": false
+  "session": {
+    "restore_on_startup": 5
   },
-  "profile": {
-    "has_seen_welcome_page": true
+  "translate": {
+    "enabled": false
   }
 }

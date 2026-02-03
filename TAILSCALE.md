@@ -52,14 +52,14 @@ Start a container with Tailscale:
 md start --tailscale
 ```
 
-The container will appear on your tailnet as `md-<repo>-<branch>`.
+The container tailscale host name will often have a dash number suffix, e.g. `-2`, so look at the FQDN that is printed when you ssh in. You can also find it with `tailscale status`
 
 ### SSH Access
 
 From any machine on your tailnet:
 
 ```bash
-ssh user@md-<repo>-<branch>.<tailnet>.ts.net
+ssh user@<host>.<tailnet>.ts.net
 ```
 
 SSH requires specifying the username. To avoid typing `user@` every time, add to your `~/.ssh/config`:
@@ -72,7 +72,7 @@ Host md-*.*.ts.net
 Then you can simply:
 
 ```bash
-ssh md-<repo>-<branch>.<tailnet>.ts.net
+ssh <host>.<tailnet>.ts.net
 ```
 
 ### VNC
@@ -82,8 +82,6 @@ Install a VNC client. Start a VNC session:
 ```bash
 vncviewer <host>.<tailnet>.ts.net:5901
 ```
-
-The host will often have a dash number suffix, e.g. `-2`, so look at the FQDN that is printed when you ssh in.
 
 ### Cleanup
 

@@ -2,7 +2,10 @@
 set -eu
 
 # Generate dynamic motd with hostname
-echo "Connected to $(hostname)" >/etc/motd
+cat >/etc/motd <<EOF
+Connected to $(hostname)
+Don't forget to tell your agent to read ~/tool_versions.md
+EOF
 
 # Export MD_REPO_DIR to profile.d so SSH sessions can access it
 if [ -n "${MD_REPO_DIR:-}" ]; then
@@ -84,8 +87,17 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 		ts_args="$ts_args --authkey=$TAILSCALE_AUTHKEY"
 		# shellcheck disable=SC2086
 		tailscale up $ts_args
+		# Update MOTD with Tailscale FQDN
+		ts_fqdn=$(tailscale status --json | jq -r '.Self.DNSName // empty' | sed 's/\.$//')
+		if [ -n "$ts_fqdn" ]; then
+			cat >/etc/motd <<-EOF
+				Connected to $ts_fqdn
+				Don't forget to tell your agent to read ~/tool_versions.md
+			EOF
+			echo "[start.sh] Tailscale connected: $ts_fqdn"
+		fi
 	else
-		# Capture auth URL for the host to display
+		# Capture auth URL for the host to display (MOTD not updated without authkey)
 		# shellcheck disable=SC2086
 		tailscale up $ts_args 2>&1 | tee /tmp/tailscale_auth_url &
 	fi

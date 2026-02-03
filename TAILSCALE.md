@@ -75,6 +75,16 @@ Then you can simply:
 ssh md-<repo>-<branch>.<tailnet>.ts.net
 ```
 
+### VNC
+
+Install a VNC client. Start a VNC session:
+
+```bash
+vncviewer <host>.<tailnet>.ts.net:5901
+```
+
+The host will often have a dash number suffix, e.g. `-2`, so look at the FQDN that is printed when you ssh in.
+
 ### Cleanup
 
 When you run `md kill`:

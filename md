@@ -613,8 +613,38 @@ def cmd_build_base(args):  # pylint: disable=unused-argument
     return 0
 
 
+def check_container_state(container_name, git_current_branch):
+    """Check if container, git remote, and ssh config exist. Returns True if ready, False otherwise."""
+    _, container_rc = run_cmd(["docker", "inspect", container_name], capture_output=True, check=False)
+    container_exists = container_rc == 0
+    _, remote_rc = run_cmd(["git", "remote", "get-url", container_name], capture_output=True, check=False)
+    remote_exists = remote_rc == 0
+    ssh_config_dir = Path.home() / ".ssh" / "config.d"
+    ssh_exists = (ssh_config_dir / f"{container_name}.conf").exists()
+
+    if not container_exists and not remote_exists and not ssh_exists:
+        print(f"No container running for branch '{git_current_branch}'.", file=sys.stderr)
+        print("Start a container with: md start", file=sys.stderr)
+        return False
+
+    if not (container_exists and remote_exists and ssh_exists):
+        print(f"Warning: Inconsistent state detected for {container_name}:", file=sys.stderr)
+        if not container_exists:
+            print("  - Docker container is not running", file=sys.stderr)
+        if not remote_exists:
+            print("  - Git remote is missing", file=sys.stderr)
+        if not ssh_exists:
+            print("  - SSH config is missing", file=sys.stderr)
+        print("Consider running 'md kill' to clean up, then 'md start' to restart.", file=sys.stderr)
+        return False
+
+    return True
+
+
 def cmd_push(args):
     """Force-push current repo state into the running container."""
+    if not check_container_state(args.container_name, args.git_current_branch):
+        return 1
     # Refuse if there's any pending changes locally.
     _, returncode = run_cmd(["git", "diff", "--quiet", "--exit-code"], check=False)
     if returncode:
@@ -637,6 +667,8 @@ def cmd_push(args):
 
 def cmd_pull(args):
     """Pull changes from the container back to the local repo."""
+    if not check_container_state(args.container_name, args.git_current_branch):
+        return 1
     repo_name = shlex.quote(args.repo_name)
     # Add any untracked files and identify if a commit is needed.
     _, returncode = run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git add . && git diff --quiet HEAD -- ."], capture_output=True, check=False)
@@ -736,29 +768,53 @@ def cmd_list(args):  # pylint: disable=unused-argument
 
 def cmd_kill(args):
     """Remove ssh config/remote and stop/remove the container."""
-    # If container has non-ephemeral Tailscale, delete node from tailnet (ephemeral nodes auto-delete)
-    env_out, rc = run_cmd(["docker", "inspect", "--format", '{{range .Config.Env}}{{println .}}{{end}}', args.container_name], capture_output=True, check=False)
-    if rc == 0 and "MD_TAILSCALE=1" in env_out and "MD_TAILSCALE_EPHEMERAL=1" not in env_out:
-        status_json, rc = run_cmd(["docker", "exec", args.container_name, "tailscale", "status", "--json"], capture_output=True, check=False)
-        if rc == 0:
-            try:
-                device_id = json.loads(status_json).get("Self", {}).get("ID")
-                if device_id:
-                    print("- Removing Tailscale node from tailnet...")
-                    delete_tailscale_device(device_id)
-            except json.JSONDecodeError:
-                pass
-
+    # Check what exists before cleanup
+    _, container_exists = run_cmd(["docker", "inspect", args.container_name], capture_output=True, check=False)
+    container_exists = container_exists == 0
+    _, remote_exists = run_cmd(["git", "remote", "get-url", args.container_name], capture_output=True, check=False)
+    remote_exists = remote_exists == 0
     ssh_config_dir = Path.home() / ".ssh" / "config.d"
-    (ssh_config_dir / f"{args.container_name}.conf").unlink(missing_ok=True)
-    (ssh_config_dir / f"{args.container_name}.known_hosts").unlink(missing_ok=True)
-    run_cmd(["git", "remote", "remove", args.container_name], check=False, capture_output=True)
-    stdout, returncode = run_cmd(["docker", "rm", "-f", "-v", args.container_name], check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if returncode or "Error" in stdout:
-        print(f"{args.container_name} not running")
+    ssh_conf = ssh_config_dir / f"{args.container_name}.conf"
+    ssh_known_hosts = ssh_config_dir / f"{args.container_name}.known_hosts"
+    ssh_exists = ssh_conf.exists() or ssh_known_hosts.exists()
+
+    if not container_exists and not remote_exists and not ssh_exists:
+        print(f"{args.container_name} not found")
         return 1
+
+    # If container has non-ephemeral Tailscale, delete node from tailnet (ephemeral nodes auto-delete)
+    if container_exists:
+        env_out, rc = run_cmd(["docker", "inspect", "--format", '{{range .Config.Env}}{{println .}}{{end}}', args.container_name], capture_output=True, check=False)
+        if rc == 0 and "MD_TAILSCALE=1" in env_out and "MD_TAILSCALE_EPHEMERAL=1" not in env_out:
+            status_json, rc = run_cmd(["docker", "exec", args.container_name, "tailscale", "status", "--json"], capture_output=True, check=False)
+            if rc == 0:
+                try:
+                    device_id = json.loads(status_json).get("Self", {}).get("ID")
+                    if device_id:
+                        print("- Removing Tailscale node from tailnet...")
+                        delete_tailscale_device(device_id)
+                except json.JSONDecodeError:
+                    pass
+
+    # Always clean up SSH config files
+    ssh_conf.unlink(missing_ok=True)
+    ssh_known_hosts.unlink(missing_ok=True)
+
+    returncode = 0
+    # Always attempt to remove git remote
+    if remote_exists:
+        _, rc = run_cmd(["git", "remote", "remove", args.container_name], check=False, capture_output=True)
+        if rc != 0:
+            returncode = rc
+
+    # Always attempt to remove container
+    if container_exists:
+        _, rc = run_cmd(["docker", "rm", "-f", "-v", args.container_name], check=False, capture_output=True)
+        if rc != 0:
+            returncode = rc
+
     print(f"Removed {args.container_name}")
-    return 0
+    return returncode
 
 
 def main():

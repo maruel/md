@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Chrome Debug 9222
+Comment=Google Chrome with remote debugging on port 9222
+Exec=google-chrome --remote-debugging-port=9222 --user-data-dir=/home/user/.chrome-debug
+Icon=google-chrome
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=true

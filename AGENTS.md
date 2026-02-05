@@ -53,7 +53,9 @@ https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/common/p
 
 ## For End Users: Remote GUI Access
 
-The container runs a VNC server (TigerVNC + XFCE4) on port 5901 accessible via any VNC client on the host machine. This is for users who want to connect to the container's graphical environment from outside the container.
+The container runs Xvnc (TigerVNC) + XFCE4 on port 5901 accessible via any VNC client. Xvnc runs as root (unkillable by user), while the XFCE session runs as user:
+- **Xvnc** (root): Combined X server + VNC server on :1, port 5901
+- **XFCE4** (user): Desktop session, auto-restarts if killed
 
 ## Directory Layout (rsc/)
 

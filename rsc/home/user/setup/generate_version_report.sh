@@ -72,6 +72,9 @@
 	check_version "Chromium" "chromium" "--version"
 	check_version "Chrome DevTools MCP" "chrome-devtools-mcp" "--version"
 
+	# Display / VNC
+	check_version "Xvnc" "Xvnc" "-version"
+
 	# Python Tools
 	check_version "uv" "uv" "--version"
 	check_version "black" "black" "--version"

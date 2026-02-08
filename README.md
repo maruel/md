@@ -155,6 +155,16 @@ ANTHROPIC_API_KEY=your_key
 OPENAI_API_KEY=your_key
 ```
 
+### GitHub Authentication
+
+By default the container doesn't have access to your GitHub credentials. To
+enable git credentials and access to GitHub (e.g. to create PRs or issues),
+authenticate inside the container via:
+
+```bash
+gh auth login
+```
+
 ## Commands
 
 | Command | Purpose |

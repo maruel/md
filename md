@@ -423,7 +423,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     # Initialize git repo in the container (done here instead of Dockerfile since repo_name is dynamic)
     run_cmd(["ssh", container_name, f"mkdir -p ./{repo_name_q} && git init -q ./{repo_name_q}"])
     run_cmd(["git", "fetch", container_name])
-    run_cmd(["git", "push", "-q", container_name, f"HEAD:refs/heads/{git_current_branch}"])
+    run_cmd(["git", "push", "-q", "--tags", container_name, f"HEAD:refs/heads/{git_current_branch}"])
     run_cmd(["ssh", container_name, f"cd ./{repo_name_q} && git switch -q {git_current_branch}"])
     run_cmd(["ssh", container_name, f"cd ./{repo_name_q} && git branch -f base {git_current_branch} && git switch -q base && git switch -q {git_current_branch}"])
 
@@ -658,7 +658,7 @@ def cmd_push(args):
     run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git branch -f {backup_branch} {container_commit}"])
     print(f"- Previous state saved as git branch: {backup_branch}")
     # Update base first.
-    run_cmd(["git", "push", "-q", "-f", args.container_name, f"{args.git_current_branch}:base"])
+    run_cmd(["git", "push", "-q", "-f", "--tags", args.container_name, f"{args.git_current_branch}:base"])
     # Recreate the branch from base.
     run_cmd(["ssh", args.container_name, f"cd ./{repo_name} && git switch -q -C {args.git_current_branch} base"])
     print("- Container updated.")

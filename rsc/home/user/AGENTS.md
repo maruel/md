@@ -17,6 +17,7 @@ Notable executables available in the container:
 - Android: android-sdk, gradle, adb, sdkmanager
 - Database: sqlite3
 - Network: curl, wget, net-tools, iproute2, tailscale
+- GitHub: gh
 - Debugging: strace, lsof, dlv (Go), lldb/rust-lldb (Rust)
 
 **Web Remote Debugging**: `google-chrome --remote-debugging-port` now **requires** `--user-data-dir` pointing to a non-default directory.

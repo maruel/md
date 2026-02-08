@@ -25,7 +25,7 @@ When installing a new tool in the container, ensure you update:
 
 ## Installed Tools
 
-- Google Chrome (amd64 only, installed via extrepo during image build in rsc/root/setup/5_chrome.sh)
+- Google Chrome (amd64 only, installed via extrepo during image build in rsc/root/setup/4_extrepo.sh)
 - Chromium Browser (arm64 fallback, installed via apt in rsc/root/setup/1_packages.sh)
 - chromium-sandbox (installed via apt in rsc/root/setup/1_packages.sh)
 - Chrome DevTools MCP (installed via npm in rsc/home/user/setup/2_nodejs.sh)
@@ -34,7 +34,8 @@ When installing a new tool in the container, ensure you update:
 - strace (installed via apt in rsc/root/setup/1_packages.sh)
 - lldb (installed via apt in rsc/root/setup/1_packages.sh, enables rust-lldb)
 - delve/dlv (installed via go install in rsc/home/user/setup/1_go.sh)
-- Tailscale (installed via extrepo in rsc/root/setup/7_tailscale.sh)
+- Tailscale (installed via extrepo in rsc/root/setup/4_extrepo.sh)
+- GitHub CLI/gh (installed via extrepo in rsc/root/setup/4_extrepo.sh)
 
 ## Chrome/Chromium Configuration
 

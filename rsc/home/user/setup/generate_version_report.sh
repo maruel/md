@@ -110,6 +110,9 @@
 	# Network Tools
 	check_version "Tailscale" "tailscale" "version"
 
+	# GitHub
+	check_version "GitHub CLI" "gh" "--version"
+
 	# AI Tools
 	check_version "Claude CLI" "claude" "--version"
 	check_version "Gemini CLI" "gemini" "--version"

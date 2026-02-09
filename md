@@ -57,6 +57,23 @@ AGENT_CONFIG = {
 }
 
 
+def sanitize_docker_name(name):
+    """Sanitize a string for use in a Docker container name.
+
+    Docker container names must match [a-zA-Z0-9][a-zA-Z0-9_.-].
+    """
+    # Replace slashes and other common separators with hyphens.
+    s = re.sub(r"[/@#:~]+", "-", name)
+    # Strip any remaining invalid characters.
+    s = re.sub(r"[^a-zA-Z0-9_.-]", "", s)
+    # Collapse consecutive hyphens/dots/underscores.
+    s = re.sub(r"[-_.]{2,}", "-", s)
+    # Strip leading/trailing non-alphanumeric characters.
+    s = s.strip("-_.")
+    # Must not be empty after sanitization.
+    return s or "unnamed"
+
+
 def argument(*name_or_flags, **kwargs):
     """Decorator to add arguments to a command."""
 
@@ -561,7 +578,7 @@ def cmd_run(args):
         return 1
 
     host_key_pub, user_auth_keys, md_user_key, base_image, tag_explicit, image_name = prepare_container_env(args.tag)
-    container_name = f"md-{args.repo_name}-run-{uuid.uuid4().hex[:8]}"
+    container_name = f"md-{sanitize_docker_name(args.repo_name)}-run-{uuid.uuid4().hex[:8]}"
 
     if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit, quiet=True):
         return 1
@@ -849,7 +866,7 @@ def main():
     elif unknown:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     repo_name = Path(git_root_dir).name
-    args.container_name = f"md-{repo_name}-{git_current_branch}"
+    args.container_name = f"md-{sanitize_docker_name(repo_name)}-{sanitize_docker_name(git_current_branch)}"
     args.git_current_branch = git_current_branch
     args.repo_name = repo_name
     try:

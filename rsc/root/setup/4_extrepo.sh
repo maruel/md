@@ -11,6 +11,9 @@ PACKAGES=(gh tailscale)
 if [[ "$ARCH" == "amd64" ]]; then
 	# Google Chrome only available for amd64 as of 2026-01-16.
 	extrepo enable google_chrome
+	# Refresh the signing key; extrepo's bundled copy may lack newer subkeys.
+	curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+		-o /var/lib/extrepo/keys/google_chrome.asc
 	PACKAGES+=(google-chrome-stable)
 fi
 extrepo enable github-cli

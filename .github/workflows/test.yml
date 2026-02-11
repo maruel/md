@@ -1,0 +1,152 @@
+# Copyright 2024 Marc-Antoine Ruel. All rights reserved.
+# Use of this source code is governed under the Apache License, Version 2.0
+# that can be found in the LICENSE file.
+
+on: [push]
+name: Run tests
+jobs:
+  # Runs go test both with code coverage sent to codecov, race detector and
+  # benchmarks. At the end do a quick check to ensure the tests to not leave
+  # files in the tree.
+  test:
+    name: "test: ${{matrix.os}}"
+    runs-on: "${{matrix.os}}"
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PYTHONDONTWRITEBYTECODE: x
+    steps:
+      - name: Turn off git core.autocrlf
+        if: matrix.os == 'windows-latest'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: "go install necessary tools"
+        if: always()
+        run: |
+          go install github.com/maruel/pat/cmd/ba@latest
+      - name: "Check: go test -cover (full)"
+        # Only run costly tests on linux.
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          # Make sure we don't get throttled calling github apis.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go test -timeout=600s -covermode=count -coverprofile coverage.txt -bench=. -benchtime=1x ./...
+      - name: "Check: go test -cover (light)"
+        if: matrix.os == 'windows-latest' || matrix.os == 'macos-latest'
+        env:
+          # Make sure we don't get throttled calling github apis.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go test -timeout=600s -covermode=count -coverprofile coverage.txt -bench=. -benchtime=1x ./...
+        # Don't send code coverage if anything failed to reduce spam.
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+      - name: "Cleanup"
+        if: always()
+        run: rm -f coverage.txt codecov codecov.*
+      - name: "Check: tree is clean"
+        if: always()
+        run: |
+          # Nothing should have changed in the tree up to that point and no
+          # unsuspected file was created.
+          TOUCHED=$(git status --porcelain)
+          if ! test -z "$TOUCHED"; then
+            echo "Oops, something touched these files, please cleanup:"
+            echo "$TOUCHED"
+            git diff
+            false
+          fi
+
+    # Run linters. This workflow can be merged with the test_all one if desired
+    # to cut on runtime, at the cost of latency. I dislike waiting for results
+    # so I prefer to run them in parallel.
+  lint:
+    name: "lint: ${{matrix.os}}"
+    runs-on: "${{matrix.os}}"
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PYTHONDONTWRITEBYTECODE: x
+    steps:
+      - name: Turn off git core.autocrlf
+        if: matrix.os == 'windows-latest'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9
+      - name: "go install necessary tools (ubuntu)"
+        if: always() && matrix.os == 'ubuntu-latest'
+        run: |
+          go install github.com/google/addlicense@latest
+      - name: "Check: no executable was committed (ubuntu)"
+        if: always() && matrix.os == 'ubuntu-latest'
+        run: |
+          if find . -type f -not -path './.git/*' -not -path './cache/*' -not -path './py/venv/*' -not -name '*.sh' -not -name '*.py' -perm +111 | grep -e . ; then
+            echo 'Do not commit executables beside shell scripts'
+            false
+          fi
+      - name: "Check: addlicense; all sources have a license header (ubuntu)"
+        if: always() && matrix.os == 'ubuntu-latest'
+        run: addlicense -ignore default_config.yml -ignore "examples/**" -ignore "**/testdata/**" -check .
+      - name: "Check: go generate doesn't modify files"
+        if: always()
+        run: |
+          go generate ./...
+          # Also test for untracked files. go generate should not generate ignored
+          # files either.
+          TOUCHED=$(git status --porcelain --ignored)
+          if ! test -z "$TOUCHED"; then
+            echo "go generate created these files, please fix:"
+            echo "$TOUCHED"
+            false
+          fi
+      - name: "Check: go mod tidy doesn't modify files"
+        if: always()
+        run: |
+          go mod tidy
+          TOUCHED=$(git status --porcelain --ignored)
+          if ! test -z "$TOUCHED"; then
+            echo "go mod tidy was not clean, please update:"
+            git diff
+            false
+          fi
+
+  codeql:
+    name: "codeql: ${{matrix.os}}"
+    runs-on: "${{matrix.os}}"
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: go
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4

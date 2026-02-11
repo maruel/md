@@ -8,7 +8,8 @@ A file to [guide coding agents](https://agents.md/).
 - Update this file (AGENTS.md) everytime you make a change that affects this project's requirements.
 - Update rsc/home/user/AGENTS.md everytime you make a change that affects the agent inside the container.
 - When adding a new setup script in `rsc/root/setup/` or `rsc/home/user/setup/`, add a corresponding `RUN` command to `rsc/Dockerfile.base` to execute it during the build.
-- No tests should be written for any changes made to the codebase.
+- No tests should be written for Python or shell script changes.
+- For Go code changes, ensure code passes `go test ./...`, `go vet ./...`, and `golangci-lint run ./...`.
 - For Python code changes, ensure code passes `pylint` and `ruff` checks as defined in `.github/workflows/docker-build.yml`
 - When adding new tools to the system, they must also be added to `rsc/home/user/setup/generate_version_report.sh` to ensure they appear in version reports. The script generates `/home/user/tool_versions.md` which is used in release notes and build reports
 

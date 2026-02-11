@@ -13,3 +13,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --quiet
 uv tool install --quiet black
 uv tool install --quiet pylint
 uv tool install --quiet ruff
+# Kimi CLI: belongs in 7_llm_tools.sh but uv isn't guaranteed available there
+# due to parallel execution of setup scripts.
+uv tool install --quiet kimi-cli

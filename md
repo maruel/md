@@ -330,7 +330,7 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     return base_image
 
 
-def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, quiet, tailscale, tailscale_authkey, tailscale_ephemeral, labels):
+def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, git_root_dir, quiet, tailscale, tailscale_authkey, tailscale_ephemeral, labels):
     """Start Docker container."""
     repo_name_q = shlex.quote(repo_name)
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
@@ -370,7 +370,9 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     for state_path in AGENT_CONFIG["local_state_paths"]:
         mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
-    label_args = [arg for label in labels for arg in ("--label", label)]
+    # Set md metadata labels, then user-provided labels (which can override).
+    all_labels = [f"md.git_root={git_root_dir}", f"md.repo_name={repo_name}", f"md.branch={git_current_branch}"] + labels
+    label_args = [arg for label in all_labels for arg in ("--label", label)]
 
     if not quiet:
         print(f"- Starting container {container_name} ... ", end="", flush=True)
@@ -556,7 +558,7 @@ def cmd_start(args):
 
     if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit):
         return 1
-    result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name, False, args.tailscale, tailscale_authkey, tailscale_ephemeral, args.label)
+    result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name, args.git_root_dir, False, args.tailscale, tailscale_authkey, tailscale_ephemeral, args.label)
     if result != 0:
         return 1
     if not args.no_ssh:
@@ -586,7 +588,7 @@ def cmd_run(args):
 
     if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit, quiet=True):
         return 1
-    result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, True, False, None, False, [])
+    result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, args.git_root_dir, True, False, None, False, [])
     if result != 0:
         cleanup_container(container_name)
         return 1
@@ -872,6 +874,7 @@ def main():
     repo_name = Path(git_root_dir).name
     args.container_name = f"md-{sanitize_docker_name(repo_name)}-{sanitize_docker_name(git_current_branch)}"
     args.git_current_branch = git_current_branch
+    args.git_root_dir = git_root_dir
     args.repo_name = repo_name
     try:
         return args.func(args)

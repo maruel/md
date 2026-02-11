@@ -619,6 +619,8 @@ def cmd_build_base(args):  # pylint: disable=unused-argument
         "-t",
         "md-base",
     ]
+    if os.environ.get("MD_SERIAL_SETUP") == "1":
+        cmd.extend(["--build-arg", "MD_SERIAL_SETUP=1"])
     if os.environ.get("GITHUB_TOKEN"):
         cmd.extend(["--secret", "id=github_token,env=GITHUB_TOKEN"])
     else:

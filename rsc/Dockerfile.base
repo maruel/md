@@ -52,7 +52,9 @@ COPY --chown=user:user home/user/ /home/user/
 RUN mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share && \
 	chmod 0700 /home/user/.ssh
 
-# Install tools (as user) in parallel
+# Install tools (as user) in parallel (set MD_SERIAL_SETUP=1 for serial execution)
+ARG MD_SERIAL_SETUP=0
+ENV MD_SERIAL_SETUP=${MD_SERIAL_SETUP}
 RUN --mount=type=secret,id=github_token,uid=1000 \
     /home/user/setup/run_all.sh
 

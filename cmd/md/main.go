@@ -7,11 +7,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strings"
 	"time"
@@ -35,29 +37,31 @@ func mainImpl() error {
 		usage()
 		return errors.New("no command specified")
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 	cmd := os.Args[1]
 	args := os.Args[2:]
 	switch cmd {
 	case "start":
-		return cmdStart(args)
+		return cmdStart(ctx, args)
 	case "run":
-		return cmdRun(args)
+		return cmdRun(ctx, args)
 	case "list":
-		return cmdList(args)
+		return cmdList(ctx, args)
 	case "ssh":
 		return cmdSSH(args)
 	case "kill":
-		return cmdKill(args)
+		return cmdKill(ctx, args)
 	case "push":
-		return cmdPush(args)
+		return cmdPush(ctx, args)
 	case "pull":
-		return cmdPull(args)
+		return cmdPull(ctx, args)
 	case "diff":
-		return cmdDiff(args)
+		return cmdDiff(ctx, args)
 	case "vnc":
-		return cmdVNC(args)
+		return cmdVNC(ctx, args)
 	case "build-base":
-		return cmdBuildBase(args)
+		return cmdBuildBase(ctx, args)
 	case "help", "-h", "-help", "--help":
 		usage()
 		return nil
@@ -97,7 +101,7 @@ func newClient(tagFlag *string) (*md.Client, error) {
 	return c, nil
 }
 
-func newContainer(tagFlag *string) (*md.Container, error) {
+func newContainer(ctx context.Context, tagFlag *string) (*md.Container, error) {
 	c, err := newClient(tagFlag)
 	if err != nil {
 		return nil, err
@@ -106,21 +110,21 @@ func newContainer(tagFlag *string) (*md.Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	gitRoot, err := md.GitRootDir(wd)
+	gitRoot, err := md.GitRootDir(ctx, wd)
 	if err != nil {
 		return nil, err
 	}
 	if err := os.Chdir(gitRoot); err != nil {
 		return nil, err
 	}
-	branch, err := md.GitCurrentBranch(gitRoot)
+	branch, err := md.GitCurrentBranch(ctx, gitRoot)
 	if err != nil {
 		return nil, err
 	}
 	return c.Container(gitRoot, branch), nil
 }
 
-func cmdStart(args []string) error {
+func cmdStart(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	display := fs.Bool("display", false, "Enable X11/VNC display")
 	fs.BoolVar(display, "d", false, "Enable X11/VNC display")
@@ -134,7 +138,7 @@ func cmdStart(args []string) error {
 		return err
 	}
 
-	ct, err := newContainer(tag)
+	ct, err := newContainer(ctx, tag)
 	if err != nil {
 		return err
 	}
@@ -144,13 +148,13 @@ func cmdStart(args []string) error {
 		Labels:    labels.values,
 		NoSSH:     *noSSH,
 	}
-	if err := ct.Start(&opts); err != nil {
+	if err := ct.Start(ctx, &opts); err != nil {
 		return err
 	}
 	return nil
 }
 
-func cmdRun(args []string) error {
+func cmdRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	tag := fs.String("tag", "", "Tag for the base image")
 	if err := fs.Parse(args); err != nil {
@@ -160,11 +164,11 @@ func cmdRun(args []string) error {
 	if len(extra) == 0 {
 		return errors.New("no command specified")
 	}
-	ct, err := newContainer(tag)
+	ct, err := newContainer(ctx, tag)
 	if err != nil {
 		return err
 	}
-	exitCode, err := ct.Run(extra)
+	exitCode, err := ct.Run(ctx, extra)
 	if err != nil {
 		return err
 	}
@@ -174,7 +178,7 @@ func cmdRun(args []string) error {
 	return nil
 }
 
-func cmdList(args []string) error {
+func cmdList(ctx context.Context, args []string) error {
 	if err := noArgs("list", args); err != nil {
 		return err
 	}
@@ -182,7 +186,7 @@ func cmdList(args []string) error {
 	if err != nil {
 		return err
 	}
-	containers, err := c.List()
+	containers, err := c.List(ctx)
 	if err != nil {
 		return err
 	}
@@ -205,56 +209,56 @@ func cmdSSH(args []string) error {
 	return errors.New("use 'ssh md-<repo>-<branch>' directly")
 }
 
-func cmdKill(args []string) error {
+func cmdKill(ctx context.Context, args []string) error {
 	if err := noArgs("kill", args); err != nil {
 		return err
 	}
-	ct, err := newContainer(nil)
+	ct, err := newContainer(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return ct.Kill()
+	return ct.Kill(ctx)
 }
 
-func cmdPush(args []string) error {
+func cmdPush(ctx context.Context, args []string) error {
 	if err := noArgs("push", args); err != nil {
 		return err
 	}
-	ct, err := newContainer(nil)
+	ct, err := newContainer(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return ct.Push()
+	return ct.Push(ctx)
 }
 
-func cmdPull(args []string) error {
+func cmdPull(ctx context.Context, args []string) error {
 	if err := noArgs("pull", args); err != nil {
 		return err
 	}
-	ct, err := newContainer(nil)
+	ct, err := newContainer(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return ct.Pull()
+	return ct.Pull(ctx)
 }
 
-func cmdDiff(args []string) error {
-	ct, err := newContainer(nil)
+func cmdDiff(ctx context.Context, args []string) error {
+	ct, err := newContainer(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return ct.Diff(os.Stdout, os.Stderr, args)
+	return ct.Diff(ctx, os.Stdout, os.Stderr, args)
 }
 
-func cmdVNC(args []string) error {
+func cmdVNC(ctx context.Context, args []string) error {
 	if err := noArgs("vnc", args); err != nil {
 		return err
 	}
-	ct, err := newContainer(nil)
+	ct, err := newContainer(ctx, nil)
 	if err != nil {
 		return err
 	}
-	vncPort, err := ct.GetHostPort("5901/tcp")
+	vncPort, err := ct.GetHostPort(ctx, "5901/tcp")
 	if err != nil {
 		return err
 	}
@@ -289,7 +293,7 @@ func cmdVNC(args []string) error {
 	}
 }
 
-func cmdBuildBase(args []string) error {
+func cmdBuildBase(ctx context.Context, args []string) error {
 	if err := noArgs("build-base", args); err != nil {
 		return err
 	}
@@ -297,7 +301,7 @@ func cmdBuildBase(args []string) error {
 	if err != nil {
 		return err
 	}
-	return c.BuildBase()
+	return c.BuildBase(ctx)
 }
 
 func noArgs(cmd string, args []string) error {

@@ -5,6 +5,7 @@
 package md
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -14,8 +15,8 @@ import (
 
 // runCmd executes a command and returns (stdout, error).
 // If capture is true, stdout/stderr are captured; otherwise they go to os.Stdout/os.Stderr.
-func runCmd(args []string, capture bool) (string, error) {
-	cmd := exec.Command(args[0], args[1:]...)
+func runCmd(ctx context.Context, args []string, capture bool) (string, error) {
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	if capture {
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err
@@ -26,8 +27,8 @@ func runCmd(args []string, capture bool) (string, error) {
 }
 
 // GitRootDir returns the git repository root for the given working directory.
-func GitRootDir(wd string) (string, error) {
-	out, err := runCmdDir(wd, []string{"git", "rev-parse", "--show-toplevel"}, true)
+func GitRootDir(ctx context.Context, wd string) (string, error) {
+	out, err := runCmdDir(ctx, wd, []string{"git", "rev-parse", "--show-toplevel"}, true)
 	if err != nil {
 		return "", fmt.Errorf("not a git checkout directory: %s: %w", wd, err)
 	}
@@ -35,8 +36,8 @@ func GitRootDir(wd string) (string, error) {
 }
 
 // GitCurrentBranch returns the current branch name for the given working directory.
-func GitCurrentBranch(wd string) (string, error) {
-	out, err := runCmdDir(wd, []string{"git", "branch", "--show-current"}, true)
+func GitCurrentBranch(ctx context.Context, wd string) (string, error) {
+	out, err := runCmdDir(ctx, wd, []string{"git", "branch", "--show-current"}, true)
 	if err != nil || out == "" {
 		return "", errors.New("check out a named branch")
 	}
@@ -44,8 +45,8 @@ func GitCurrentBranch(wd string) (string, error) {
 }
 
 // runCmdDir is like runCmd but runs the command in the given directory.
-func runCmdDir(dir string, args []string, capture bool) (string, error) {
-	cmd := exec.Command(args[0], args[1:]...)
+func runCmdDir(ctx context.Context, dir string, args []string, capture bool) (string, error) {
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
 	if capture {
 		out, err := cmd.Output()

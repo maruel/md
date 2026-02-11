@@ -10,6 +10,7 @@
 package md
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -143,8 +144,8 @@ func (c *Client) Prepare() error {
 }
 
 // List returns running md containers sorted by name.
-func (c *Client) List() ([]*Container, error) {
-	out, err := runCmd([]string{"docker", "ps", "--all", "--no-trunc", "--format", "{{json .}}"}, true)
+func (c *Client) List(ctx context.Context) ([]*Container, error) {
+	out, err := runCmd(ctx, []string{"docker", "ps", "--all", "--no-trunc", "--format", "{{json .}}"}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +168,7 @@ func (c *Client) List() ([]*Container, error) {
 }
 
 // BuildBase builds the base Docker image locally.
-func (c *Client) BuildBase() (retErr error) {
+func (c *Client) BuildBase(ctx context.Context) (retErr error) {
 	arch, err := hostArch()
 	if err != nil {
 		return err
@@ -199,7 +200,7 @@ func (c *Client) BuildBase() (retErr error) {
 		_, _ = fmt.Fprintln(c.W, "  export GITHUB_TOKEN=...")
 	}
 	cmd = append(cmd, buildCtx)
-	if _, err := runCmd(cmd, false); err != nil {
+	if _, err := runCmd(ctx, cmd, false); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(c.W, "- Base image built as 'md-base'.")

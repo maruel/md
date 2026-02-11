@@ -330,7 +330,7 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     return base_image
 
 
-def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, quiet, tailscale, tailscale_authkey, tailscale_ephemeral):
+def run_container(container_name, image_name, md_user_key, host_key_pub_path, git_current_branch, display, repo_name, quiet, tailscale, tailscale_authkey, tailscale_ephemeral, labels):
     """Start Docker container."""
     repo_name_q = shlex.quote(repo_name)
     kvm_args = ["--device=/dev/kvm"] if os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.W_OK) else []
@@ -370,6 +370,8 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
     for state_path in AGENT_CONFIG["local_state_paths"]:
         mounts.extend(["-v", f"{xdg_state_home}/{state_path}:/home/user/.local/state/{state_path}"])
 
+    label_args = [arg for label in labels for arg in ("--label", label)]
+
     if not quiet:
         print(f"- Starting container {container_name} ... ", end="", flush=True)
     docker_cmd = (
@@ -380,6 +382,7 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
         + localtime_args
         + sandbox_args
         + tailscale_args
+        + label_args
         + mounts
         + [image_name]
     )
@@ -528,6 +531,7 @@ def prepare_container_env(tag):
 
 
 @argument("--display", "-d", action="store_true", help="Enable X11/VNC display")
+@argument("--label", "-l", action="append", default=[], help="Set Docker container label (key=value); can be repeated")
 @argument("--tailscale", action="store_true", help="Enable Tailscale networking (use TAILSCALE_AUTHKEY env var for unattended auth)")
 @argument("--tag", default=None, help="Tag for the base image (ghcr.io/maruel/md:<tag>); use 'edge' for the latest from CI")
 @argument("--no-ssh", action="store_true", help="Don't SSH into the container after starting")
@@ -552,7 +556,7 @@ def cmd_start(args):
 
     if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit):
         return 1
-    result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name, False, args.tailscale, tailscale_authkey, tailscale_ephemeral)
+    result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name, False, args.tailscale, tailscale_authkey, tailscale_ephemeral, args.label)
     if result != 0:
         return 1
     if not args.no_ssh:
@@ -582,7 +586,7 @@ def cmd_run(args):
 
     if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit, quiet=True):
         return 1
-    result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, True, False, None, False)
+    result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, True, False, None, False, [])
     if result != 0:
         cleanup_container(container_name)
         return 1

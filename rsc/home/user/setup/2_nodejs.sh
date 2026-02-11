@@ -19,6 +19,8 @@ if ! which node &>/dev/null; then
 fi
 
 corepack enable pnpm
+export PNPM_HOME="$HOME/.local/share/pnpm"
+export PATH="$PNPM_HOME:$PATH"
 
 # 2. Install Global Node Packages
 pnpm add -g \

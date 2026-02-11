@@ -245,7 +245,7 @@ def date_to_epoch(date_str):
         return 0
 
 
-def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, base_image, tag_explicitly_provided=False, quiet=False):
+def build_customized_image(script_dir, keys_dir, image_name, base_image, tag_explicitly_provided=False, quiet=False):
     """Build the user customized Docker image."""
     rsc_dir = f"{script_dir}/rsc"
     machine = platform.machine().lower()
@@ -253,12 +253,6 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     if not host_arch:
         print(f"- Unknown architecture: {machine}", file=sys.stderr)
         return None
-
-    with open(md_user_key + ".pub", encoding="utf-8") as f:
-        pub_key = f.read()
-    with open(user_auth_keys, "w", encoding="utf-8") as f:
-        f.write(pub_key)
-    os.chmod(user_auth_keys, 0o600)
 
     # Only check for md-base if --tag was not explicitly provided (i.e., using default "latest")
     if not tag_explicitly_provided and base_image == "ghcr.io/maruel/md:latest":
@@ -291,7 +285,7 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     else:
         base_digest, _ = run_cmd(["docker", "image", "inspect", "--format", "{{.Id}}", base_image], capture_output=True)
 
-    context_sha, _ = run_cmd(["tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C " + shlex.quote(rsc_dir) + " . | sha256sum | cut -d' ' -f1"], shell=True, capture_output=True)
+    context_sha, _ = run_cmd(["{ tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C " + shlex.quote(rsc_dir) + " . && tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C " + shlex.quote(keys_dir) + " ssh_host_ed25519_key ssh_host_ed25519_key.pub authorized_keys; } | sha256sum | cut -d' ' -f1"], shell=True, capture_output=True)
 
     current_digest = ""
     current_context = ""
@@ -312,6 +306,8 @@ def build_customized_image(script_dir, user_auth_keys, md_user_key, image_name, 
     build_cmd = [
         "docker",
         "build",
+        "--build-context",
+        f"md-keys={keys_dir}",
         "--platform",
         f"linux/{host_arch}",
         "--build-arg",
@@ -497,16 +493,17 @@ def run_container(container_name, image_name, md_user_key, host_key_pub_path, gi
 
 
 def prepare_container_env(tag):
-    """Set up directories and keys. Returns (host_key_pub_path, user_auth_keys, md_user_key, base_image, tag_explicitly_provided, image_name)."""
-    host_key_path = Path(SCRIPT_DIR) / "rsc" / "etc" / "ssh" / "ssh_host_ed25519_key"
-    user_auth_keys = str(Path(SCRIPT_DIR) / "rsc" / "home" / "user" / ".ssh" / "authorized_keys")
+    """Set up directories and keys. Returns (keys_dir, md_user_key, base_image, tag_explicitly_provided, image_name)."""
     home = Path.home()
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
+    keys_dir = os.path.join(xdg_config_home, "md")
+    host_key_path = os.path.join(keys_dir, "ssh_host_ed25519_key")
+    user_auth_keys = os.path.join(keys_dir, "authorized_keys")
 
     tag_explicitly_provided = tag is not None
     base_image = f"ghcr.io/maruel/md:{tag if tag_explicitly_provided else 'latest'}"
     md_user_key = str(home / ".ssh" / "md")
 
-    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
     xdg_data_home = os.environ.get("XDG_DATA_HOME", str(home / ".local" / "share"))
     xdg_state_home = os.environ.get("XDG_STATE_HOME", str(home / ".local" / "state"))
 
@@ -515,7 +512,7 @@ def prepare_container_env(tag):
     paths.extend(os.path.join(xdg_config_home, path) for path in AGENT_CONFIG["xdg_config_paths"])
     paths.extend(os.path.join(xdg_data_home, path) for path in AGENT_CONFIG["local_share_paths"])
     paths.extend(os.path.join(xdg_state_home, path) for path in AGENT_CONFIG["local_state_paths"])
-    paths.extend([host_key_path.parent, Path(user_auth_keys).parent, home / ".ssh" / "config.d"])
+    paths.append(home / ".ssh" / "config.d")
     for p in paths:
         Path(p).mkdir(parents=True, exist_ok=True)
 
@@ -527,9 +524,15 @@ def prepare_container_env(tag):
         sys.exit(1)
 
     ensure_ed25519_key(md_user_key, "md-user")
-    ensure_ed25519_key(str(host_key_path), "md-host")
+    ensure_ed25519_key(host_key_path, "md-host")
 
-    return str(host_key_path) + ".pub", user_auth_keys, md_user_key, base_image, tag_explicitly_provided, "md"
+    with open(md_user_key + ".pub", encoding="utf-8") as f:
+        pub_key = f.read()
+    with open(user_auth_keys, "w", encoding="utf-8") as f:
+        f.write(pub_key)
+    os.chmod(user_auth_keys, 0o600)
+
+    return keys_dir, md_user_key, base_image, tag_explicitly_provided, "md"
 
 
 @argument("--display", "-d", action="store_true", help="Enable X11/VNC display")
@@ -539,7 +542,7 @@ def prepare_container_env(tag):
 @argument("--no-ssh", action="store_true", help="Don't SSH into the container after starting")
 def cmd_start(args):
     """Pull base image with specified tag, rebuild if needed, start container, open shell."""
-    host_key_pub, user_auth_keys, md_user_key, base_image, tag_explicit, image_name = prepare_container_env(args.tag)
+    keys_dir, md_user_key, base_image, tag_explicit, image_name = prepare_container_env(args.tag)
 
     _, returncode = run_cmd(["docker", "inspect", args.container_name], capture_output=True, check=False)
     if returncode == 0:
@@ -556,7 +559,8 @@ def cmd_start(args):
         else:
             tailscale_ephemeral = True
 
-    if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit):
+    host_key_pub = os.path.join(keys_dir, "ssh_host_ed25519_key.pub")
+    if not build_customized_image(SCRIPT_DIR, keys_dir, image_name, base_image, tag_explicit):
         return 1
     result = run_container(args.container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, args.display, args.repo_name, args.git_root_dir, False, args.tailscale, tailscale_authkey, tailscale_ephemeral, args.label)
     if result != 0:
@@ -583,10 +587,11 @@ def cmd_run(args):
         print("No command specified", file=sys.stderr)
         return 1
 
-    host_key_pub, user_auth_keys, md_user_key, base_image, tag_explicit, image_name = prepare_container_env(args.tag)
+    keys_dir, md_user_key, base_image, tag_explicit, image_name = prepare_container_env(args.tag)
     container_name = f"md-{sanitize_docker_name(args.repo_name)}-run-{uuid.uuid4().hex[:8]}"
 
-    if not build_customized_image(SCRIPT_DIR, user_auth_keys, md_user_key, image_name, base_image, tag_explicit, quiet=True):
+    host_key_pub = os.path.join(keys_dir, "ssh_host_ed25519_key.pub")
+    if not build_customized_image(SCRIPT_DIR, keys_dir, image_name, base_image, tag_explicit, quiet=True):
         return 1
     result = run_container(container_name, image_name, md_user_key, host_key_pub, args.git_current_branch, False, args.repo_name, args.git_root_dir, True, False, None, False, [])
     if result != 0:

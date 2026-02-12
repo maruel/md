@@ -48,6 +48,14 @@ md kill
 
 ## Installation
 
+Go version:
+
+```bash
+go install github.com/maruel/md/cmd/md@latest
+```
+
+Python version:
+
 ```bash
 git clone https://github.com/maruel/md
 export PATH="$PATH:$(pwd)/md"

@@ -11,7 +11,7 @@ Notable executables available in the container:
 - Development: build-essential, git, actionlint, shellcheck, shfmt, golangci-lint, cmake, make, gcc, g++, cargo-binstall, pylint, ruff, uv, asciinema
 - Languages: go, python3, java, rust (cargo, rustc)
 - Languages (web): node (v24), npm, npx, pnpm, bun, typescript, bun, eslint, tsx
-- AI Tools: claude, gemini, codex, qwen-code, opencode, amp
+- AI Tools: claude, gemini, codex, kilo, qwen-code, opencode, amp
 - Virtualization: qemu-kvm, libvirt-clients
 - Media: ffmpeg, imagemagick
 - Android: android-sdk, gradle, adb, sdkmanager

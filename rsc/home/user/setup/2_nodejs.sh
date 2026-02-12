@@ -25,6 +25,7 @@ export PATH="$PNPM_HOME:$PATH"
 # 2. Install Global Node Packages
 pnpm add -g \
 	@google/gemini-cli \
+	@kilocode/cli \
 	@mariozechner/pi-coding-agent \
 	@openai/codex \
 	@qwen-code/qwen-code \

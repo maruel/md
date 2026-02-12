@@ -117,6 +117,7 @@
 	check_version "Claude CLI" "claude" "--version"
 	check_version "Gemini CLI" "gemini" "--version"
 	check_version "Codex" "codex" "--version"
+	check_version "Kilo CLI" "kilo" "--version"
 	check_version "Qwen Code" "qwen" "--version"
 	check_version "OpenCode" "opencode" "--version"
 	check_version "Amp" "amp" "--version"

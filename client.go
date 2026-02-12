@@ -230,6 +230,7 @@ var agentConfig = struct {
 		".codex",
 		".claude",
 		".gemini",
+		".kilocode",
 		".kimi",
 		".pi",
 		".qwen",

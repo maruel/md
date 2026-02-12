@@ -179,9 +179,12 @@ func (c *Container) Push(ctx context.Context) error {
 	if err := c.checkContainerState(ctx); err != nil {
 		return err
 	}
-	// Refuse if there are pending local changes.
-	if _, err := runCmd(ctx, []string{"git", "diff", "--quiet", "--exit-code"}, true); err != nil {
-		return errors.New("there are pending changes locally. Please commit or stash them before pushing")
+	// Refuse if there are pending local changes on the branch being pushed.
+	currentBranch, _ := runCmd(ctx, []string{"git", "branch", "--show-current"}, true)
+	if currentBranch == c.Branch {
+		if _, err := runCmd(ctx, []string{"git", "diff", "--quiet", "--exit-code"}, true); err != nil {
+			return errors.New("there are pending changes locally. Please commit or stash them before pushing")
+		}
 	}
 	repo := shellQuote(c.RepoName)
 	branch := shellQuote(c.Branch)
@@ -225,8 +228,36 @@ func (c *Container) Pull(ctx context.Context) error {
 			return fmt.Errorf("committing in container: %w", err)
 		}
 	}
-	if _, err := runCmd(ctx, []string{"git", "pull", "--rebase", "-q", c.Name, c.Branch}, false); err != nil {
+	if _, err := runCmd(ctx, []string{"git", "fetch", "-q", c.Name, c.Branch}, false); err != nil {
 		return err
+	}
+	currentBranch, _ := runCmd(ctx, []string{"git", "branch", "--show-current"}, true)
+	if currentBranch == c.Branch {
+		// Already on the branch, rebase locally.
+		if _, err := runCmd(ctx, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
+			return err
+		}
+	} else if _, err := runCmd(ctx, []string{"git", "merge-base", "--is-ancestor", c.Branch, "FETCH_HEAD"}, true); err == nil {
+		// Fast-forward: update ref without checkout.
+		if _, err := runCmd(ctx, []string{"git", "update-ref", "refs/heads/" + c.Branch, "FETCH_HEAD"}, false); err != nil {
+			return err
+		}
+	} else {
+		// Not a fast-forward. Checkout the branch, rebase, then checkout back.
+		origRef := currentBranch
+		if origRef == "" {
+			origRef, _ = runCmd(ctx, []string{"git", "rev-parse", "HEAD"}, true)
+		}
+		if _, err := runCmd(ctx, []string{"git", "checkout", "-q", c.Branch}, false); err != nil {
+			return err
+		}
+		if _, err := runCmd(ctx, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
+			_, _ = runCmd(ctx, []string{"git", "checkout", "-q", origRef}, false)
+			return err
+		}
+		if _, err := runCmd(ctx, []string{"git", "checkout", "-q", origRef}, false); err != nil {
+			return err
+		}
 	}
 	_, err := runCmd(ctx, []string{"git", "push", "-q", "-f", c.Name, c.Branch + ":base"}, false)
 	return err

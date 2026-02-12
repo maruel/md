@@ -369,7 +369,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	if _, err := runCmd(ctx, []string{"git", "fetch", c.Name}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, []string{"git", "push", "-q", "--tags", c.Name, "HEAD:refs/heads/" + c.Branch}, false); err != nil {
+	if _, err := runCmd(ctx, []string{"git", "push", "-q", "--tags", c.Name, c.Branch + ":refs/heads/" + c.Branch}, false); err != nil {
 		return err
 	}
 	if _, err := runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git switch -q " + branch}, false); err != nil {

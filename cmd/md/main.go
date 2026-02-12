@@ -340,14 +340,16 @@ func cmdVNC(ctx context.Context, args []string) error {
 }
 
 func cmdBuildBase(ctx context.Context, args []string) error {
-	if err := noArgs("build-base", args); err != nil {
+	fs := flag.NewFlagSet("build-base", flag.ExitOnError)
+	serialSetup := fs.Bool("serial-setup", false, "Run setup steps serially instead of in parallel")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	c, err := newClient(nil)
 	if err != nil {
 		return err
 	}
-	return c.BuildBase(ctx, os.Getenv("MD_SERIAL_SETUP") == "1")
+	return c.BuildBase(ctx, *serialSetup)
 }
 
 func noArgs(cmd string, args []string) error {

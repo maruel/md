@@ -606,7 +606,8 @@ def cmd_run(args):
     return exit_code
 
 
-def cmd_build_base(args):  # pylint: disable=unused-argument
+@argument("--serial-setup", action="store_true", help="Run setup steps serially instead of in parallel")
+def cmd_build_base(args):
     """Build the base Docker image locally from rsc/Dockerfile.base."""
     machine = platform.machine().lower()
     host_arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64", "amd64": "amd64"}.get(machine)
@@ -624,7 +625,7 @@ def cmd_build_base(args):  # pylint: disable=unused-argument
         "-t",
         "md-base",
     ]
-    if os.environ.get("MD_SERIAL_SETUP") == "1":
+    if args.serial_setup:
         cmd.extend(["--build-arg", "MD_SERIAL_SETUP=1"])
     if os.environ.get("GITHUB_TOKEN"):
         cmd.extend(["--secret", "id=github_token,env=GITHUB_TOKEN"])

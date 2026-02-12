@@ -36,7 +36,7 @@ type Container struct {
 // Start creates and starts a container.
 func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 	// Check if container already exists.
-	if _, err := runCmd(ctx, []string{"docker", "inspect", c.Name}, true); err == nil {
+	if _, err := runCmd(ctx, "", []string{"docker", "inspect", c.Name}, true); err == nil {
 		return fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md kill' first",
 			c.Name, c.Name)
 	}
@@ -106,7 +106,7 @@ func (c *Container) Run(ctx context.Context, command []string) (_ int, retErr er
 	}
 
 	cmdStr := strings.Join(command, " ")
-	_, err = runCmd(ctx, []string{"ssh", tmp.Name, "cd ./" + shellQuote(c.RepoName) + " && " + cmdStr}, false)
+	_, err = runCmd(ctx, "", []string{"ssh", tmp.Name, "cd ./" + shellQuote(c.RepoName) + " && " + cmdStr}, false)
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -122,9 +122,9 @@ func (c *Container) Run(ctx context.Context, command []string) (_ int, retErr er
 
 // Kill stops and removes the container.
 func (c *Container) Kill(ctx context.Context) error {
-	_, containerErr := runCmd(ctx, []string{"docker", "inspect", c.Name}, true)
+	_, containerErr := runCmd(ctx, "", []string{"docker", "inspect", c.Name}, true)
 	containerExists := containerErr == nil
-	_, remoteErr := runCmd(ctx, []string{"git", "remote", "get-url", c.Name}, true)
+	_, remoteErr := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", c.Name}, true)
 	remoteExists := remoteErr == nil
 	sshConfigDir := filepath.Join(c.Home, ".ssh", "config.d")
 	sshConf := filepath.Join(sshConfigDir, c.Name+".conf")
@@ -139,9 +139,9 @@ func (c *Container) Kill(ctx context.Context) error {
 
 	// Clean up non-ephemeral Tailscale node.
 	if containerExists {
-		envOut, err := runCmd(ctx, []string{"docker", "inspect", "--format", `{{range .Config.Env}}{{println .}}{{end}}`, c.Name}, true)
+		envOut, err := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{range .Config.Env}}{{println .}}{{end}}`, c.Name}, true)
 		if err == nil && strings.Contains(envOut, "MD_TAILSCALE=1") && !strings.Contains(envOut, "MD_TAILSCALE_EPHEMERAL=1") {
-			statusJSON, err := runCmd(ctx, []string{"docker", "exec", c.Name, "tailscale", "status", "--json"}, true)
+			statusJSON, err := runCmd(ctx, "", []string{"docker", "exec", c.Name, "tailscale", "status", "--json"}, true)
 			if err == nil {
 				var status struct {
 					Self struct {
@@ -161,12 +161,12 @@ func (c *Container) Kill(ctx context.Context) error {
 
 	var retErr error
 	if remoteExists {
-		if _, err := runCmd(ctx, []string{"git", "remote", "remove", c.Name}, true); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "remove", c.Name}, true); err != nil {
 			retErr = err
 		}
 	}
 	if containerExists {
-		if _, err := runCmd(ctx, []string{"docker", "rm", "-f", "-v", c.Name}, true); err != nil {
+		if _, err := runCmd(ctx, "", []string{"docker", "rm", "-f", "-v", c.Name}, true); err != nil {
 			retErr = err
 		}
 	}
@@ -180,24 +180,24 @@ func (c *Container) Push(ctx context.Context) error {
 		return err
 	}
 	// Refuse if there are pending local changes on the branch being pushed.
-	currentBranch, _ := runCmd(ctx, []string{"git", "branch", "--show-current"}, true)
+	currentBranch, _ := runCmd(ctx, c.GitRoot, []string{"git", "branch", "--show-current"}, true)
 	if currentBranch == c.Branch {
-		if _, err := runCmd(ctx, []string{"git", "diff", "--quiet", "--exit-code"}, true); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "diff", "--quiet", "--exit-code"}, true); err != nil {
 			return errors.New("there are pending changes locally. Please commit or stash them before pushing")
 		}
 	}
 	repo := shellQuote(c.RepoName)
 	branch := shellQuote(c.Branch)
 	// Commit any pending changes in the container.
-	_, _ = runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"}, true)
-	containerCommit, _ := runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git rev-parse HEAD"}, true)
+	_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"}, true)
+	containerCommit, _ := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git rev-parse HEAD"}, true)
 	backupBranch := "backup-" + time.Now().Format("20060102-150405")
-	_, _ = runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git branch -f " + backupBranch + " " + containerCommit}, true)
+	_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git branch -f " + backupBranch + " " + containerCommit}, true)
 	_, _ = fmt.Fprintf(c.W, "- Previous state saved as git branch: %s\n", backupBranch)
-	if _, err := runCmd(ctx, []string{"git", "push", "-q", "-f", "--tags", c.Name, c.Branch + ":base"}, false); err != nil {
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, c.Branch + ":base"}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git switch -q -C " + branch + " base"}, false); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git switch -q -C " + branch + " base"}, false); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(c.W, "- Container updated.")
@@ -211,7 +211,7 @@ func (c *Container) Pull(ctx context.Context) error {
 	}
 	repo := shellQuote(c.RepoName)
 	// Check if there are uncommitted changes in the container.
-	if _, err := runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git add . && git diff --quiet HEAD -- ."}, true); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git add . && git diff --quiet HEAD -- ."}, true); err != nil {
 		commitMsg := "Pull from md"
 		if provider := os.Getenv("ASK_PROVIDER"); provider != "" {
 			metadata := gatherGitMetadata(ctx, c.Name, repo)
@@ -220,46 +220,46 @@ func (c *Container) Pull(ctx context.Context) error {
 				commitMsg = msg
 			}
 		}
-		gitUserName, _ := runCmd(ctx, []string{"git", "config", "user.name"}, true)
-		gitUserEmail, _ := runCmd(ctx, []string{"git", "config", "user.email"}, true)
+		gitUserName, _ := runCmd(ctx, c.GitRoot, []string{"git", "config", "user.name"}, true)
+		gitUserEmail, _ := runCmd(ctx, c.GitRoot, []string{"git", "config", "user.email"}, true)
 		gitAuthor := shellQuote(gitUserName + " <" + gitUserEmail + ">")
 		commitCmd := "cd ./" + repo + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
-		if _, err := runCmd(ctx, []string{"ssh", c.Name, commitCmd}, false); err != nil {
+		if _, err := runCmd(ctx, "", []string{"ssh", c.Name, commitCmd}, false); err != nil {
 			return fmt.Errorf("committing in container: %w", err)
 		}
 	}
-	if _, err := runCmd(ctx, []string{"git", "fetch", "-q", c.Name, c.Branch}, false); err != nil {
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", "-q", c.Name, c.Branch}, false); err != nil {
 		return err
 	}
-	currentBranch, _ := runCmd(ctx, []string{"git", "branch", "--show-current"}, true)
+	currentBranch, _ := runCmd(ctx, c.GitRoot, []string{"git", "branch", "--show-current"}, true)
 	if currentBranch == c.Branch {
 		// Already on the branch, rebase locally.
-		if _, err := runCmd(ctx, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
 			return err
 		}
-	} else if _, err := runCmd(ctx, []string{"git", "merge-base", "--is-ancestor", c.Branch, "FETCH_HEAD"}, true); err == nil {
+	} else if _, err := runCmd(ctx, c.GitRoot, []string{"git", "merge-base", "--is-ancestor", c.Branch, "FETCH_HEAD"}, true); err == nil {
 		// Fast-forward: update ref without checkout.
-		if _, err := runCmd(ctx, []string{"git", "update-ref", "refs/heads/" + c.Branch, "FETCH_HEAD"}, false); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "update-ref", "refs/heads/" + c.Branch, "FETCH_HEAD"}, false); err != nil {
 			return err
 		}
 	} else {
 		// Not a fast-forward. Checkout the branch, rebase, then checkout back.
 		origRef := currentBranch
 		if origRef == "" {
-			origRef, _ = runCmd(ctx, []string{"git", "rev-parse", "HEAD"}, true)
+			origRef, _ = runCmd(ctx, c.GitRoot, []string{"git", "rev-parse", "HEAD"}, true)
 		}
-		if _, err := runCmd(ctx, []string{"git", "checkout", "-q", c.Branch}, false); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", c.Branch}, false); err != nil {
 			return err
 		}
-		if _, err := runCmd(ctx, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
-			_, _ = runCmd(ctx, []string{"git", "checkout", "-q", origRef}, false)
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
+			_, _ = runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", origRef}, false)
 			return err
 		}
-		if _, err := runCmd(ctx, []string{"git", "checkout", "-q", origRef}, false); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", origRef}, false); err != nil {
 			return err
 		}
 	}
-	_, err := runCmd(ctx, []string{"git", "push", "-q", "-f", c.Name, c.Branch + ":base"}, false)
+	_, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, c.Branch + ":base"}, false)
 	return err
 }
 
@@ -287,10 +287,10 @@ func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, extraArg
 // GetHostPort returns the host port mapped to a container port (e.g.
 // "5901/tcp"). Returns empty string if the port is not mapped.
 func (c *Container) GetHostPort(ctx context.Context, containerPort string) (string, error) {
-	if _, err := runCmd(ctx, []string{"docker", "inspect", c.Name}, true); err != nil {
+	if _, err := runCmd(ctx, "", []string{"docker", "inspect", c.Name}, true); err != nil {
 		return "", fmt.Errorf("container %s is not running", c.Name)
 	}
-	port, err := runCmd(ctx, []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "` + containerPort + `" 0).HostPort}}`, c.Name}, true)
+	port, err := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "` + containerPort + `" 0).HostPort}}`, c.Name}, true)
 	if err != nil {
 		return "", err
 	}
@@ -347,9 +347,9 @@ func unmarshalContainer(data []byte) (Container, error) {
 }
 
 func (c *Container) checkContainerState(ctx context.Context) error {
-	_, containerErr := runCmd(ctx, []string{"docker", "inspect", c.Name}, true)
+	_, containerErr := runCmd(ctx, "", []string{"docker", "inspect", c.Name}, true)
 	containerExists := containerErr == nil
-	_, remoteErr := runCmd(ctx, []string{"git", "remote", "get-url", c.Name}, true)
+	_, remoteErr := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", c.Name}, true)
 	remoteExists := remoteErr == nil
 	sshConfigDir := filepath.Join(c.Home, ".ssh", "config.d")
 	_, sshErr := os.Stat(filepath.Join(sshConfigDir, c.Name+".conf"))
@@ -377,8 +377,8 @@ func (c *Container) checkContainerState(ctx context.Context) error {
 
 func (c *Container) cleanup(ctx context.Context) {
 	removeSSHConfig(filepath.Join(c.Home, ".ssh", "config.d"), c.Name)
-	_, _ = runCmd(ctx, []string{"git", "remote", "remove", c.Name}, true)
-	_, _ = runCmd(ctx, []string{"docker", "rm", "-f", "-v", c.Name}, true)
+	_, _ = runCmd(ctx, c.GitRoot, []string{"git", "remote", "remove", c.Name}, true)
+	_, _ = runCmd(ctx, "", []string{"docker", "rm", "-f", "-v", c.Name}, true)
 }
 
 // genCommitMsg generates a commit message using the genai library.

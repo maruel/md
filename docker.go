@@ -78,7 +78,7 @@ func prepareBuildContext() (dir string, retErr error) {
 }
 
 func dockerInspectFormat(ctx context.Context, name, format string) (string, error) {
-	return runCmd(ctx, []string{"docker", "image", "inspect", name, "--format", format}, true)
+	return runCmd(ctx, "", []string{"docker", "image", "inspect", name, "--format", format}, true)
 }
 
 func getImageCreatedTime(ctx context.Context, imageName string) string {
@@ -142,7 +142,7 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 			_, _ = fmt.Fprintf(w, "- Pulling base image %s ...\n", baseImage)
 		}
 		args := []string{"docker", "pull", "--platform", "linux/" + arch, baseImage}
-		if _, err := runCmd(ctx, args, quiet); err != nil {
+		if _, err := runCmd(ctx, "", args, quiet); err != nil {
 			return fmt.Errorf("pulling base image: %w", err)
 		}
 		if !quiet && strings.HasSuffix(baseImage, ":latest") {
@@ -153,13 +153,13 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 	}
 
 	// Get base image digest.
-	baseDigest, err := runCmd(ctx, []string{"docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", baseImage}, true)
+	baseDigest, err := runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", baseImage}, true)
 	if err != nil {
-		baseDigest, _ = runCmd(ctx, []string{"docker", "image", "inspect", "--format", "{{.Id}}", baseImage}, true)
+		baseDigest, _ = runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{.Id}}", baseImage}, true)
 	}
 
 	// Compute context SHA from both the build context and keys directory.
-	contextSHA, err := runCmd(ctx, []string{
+	contextSHA, err := runCmd(ctx, "", []string{
 		"bash", "-c",
 		fmt.Sprintf("{ tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C %q . && tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C %q ssh_host_ed25519_key ssh_host_ed25519_key.pub authorized_keys; } | sha256sum | cut -d' ' -f1", buildCtxDir, keysDir),
 	}, true)
@@ -168,9 +168,9 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 	}
 
 	// Check if current image already matches.
-	currentDigest, err := runCmd(ctx, []string{"docker", "image", "inspect", imageName, "--format", `{{index .Config.Labels "md.base_digest"}}`}, true)
+	currentDigest, err := runCmd(ctx, "", []string{"docker", "image", "inspect", imageName, "--format", `{{index .Config.Labels "md.base_digest"}}`}, true)
 	if err == nil && currentDigest != "<no value>" {
-		currentContext, _ := runCmd(ctx, []string{"docker", "image", "inspect", imageName, "--format", `{{index .Config.Labels "md.context_sha"}}`}, true)
+		currentContext, _ := runCmd(ctx, "", []string{"docker", "image", "inspect", imageName, "--format", `{{index .Config.Labels "md.context_sha"}}`}, true)
 		if currentDigest == baseDigest && currentContext == contextSHA {
 			if !quiet {
 				_, _ = fmt.Fprintf(w, "- Docker image %s already matches %s (%s), skipping rebuild.\n", imageName, baseImage, baseDigest)
@@ -195,7 +195,7 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 		buildCmd = append(buildCmd[:2], append([]string{"-q"}, buildCmd[2:]...)...)
 	}
 	buildCmd = append(buildCmd, buildCtxDir)
-	if _, err := runCmd(ctx, buildCmd, false); err != nil {
+	if _, err := runCmd(ctx, "", buildCmd, false); err != nil {
 		return fmt.Errorf("building Docker image: %w", err)
 	}
 	return nil
@@ -289,19 +289,19 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	dockerArgs = append(dockerArgs, c.ImageName)
 
 	if opts.Quiet {
-		if _, err := runCmd(ctx, dockerArgs, true); err != nil {
+		if _, err := runCmd(ctx, "", dockerArgs, true); err != nil {
 			return fmt.Errorf("starting container: %w", err)
 		}
 	} else {
 		_, _ = fmt.Fprintf(c.W, "- Starting container %s ... ", c.Name)
-		if _, err := runCmd(ctx, dockerArgs, false); err != nil {
+		if _, err := runCmd(ctx, "", dockerArgs, false); err != nil {
 			_, _ = fmt.Fprintln(c.W)
 			return fmt.Errorf("starting container: %w", err)
 		}
 	}
 
 	// Get SSH port.
-	port, err := runCmd(ctx, []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}`, c.Name}, true)
+	port, err := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}`, c.Name}, true)
 	if err != nil {
 		return fmt.Errorf("getting SSH port: %w", err)
 	}
@@ -312,7 +312,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	// Get VNC port if display enabled.
 	var vncPort string
 	if opts.Display {
-		vncPort, _ = runCmd(ctx, []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "5901/tcp" 0).HostPort}}`, c.Name}, true)
+		vncPort, _ = runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "5901/tcp" 0).HostPort}}`, c.Name}, true)
 		if vncPort != "" && !opts.Quiet {
 			_, _ = fmt.Fprintf(c.W, "- Found VNC port %s (display :1)\n", vncPort)
 		}
@@ -339,8 +339,8 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	if !opts.Quiet {
 		_, _ = fmt.Fprintln(c.W, "- git clone into container ...")
 	}
-	_, _ = runCmd(ctx, []string{"git", "remote", "rm", c.Name}, true)
-	if _, err := runCmd(ctx, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":./" + c.RepoName}, false); err != nil {
+	_, _ = runCmd(ctx, c.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":./" + c.RepoName}, false); err != nil {
 		return fmt.Errorf("adding git remote: %w", err)
 	}
 
@@ -348,7 +348,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	start := time.Now()
 	var lastOutput string
 	for {
-		out, err := runCmd(ctx, []string{"ssh", "-o", "ConnectTimeout=2", c.Name, "exit"}, true)
+		out, err := runCmd(ctx, "", []string{"ssh", "-o", "ConnectTimeout=2", c.Name, "exit"}, true)
 		if err == nil {
 			break
 		}
@@ -363,27 +363,27 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	branch := shellQuote(c.Branch)
 
 	// Initialize git repo in container.
-	if _, err := runCmd(ctx, []string{"ssh", c.Name, "mkdir -p ./" + repo + " && git init -q ./" + repo}, false); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "mkdir -p ./" + repo + " && git init -q ./" + repo}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, []string{"git", "fetch", c.Name}, false); err != nil {
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", c.Name}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, []string{"git", "push", "-q", "--tags", c.Name, c.Branch + ":refs/heads/" + c.Branch}, false); err != nil {
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "--tags", c.Name, c.Branch + ":refs/heads/" + c.Branch}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git switch -q " + branch}, false); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git switch -q " + branch}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git branch -f base " + branch + " && git switch -q base && git switch -q " + branch}, false); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git branch -f base " + branch + " && git switch -q base && git switch -q " + branch}, false); err != nil {
 		return err
 	}
 
 	// Set up origin remote in container using HTTPS.
-	originURL, err := runCmd(ctx, []string{"git", "remote", "get-url", "origin"}, true)
+	originURL, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", "origin"}, true)
 	if err == nil && originURL != "" {
 		httpsURL := convertGitURLToHTTPS(originURL)
-		_, _ = runCmd(ctx, []string{"ssh", c.Name, "cd ./" + repo + " && git remote add origin " + shellQuote(httpsURL)}, true)
+		_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git remote add origin " + shellQuote(httpsURL)}, true)
 		if !opts.Quiet {
 			_, _ = fmt.Fprintf(c.W, "- Set container origin to %s\n", httpsURL)
 		}
@@ -394,7 +394,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 		if !opts.Quiet {
 			_, _ = fmt.Fprintln(c.W, "- sending .env into container ...")
 		}
-		_, _ = runCmd(ctx, []string{"scp", ".env", c.Name + ":/home/user/.env"}, false)
+		_, _ = runCmd(ctx, "", []string{"scp", ".env", c.Name + ":/home/user/.env"}, false)
 	}
 
 	// Wait for Tailscale auth URL if needed.

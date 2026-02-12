@@ -15,8 +15,10 @@ import (
 
 // runCmd executes a command and returns (stdout, error).
 // If capture is true, stdout/stderr are captured; otherwise they go to os.Stdout/os.Stderr.
-func runCmd(ctx context.Context, args []string, capture bool) (string, error) {
+// If dir is non-empty, the command runs in that directory.
+func runCmd(ctx context.Context, dir string, args []string, capture bool) (string, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = dir
 	if capture {
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err
@@ -28,7 +30,7 @@ func runCmd(ctx context.Context, args []string, capture bool) (string, error) {
 
 // GitRootDir returns the git repository root for the given working directory.
 func GitRootDir(ctx context.Context, wd string) (string, error) {
-	out, err := runCmdDir(ctx, wd, []string{"git", "rev-parse", "--show-toplevel"}, true)
+	out, err := runCmd(ctx, wd, []string{"git", "rev-parse", "--show-toplevel"}, true)
 	if err != nil {
 		return "", fmt.Errorf("not a git checkout directory: %s: %w", wd, err)
 	}
@@ -37,22 +39,9 @@ func GitRootDir(ctx context.Context, wd string) (string, error) {
 
 // GitCurrentBranch returns the current branch name for the given working directory.
 func GitCurrentBranch(ctx context.Context, wd string) (string, error) {
-	out, err := runCmdDir(ctx, wd, []string{"git", "branch", "--show-current"}, true)
+	out, err := runCmd(ctx, wd, []string{"git", "branch", "--show-current"}, true)
 	if err != nil || out == "" {
 		return "", errors.New("check out a named branch")
 	}
 	return out, nil
-}
-
-// runCmdDir is like runCmd but runs the command in the given directory.
-func runCmdDir(ctx context.Context, dir string, args []string, capture bool) (string, error) {
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = dir
-	if capture {
-		out, err := cmd.Output()
-		return strings.TrimSpace(string(out)), err
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return "", cmd.Run()
 }

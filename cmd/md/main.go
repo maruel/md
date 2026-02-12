@@ -101,25 +101,55 @@ func newClient(tagFlag *string) (*md.Client, error) {
 	return c, nil
 }
 
-func newContainer(ctx context.Context, tagFlag *string) (*md.Container, error) {
-	c, err := newClient(tagFlag)
+// containerFlags holds the common flags for commands that target a container.
+type containerFlags struct {
+	tag    *string
+	branch *string
+	repo   *string
+}
+
+// addContainerFlags registers -b/-branch and -repo on the given FlagSet.
+func addContainerFlags(fs *flag.FlagSet, tag bool) *containerFlags {
+	cf := &containerFlags{}
+	if tag {
+		cf.tag = fs.String("tag", "", "Tag for the base image")
+	}
+	cf.branch = fs.String("branch", "", "Branch to use (default: current branch)")
+	fs.StringVar(cf.branch, "b", "", "Branch to use (default: current branch)")
+	cf.repo = fs.String("repo", "", "Path to git repository (default: current directory)")
+	fs.StringVar(cf.repo, "r", "", "Path to git repository (default: current directory)")
+	return cf
+}
+
+func newContainer(ctx context.Context, cf *containerFlags) (*md.Container, error) {
+	c, err := newClient(cf.tag)
 	if err != nil {
 		return nil, err
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
+	repo := ""
+	if cf.repo != nil && *cf.repo != "" {
+		repo = *cf.repo
+	} else {
+		repo, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
 	}
-	gitRoot, err := md.GitRootDir(ctx, wd)
+	gitRoot, err := md.GitRootDir(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
 	if err := os.Chdir(gitRoot); err != nil {
 		return nil, err
 	}
-	branch, err := md.GitCurrentBranch(ctx, gitRoot)
-	if err != nil {
-		return nil, err
+	var branch string
+	if cf.branch != nil && *cf.branch != "" {
+		branch = *cf.branch
+	} else {
+		branch, err = md.GitCurrentBranch(ctx, gitRoot)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return c.Container(gitRoot, branch), nil
 }
@@ -129,7 +159,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	display := fs.Bool("display", false, "Enable X11/VNC display")
 	fs.BoolVar(display, "d", false, "Enable X11/VNC display")
 	tailscale := fs.Bool("tailscale", false, "Enable Tailscale networking")
-	tag := fs.String("tag", "", "Tag for the base image")
+	cf := addContainerFlags(fs, true)
 	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the container after starting")
 	labels := &stringSlice{}
 	fs.Var(labels, "label", "Set Docker container label (key=value); can be repeated")
@@ -138,7 +168,7 @@ func cmdStart(ctx context.Context, args []string) error {
 		return err
 	}
 
-	ct, err := newContainer(ctx, tag)
+	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
 	}
@@ -156,7 +186,7 @@ func cmdStart(ctx context.Context, args []string) error {
 
 func cmdRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	tag := fs.String("tag", "", "Tag for the base image")
+	cf := addContainerFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -164,7 +194,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	if len(extra) == 0 {
 		return errors.New("no command specified")
 	}
-	ct, err := newContainer(ctx, tag)
+	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
 	}
@@ -210,10 +240,12 @@ func cmdSSH(args []string) error {
 }
 
 func cmdKill(ctx context.Context, args []string) error {
-	if err := noArgs("kill", args); err != nil {
+	fs := flag.NewFlagSet("kill", flag.ExitOnError)
+	cf := addContainerFlags(fs, false)
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	ct, err := newContainer(ctx, nil)
+	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
 	}
@@ -221,10 +253,12 @@ func cmdKill(ctx context.Context, args []string) error {
 }
 
 func cmdPush(ctx context.Context, args []string) error {
-	if err := noArgs("push", args); err != nil {
+	fs := flag.NewFlagSet("push", flag.ExitOnError)
+	cf := addContainerFlags(fs, false)
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	ct, err := newContainer(ctx, nil)
+	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
 	}
@@ -232,10 +266,12 @@ func cmdPush(ctx context.Context, args []string) error {
 }
 
 func cmdPull(ctx context.Context, args []string) error {
-	if err := noArgs("pull", args); err != nil {
+	fs := flag.NewFlagSet("pull", flag.ExitOnError)
+	cf := addContainerFlags(fs, false)
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	ct, err := newContainer(ctx, nil)
+	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
 	}
@@ -243,18 +279,25 @@ func cmdPull(ctx context.Context, args []string) error {
 }
 
 func cmdDiff(ctx context.Context, args []string) error {
-	ct, err := newContainer(ctx, nil)
+	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	cf := addContainerFlags(fs, false)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
 	}
-	return ct.Diff(ctx, os.Stdout, os.Stderr, args)
+	return ct.Diff(ctx, os.Stdout, os.Stderr, fs.Args())
 }
 
 func cmdVNC(ctx context.Context, args []string) error {
-	if err := noArgs("vnc", args); err != nil {
+	fs := flag.NewFlagSet("vnc", flag.ExitOnError)
+	cf := addContainerFlags(fs, false)
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	ct, err := newContainer(ctx, nil)
+	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
 	}

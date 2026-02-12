@@ -1,4 +1,6 @@
-# md: Parallel Development Containers for AI Coding Agents
+# md: Branch-locked Development Containers for AI Coding Agents
+
+Each container is locked to a repository-branch pair. No confusion. Safe parallel work.
 
 **Safe parallel work with multiple AI coding agents.** Run Claude Code, Codex,
 Amp CLI, Gemini CLI, Pi, and other tools in isolated containers without branch

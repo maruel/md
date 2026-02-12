@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright 2026 Marc-Antoine Ruel. All Rights Reserved. Use of this
+# source code is governed by the Apache v2 license that can be found in the
+# LICENSE file.
+
 import argparse
 import datetime
 import re

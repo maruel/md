@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Copyright 2026 Marc-Antoine Ruel. All Rights Reserved. Use of this
+# source code is governed by the Apache v2 license that can be found in the
+# LICENSE file.
+
 set -eu
 
 # Validate required environment variables

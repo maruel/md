@@ -45,7 +45,9 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 	if opts.Tailscale && opts.TailscaleAuthKey == "" {
 		key, err := generateTailscaleAuthKey(c.TailscaleAPIKey)
 		if err != nil {
-			_, _ = fmt.Fprintf(c.W, "- Could not generate Tailscale auth key (%v), will use browser auth\n", err)
+			if !opts.Quiet {
+				_, _ = fmt.Fprintf(c.W, "- Could not generate Tailscale auth key (%v), will use browser auth\n", err)
+			}
 		} else {
 			opts.TailscaleAuthKey = key
 			opts.TailscaleEphemeral = true
@@ -58,7 +60,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 	}
 	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
 
-	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, c.BaseImage, c.TagExplicit, false); err != nil {
+	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, c.BaseImage, c.TagExplicit, opts.Quiet); err != nil {
 		return err
 	}
 	if err := runContainer(ctx, c, opts); err != nil {

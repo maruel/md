@@ -41,6 +41,10 @@ type Client struct {
 	BaseImage   string
 	TagExplicit bool
 
+	// Tokens.
+	GithubToken     string // GitHub API token for Docker build secrets.
+	TailscaleAPIKey string // Tailscale API key for auth key generation and device deletion.
+
 	// keysDir is the directory containing SSH host keys and authorized_keys
 	// (~/.config/md/), used as a named Docker build context.
 	keysDir string
@@ -168,7 +172,7 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 }
 
 // BuildBase builds the base Docker image locally.
-func (c *Client) BuildBase(ctx context.Context) (retErr error) {
+func (c *Client) BuildBase(ctx context.Context, serialSetup bool) (retErr error) {
 	arch, err := hostArch()
 	if err != nil {
 		return err
@@ -188,10 +192,10 @@ func (c *Client) BuildBase(ctx context.Context) (retErr error) {
 		"-f", filepath.Join(buildCtx, "Dockerfile.base"),
 		"-t", "md-base",
 	}
-	if os.Getenv("MD_SERIAL_SETUP") == "1" {
+	if serialSetup {
 		cmd = append(cmd, "--build-arg", "MD_SERIAL_SETUP=1")
 	}
-	if os.Getenv("GITHUB_TOKEN") != "" {
+	if c.GithubToken != "" {
 		cmd = append(cmd, "--secret", "id=github_token,env=GITHUB_TOKEN")
 	} else {
 		_, _ = fmt.Fprintln(c.W, "WARNING: GITHUB_TOKEN not found. Some tools (neovim, rust-analyzer, etc) might fail to install or hit rate limits.")

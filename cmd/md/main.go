@@ -95,6 +95,8 @@ func newClient(tagFlag *string) (*md.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.GithubToken = os.Getenv("GITHUB_TOKEN")
+	c.TailscaleAPIKey = os.Getenv("TAILSCALE_API_KEY")
 	if err := c.Prepare(); err != nil {
 		return nil, err
 	}
@@ -173,10 +175,11 @@ func cmdStart(ctx context.Context, args []string) error {
 		return err
 	}
 	opts := md.StartOpts{
-		Display:   *display,
-		Tailscale: *tailscale,
-		Labels:    labels.values,
-		NoSSH:     *noSSH,
+		Display:          *display,
+		Tailscale:        *tailscale,
+		TailscaleAuthKey: os.Getenv("TAILSCALE_AUTHKEY"),
+		Labels:           labels.values,
+		NoSSH:            *noSSH,
 	}
 	if err := ct.Start(ctx, &opts); err != nil {
 		return err
@@ -275,7 +278,7 @@ func cmdPull(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return ct.Pull(ctx)
+	return ct.Pull(ctx, os.Getenv("ASK_PROVIDER"), os.Getenv("ASK_MODEL"))
 }
 
 func cmdDiff(ctx context.Context, args []string) error {
@@ -344,7 +347,7 @@ func cmdBuildBase(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return c.BuildBase(ctx)
+	return c.BuildBase(ctx, os.Getenv("MD_SERIAL_SETUP") == "1")
 }
 
 func noArgs(cmd string, args []string) error {

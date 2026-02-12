@@ -11,17 +11,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
 
 // generateTailscaleAuthKey creates a one-time ephemeral pre-authorized
-// Tailscale auth key via the API. Requires TAILSCALE_API_KEY env var.
-func generateTailscaleAuthKey() (string, error) {
-	apiKey := os.Getenv("TAILSCALE_API_KEY")
+// Tailscale auth key via the API.
+func generateTailscaleAuthKey(apiKey string) (string, error) {
 	if apiKey == "" {
-		return "", errors.New("TAILSCALE_API_KEY not set, create an API access key at https://login.tailscale.com/admin/settings/keys")
+		return "", errors.New("no Tailscale API key provided, create an API access key at https://login.tailscale.com/admin/settings/keys")
 	}
 	body, err := json.Marshal(map[string]any{
 		"capabilities": map[string]any{
@@ -69,8 +67,7 @@ func generateTailscaleAuthKey() (string, error) {
 }
 
 // deleteTailscaleDevice deletes a Tailscale device using the API.
-func deleteTailscaleDevice(deviceID string) {
-	apiKey := os.Getenv("TAILSCALE_API_KEY")
+func deleteTailscaleDevice(apiKey, deviceID string) {
 	if apiKey == "" {
 		return
 	}

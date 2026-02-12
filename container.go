@@ -43,16 +43,12 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 
 	// Generate Tailscale auth key if needed.
 	if opts.Tailscale && opts.TailscaleAuthKey == "" {
-		if key := os.Getenv("TAILSCALE_AUTHKEY"); key != "" {
-			opts.TailscaleAuthKey = key
+		key, err := generateTailscaleAuthKey(c.TailscaleAPIKey)
+		if err != nil {
+			_, _ = fmt.Fprintf(c.W, "- Could not generate Tailscale auth key (%v), will use browser auth\n", err)
 		} else {
-			key, err := generateTailscaleAuthKey()
-			if err != nil {
-				_, _ = fmt.Fprintf(c.W, "- Could not generate Tailscale auth key (%v), will use browser auth\n", err)
-			} else {
-				opts.TailscaleAuthKey = key
-				opts.TailscaleEphemeral = true
-			}
+			opts.TailscaleAuthKey = key
+			opts.TailscaleEphemeral = true
 		}
 	}
 
@@ -150,7 +146,7 @@ func (c *Container) Kill(ctx context.Context) error {
 				}
 				if json.Unmarshal([]byte(statusJSON), &status) == nil && status.Self.ID != "" {
 					_, _ = fmt.Fprintln(c.W, "- Removing Tailscale node from tailnet...")
-					deleteTailscaleDevice(status.Self.ID)
+					deleteTailscaleDevice(c.TailscaleAPIKey, status.Self.ID)
 				}
 			}
 		}
@@ -205,7 +201,10 @@ func (c *Container) Push(ctx context.Context) error {
 }
 
 // Pull pulls changes from the container back to the local repo.
-func (c *Container) Pull(ctx context.Context) error {
+//
+// provider and model control AI commit message generation. See https://github.com/maruel/genai for valid
+// names. If provider is empty, a default message is used.
+func (c *Container) Pull(ctx context.Context, provider, model string) error {
 	if err := c.checkContainerState(ctx); err != nil {
 		return err
 	}
@@ -213,10 +212,10 @@ func (c *Container) Pull(ctx context.Context) error {
 	// Check if there are uncommitted changes in the container.
 	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git add . && git diff --quiet HEAD -- ."}, true); err != nil {
 		commitMsg := "Pull from md"
-		if provider := os.Getenv("ASK_PROVIDER"); provider != "" {
+		if provider != "" {
 			metadata := gatherGitMetadata(ctx, c.Name, repo)
 			diff := gatherGitDiff(ctx, c.Name, repo)
-			if msg, err := generateCommitMsg(ctx, provider, metadata, diff); err == nil && msg != "" {
+			if msg, err := generateCommitMsg(ctx, provider, model, metadata, diff); err == nil && msg != "" {
 				commitMsg = msg
 			}
 		}
@@ -382,16 +381,16 @@ func (c *Container) cleanup(ctx context.Context) {
 }
 
 // genCommitMsg generates a commit message using the genai library.
-func genCommitMsg(ctx context.Context, provider, prompt string) (string, error) {
+func genCommitMsg(ctx context.Context, provider, model, prompt string) (string, error) {
 	cfg, ok := providers.All[provider]
 	if !ok {
 		return "", fmt.Errorf("unknown provider %q", provider)
 	}
-	model := genai.ProviderOptionModel(os.Getenv("ASK_MODEL"))
-	if model == "" {
-		model = genai.ModelGood
+	m := genai.ProviderOptionModel(model)
+	if m == "" {
+		m = genai.ModelCheap
 	}
-	p, err := cfg.Factory(ctx, model)
+	p, err := cfg.Factory(ctx, m)
 	if err != nil {
 		return "", err
 	}

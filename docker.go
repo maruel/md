@@ -6,7 +6,9 @@ package md
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -75,6 +78,59 @@ func prepareBuildContext() (dir string, retErr error) {
 		return "", fmt.Errorf("extracting build context: %w", err)
 	}
 	return tmp, nil
+}
+
+// contextSHAHash computes a deterministic SHA-256 hash over the build context
+// directory and the SSH key files. It walks files in sorted order and hashes
+// each relative path and its contents.
+func contextSHAHash(buildCtxDir, keysDir string) (string, error) {
+	h := sha256.New()
+	// Hash all files in buildCtxDir.
+	if err := hashDir(h, buildCtxDir); err != nil {
+		return "", err
+	}
+	// Hash specific key files from keysDir.
+	for _, name := range []string{"ssh_host_ed25519_key", "ssh_host_ed25519_key.pub", "authorized_keys"} {
+		data, err := os.ReadFile(filepath.Join(keysDir, name))
+		if err != nil {
+			return "", err
+		}
+		_, _ = io.WriteString(h, name)
+		_, _ = h.Write(data)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// hashDir walks dir in sorted order, hashing each file's relative path and
+// contents into h.
+func hashDir(h io.Writer, dir string) error {
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			paths = append(paths, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	sort.Strings(paths)
+	for _, rel := range paths {
+		_, _ = io.WriteString(h, rel)
+		data, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			return err
+		}
+		_, _ = h.Write(data)
+	}
+	return nil
 }
 
 func dockerInspectFormat(ctx context.Context, name, format string) (string, error) {
@@ -159,10 +215,7 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 	}
 
 	// Compute context SHA from both the build context and keys directory.
-	contextSHA, err := runCmd(ctx, "", []string{
-		"bash", "-c",
-		fmt.Sprintf("{ tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C %q . && tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C %q ssh_host_ed25519_key ssh_host_ed25519_key.pub authorized_keys; } | sha256sum | cut -d' ' -f1", buildCtxDir, keysDir),
-	}, true)
+	contextSHA, err := contextSHAHash(buildCtxDir, keysDir)
 	if err != nil {
 		return fmt.Errorf("computing context SHA: %w", err)
 	}

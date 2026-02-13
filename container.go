@@ -202,11 +202,12 @@ func (c *Container) Push(ctx context.Context) error {
 	return nil
 }
 
-// Pull pulls changes from the container back to the local repo.
+// Fetch commits any uncommitted changes in the container and fetches them
+// locally, updating the remote-tracking ref without integrating.
 //
 // provider and model control AI commit message generation. See https://github.com/maruel/genai for valid
 // names. If provider is empty, a default message is used.
-func (c *Container) Pull(ctx context.Context, provider, model string) error {
+func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 	if err := c.checkContainerState(ctx); err != nil {
 		return err
 	}
@@ -229,18 +230,28 @@ func (c *Container) Pull(ctx context.Context, provider, model string) error {
 			return fmt.Errorf("committing in container: %w", err)
 		}
 	}
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", "-q", c.Name, c.Branch}, false); err != nil {
+	_, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", "-q", c.Name, c.Branch}, false)
+	return err
+}
+
+// Pull fetches changes from the container and integrates them into the local branch.
+//
+// provider and model control AI commit message generation. See https://github.com/maruel/genai for valid
+// names. If provider is empty, a default message is used.
+func (c *Container) Pull(ctx context.Context, provider, model string) error {
+	if err := c.Fetch(ctx, provider, model); err != nil {
 		return err
 	}
+	remoteRef := c.Name + "/" + c.Branch
 	currentBranch, _ := runCmd(ctx, c.GitRoot, []string{"git", "branch", "--show-current"}, true)
 	if currentBranch == c.Branch {
 		// Already on the branch, rebase locally.
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
 			return err
 		}
-	} else if _, err := runCmd(ctx, c.GitRoot, []string{"git", "merge-base", "--is-ancestor", c.Branch, "FETCH_HEAD"}, true); err == nil {
+	} else if _, err := runCmd(ctx, c.GitRoot, []string{"git", "merge-base", "--is-ancestor", c.Branch, remoteRef}, true); err == nil {
 		// Fast-forward: update ref without checkout.
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "update-ref", "refs/heads/" + c.Branch, "FETCH_HEAD"}, false); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "update-ref", "refs/heads/" + c.Branch, remoteRef}, false); err != nil {
 			return err
 		}
 	} else {
@@ -252,7 +263,7 @@ func (c *Container) Pull(ctx context.Context, provider, model string) error {
 		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", c.Branch}, false); err != nil {
 			return err
 		}
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", "FETCH_HEAD"}, false); err != nil {
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
 			_, _ = runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", origRef}, false)
 			return err
 		}

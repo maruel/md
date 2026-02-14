@@ -100,7 +100,7 @@ jobs:
           python-version-file: '.python-version'
       - run: pip install pylint ruff
       - run: pylint .
-      - run: ruff check
+      - run: ruff check --no-cache
       - uses: golangci/golangci-lint-action@v9
       - name: "go install necessary tools (ubuntu)"
         if: always() && matrix.os == 'ubuntu-latest'

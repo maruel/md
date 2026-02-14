@@ -175,35 +175,21 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 		return err
 	}
 	// Check if local md-base is newer than remote.
-	if baseImage == DefaultBaseImage {
-		localBase := getImageCreatedTime(ctx, "md-base")
-		if localBase != "" {
-			remoteBase := getImageCreatedTime(ctx, baseImage)
-			if remoteBase == "" {
+	if strings.HasPrefix(baseImage, DefaultBaseImage) {
+		if localBase := getImageCreatedTime(ctx, baseImage); localBase != "" {
+			if remoteBase := getImageCreatedTime(ctx, baseImage); dateToEpoch(localBase) > dateToEpoch(remoteBase) {
 				if !quiet {
-					_, _ = fmt.Fprintf(w, "- Remote %s image not found, using local build instead\n", baseImage)
+					_, _ = fmt.Fprintf(w, "- Pulling base image %s ...\n", baseImage)
 				}
-				baseImage = "md-base"
-			} else if dateToEpoch(localBase) > dateToEpoch(remoteBase) {
+				args := []string{"docker", "pull", "--platform", "linux/" + arch, baseImage}
+				if _, err := runCmd(ctx, "", args, quiet); err != nil {
+					return fmt.Errorf("pulling base image: %w", err)
+				}
 				if !quiet {
-					_, _ = fmt.Fprintf(w, "- Local md-base image is newer, using local build instead of %s\n", baseImage)
-					_, _ = fmt.Fprintln(w, "  Run 'docker image rm md-base' to delete the local image.")
+					if v := getImageVersionLabel(ctx, baseImage); strings.HasPrefix(v, "v") {
+						_, _ = fmt.Fprintf(w, "  Version: %s\n", v)
+					}
 				}
-				baseImage = "md-base"
-			}
-		}
-	}
-	if baseImage != "md-base" {
-		if !quiet {
-			_, _ = fmt.Fprintf(w, "- Pulling base image %s ...\n", baseImage)
-		}
-		args := []string{"docker", "pull", "--platform", "linux/" + arch, baseImage}
-		if _, err := runCmd(ctx, "", args, quiet); err != nil {
-			return fmt.Errorf("pulling base image: %w", err)
-		}
-		if !quiet && !strings.Contains(baseImage, ":") {
-			if v := getImageVersionLabel(ctx, baseImage); strings.HasPrefix(v, "v") {
-				_, _ = fmt.Fprintf(w, "  Version: %s\n", v)
 			}
 		}
 	}

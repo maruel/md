@@ -62,7 +62,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 
 	baseImage := opts.BaseImage
 	if baseImage == "" {
-		baseImage = DefaultBaseImage
+		baseImage = DefaultBaseImage + ":latest"
 	}
 	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, opts.Quiet); err != nil {
 		return err
@@ -101,7 +101,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
 
 	if baseImage == "" {
-		baseImage = DefaultBaseImage
+		baseImage = DefaultBaseImage + ":latest"
 	}
 	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, true); err != nil {
 		return 1, err

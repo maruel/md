@@ -60,7 +60,7 @@ RUN --mount=type=secret,id=github_token,uid=1000 \
 
 # Generate tool version report
 SHELL ["/bin/bash", "-ilc"]
-RUN measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /home/user/tool_versions.md
+RUN measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh > /home/user/src/tool_versions.md
 
 USER root
 SHELL ["/bin/bash", "-c"]
@@ -70,7 +70,7 @@ CMD ["/root/start.sh"]
 
 # Stage to export reports
 FROM scratch AS reports
-COPY --from=final /home/user/tool_versions.md /
+COPY --from=final /home/user/src/tool_versions.md /
 COPY --from=final /var/log/build_timings.md /
 
 FROM final

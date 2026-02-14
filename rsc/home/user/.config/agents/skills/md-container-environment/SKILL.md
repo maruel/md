@@ -101,7 +101,7 @@ Complete environment documentation for the md development container. For the aut
 
 View all installed tool versions with:
 ```bash
-cat ~/tool_versions.md
+cat ~/src/tool_versions.md
 ```
 
 ## Quick Reference
@@ -130,7 +130,7 @@ go version && rustc --version && python3 --version && node --version
 google-chrome --remote-debugging-port=9222
 
 # View all tool versions
-cat ~/tool_versions.md
+cat ~/src/tool_versions.md
 
 # Access container GUI (via VNC)
 # Port 5901 with TigerVNC client

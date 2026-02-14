@@ -102,22 +102,42 @@ func newClient() (*md.Client, error) {
 // containerFlags holds the common flags for commands that target a container.
 type containerFlags struct {
 	image  *string
+	tag    *string
 	branch *string
 	repo   *string
 }
 
 // addContainerFlags registers -b/-branch and -repo on the given FlagSet.
-// When image is true, --image is also registered.
+// When image is true, --image and --tag are also registered.
 func addContainerFlags(fs *flag.FlagSet, image bool) *containerFlags {
 	cf := &containerFlags{}
 	if image {
-		cf.image = fs.String("image", "", "Base Docker image (default: "+md.DefaultBaseImage+")")
+		cf.image = fs.String("image", "", "Full base Docker image (default: "+md.DefaultBaseImage+")")
+		cf.tag = fs.String("tag", "", "Tag for the default base image (ghcr.io/maruel/md:<tag>)")
 	}
 	cf.branch = fs.String("branch", "", "Branch to use (default: current branch)")
 	fs.StringVar(cf.branch, "b", "", "Branch to use (default: current branch)")
 	cf.repo = fs.String("repo", "", "Path to git repository (default: current directory)")
 	fs.StringVar(cf.repo, "r", "", "Path to git repository (default: current directory)")
 	return cf
+}
+
+// baseImage returns the resolved base image from --image and --tag flags.
+// --image takes precedence; --tag expands to "ghcr.io/maruel/md:<tag>".
+// Returns empty string when neither is set (caller should use DefaultBaseImage).
+func (cf *containerFlags) baseImage() (string, error) {
+	hasImage := cf.image != nil && *cf.image != ""
+	hasTag := cf.tag != nil && *cf.tag != ""
+	if hasImage && hasTag {
+		return "", errors.New("--image and --tag are mutually exclusive")
+	}
+	if hasImage {
+		return *cf.image, nil
+	}
+	if hasTag {
+		return "ghcr.io/maruel/md:" + *cf.tag, nil
+	}
+	return "", nil
 }
 
 func newContainer(ctx context.Context, cf *containerFlags) (*md.Container, error) {
@@ -172,9 +192,9 @@ func cmdStart(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	var baseImage string
-	if cf.image != nil {
-		baseImage = *cf.image
+	baseImage, err := cf.baseImage()
+	if err != nil {
+		return err
 	}
 	opts := md.StartOpts{
 		BaseImage:        baseImage,
@@ -205,9 +225,9 @@ func cmdRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	var baseImage string
-	if cf.image != nil {
-		baseImage = *cf.image
+	baseImage, err := cf.baseImage()
+	if err != nil {
+		return err
 	}
 	exitCode, err := ct.Run(ctx, baseImage, extra)
 	if err != nil {

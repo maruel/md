@@ -8,6 +8,8 @@ echo "Connected to $(hostname)" >/etc/motd
 if [ -n "${MD_REPO_DIR:-}" ]; then
 	echo "export MD_REPO_DIR='$MD_REPO_DIR'" >/etc/profile.d/00-md-repo-dir.sh
 	chmod 644 /etc/profile.d/00-md-repo-dir.sh
+	# Create ~/src directory for git repositories.
+	su - user -c "mkdir -p ~/src"
 fi
 
 # If /dev/kvm exists, update the kvm group GID to match the host

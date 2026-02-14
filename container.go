@@ -104,7 +104,7 @@ func (c *Container) Run(ctx context.Context, command []string) (_ int, retErr er
 	}
 
 	cmdStr := strings.Join(command, " ")
-	_, err = runCmd(ctx, "", []string{"ssh", tmp.Name, "cd ./" + shellQuote(c.RepoName) + " && " + cmdStr}, false)
+	_, err = runCmd(ctx, "", []string{"ssh", tmp.Name, "cd ./src/" + shellQuote(c.RepoName) + " && " + cmdStr}, false)
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -187,15 +187,15 @@ func (c *Container) Push(ctx context.Context) error {
 	repo := shellQuote(c.RepoName)
 	branch := shellQuote(c.Branch)
 	// Commit any pending changes in the container.
-	_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"}, true)
-	containerCommit, _ := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git rev-parse HEAD"}, true)
+	_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"}, true)
+	containerCommit, _ := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git rev-parse HEAD"}, true)
 	backupBranch := "backup-" + time.Now().Format("20060102-150405")
-	_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git branch -f " + backupBranch + " " + containerCommit}, true)
+	_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git branch -f " + backupBranch + " " + containerCommit}, true)
 	_, _ = fmt.Fprintf(c.W, "- Previous state saved as git branch: %s\n", backupBranch)
 	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, c.Branch + ":base"}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git switch -q -C " + branch + " base"}, false); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git switch -q -C " + branch + " base"}, false); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(c.W, "- Container updated.")
@@ -213,7 +213,7 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 	}
 	repo := shellQuote(c.RepoName)
 	// Check if there are uncommitted changes in the container.
-	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./" + repo + " && git add . && git diff --quiet HEAD -- ."}, true); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git add . && git diff --quiet HEAD -- ."}, true); err != nil {
 		commitMsg := "Pull from md"
 		if provider != "" {
 			metadata := gatherGitMetadata(ctx, c.Name, repo)
@@ -225,7 +225,7 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 		gitUserName, _ := runCmd(ctx, c.GitRoot, []string{"git", "config", "user.name"}, true)
 		gitUserEmail, _ := runCmd(ctx, c.GitRoot, []string{"git", "config", "user.email"}, true)
 		gitAuthor := shellQuote(gitUserName + " <" + gitUserEmail + ">")
-		commitCmd := "cd ./" + repo + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
+		commitCmd := "cd ./src/" + repo + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
 		if _, err := runCmd(ctx, "", []string{"ssh", c.Name, commitCmd}, false); err != nil {
 			return fmt.Errorf("committing in container: %w", err)
 		}
@@ -288,7 +288,7 @@ func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, extraArg
 		sshArgs = append(sshArgs, "-t")
 		cmd.Stdin = os.Stdin
 	}
-	sshArgs = append(sshArgs, c.Name, "cd ./"+shellQuote(c.RepoName)+" && git add . && git diff base "+strings.Join(quotedArgs, " ")+" -- .")
+	sshArgs = append(sshArgs, c.Name, "cd ./src/"+shellQuote(c.RepoName)+" && git add . && git diff base "+strings.Join(quotedArgs, " ")+" -- .")
 	cmd.Path, _ = exec.LookPath(sshArgs[0])
 	cmd.Args = sshArgs
 	cmd.Stdout = stdout

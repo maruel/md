@@ -364,14 +364,14 @@ func splitDiff(diff string, maxChunk int) []string {
 // gatherGitMetadata runs SSH commands to collect branch, stat, and log from
 // the container. This data is always small.
 func gatherGitMetadata(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ./" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
+	cmd := "cd ./src/" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
 	out, _ := runCmd(ctx, "", []string{"ssh", containerName, cmd}, true)
 	return out
 }
 
 // gatherGitDiff runs SSH to get the full patience diff from the container.
 func gatherGitDiff(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ./" + repo + " && git diff --patience -U10 --cached base -- ."
+	cmd := "cd ./src/" + repo + " && git diff --patience -U10 --cached base -- ."
 	out, _ := runCmd(ctx, "", []string{"ssh", containerName, cmd}, true)
 	return out
 }

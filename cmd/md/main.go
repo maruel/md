@@ -113,7 +113,7 @@ func addContainerFlags(fs *flag.FlagSet, image bool) *containerFlags {
 	cf := &containerFlags{}
 	if image {
 		cf.image = fs.String("image", "", "Full base Docker image (default: "+md.DefaultBaseImage+")")
-		cf.tag = fs.String("tag", "", "Tag for the default base image (ghcr.io/maruel/md:<tag>)")
+		cf.tag = fs.String("tag", "", "Tag for the default base image ("+md.DefaultBaseImage+":<tag>)")
 	}
 	cf.branch = fs.String("branch", "", "Branch to use (default: current branch)")
 	fs.StringVar(cf.branch, "b", "", "Branch to use (default: current branch)")
@@ -123,7 +123,7 @@ func addContainerFlags(fs *flag.FlagSet, image bool) *containerFlags {
 }
 
 // baseImage returns the resolved base image from --image and --tag flags.
-// --image takes precedence; --tag expands to "ghcr.io/maruel/md:<tag>".
+// --image takes precedence; --tag expands to DefaultBaseImage+":<tag>".
 // Returns empty string when neither is set (caller should use DefaultBaseImage).
 func (cf *containerFlags) baseImage() (string, error) {
 	hasImage := cf.image != nil && *cf.image != ""
@@ -135,7 +135,7 @@ func (cf *containerFlags) baseImage() (string, error) {
 		return *cf.image, nil
 	}
 	if hasTag {
-		return "ghcr.io/maruel/md:" + *cf.tag, nil
+		return md.DefaultBaseImage + ":" + *cf.tag, nil
 	}
 	return "", nil
 }

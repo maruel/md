@@ -201,7 +201,7 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 		if _, err := runCmd(ctx, "", args, quiet); err != nil {
 			return fmt.Errorf("pulling base image: %w", err)
 		}
-		if !quiet && strings.HasSuffix(baseImage, ":latest") {
+		if !quiet && !strings.Contains(baseImage, ":") {
 			if v := getImageVersionLabel(ctx, baseImage); strings.HasPrefix(v, "v") {
 				_, _ = fmt.Fprintf(w, "  Version: %s\n", v)
 			}
@@ -255,7 +255,7 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 }
 
 // DefaultBaseImage is the base image used when none is specified.
-const DefaultBaseImage = "ghcr.io/maruel/md:latest"
+const DefaultBaseImage = "ghcr.io/maruel/md"
 
 // StartOpts configures container startup.
 type StartOpts struct {

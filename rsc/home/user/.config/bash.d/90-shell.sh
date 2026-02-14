@@ -8,7 +8,3 @@ export EDITOR=nvim
 
 alias ll='ls --color=auto -la'
 alias vimdiff='nvim -d'
-
-if [ -d "$HOME/src" ]; then
-	cd "$HOME/src"
-fi

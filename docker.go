@@ -421,11 +421,6 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "git init -q ~/src/" + repo}, false); err != nil {
 		return err
 	}
-	/*
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", c.Name}, false); err != nil {
-			return err
-		}
-	*/
 	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "--tags", c.Name, c.Branch + ":refs/heads/" + c.Branch}, false); err != nil {
 		return err
 	}

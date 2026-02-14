@@ -92,15 +92,24 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
       - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
+        if: runner.os == 'Linux'
       - run: shellcheck -x rsc/**/*.sh
+        if: runner.os == 'Linux'
       - run: $HOME/go/bin/shfmt -d rsc/**/*.sh
+        if: runner.os == 'Linux'
       - uses: actions/setup-python@v6
+        if: runner.os == 'Linux'
         with:
           python-version-file: '.python-version'
       - run: pip install pylint ruff
+        if: runner.os == 'Linux'
       - run: pylint .
+        if: runner.os == 'Linux'
       - run: ruff check --no-cache
+        if: runner.os == 'Linux'
+
       - uses: golangci/golangci-lint-action@v9
       - name: "go install necessary tools (ubuntu)"
         if: always() && matrix.os == 'ubuntu-latest'

@@ -37,9 +37,7 @@ type Client struct {
 	UserKeyPath string // ~/.ssh/md
 
 	// Docker.
-	ImageName   string
-	BaseImage   string
-	TagExplicit bool
+	ImageName string
 
 	// Tokens.
 	GithubToken     string // GitHub API token for Docker build secrets.
@@ -51,8 +49,7 @@ type Client struct {
 }
 
 // New creates a Client with global MD tool config.
-// tag may be empty for "latest".
-func New(tag string) (*Client, error) {
+func New() (*Client, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -66,12 +63,6 @@ func New(tag string) (*Client, error) {
 		HostKeyPath:   filepath.Join(home, ".config", "md", "ssh_host_ed25519_key"),
 		UserKeyPath:   filepath.Join(home, ".ssh", "md"),
 		ImageName:     "md",
-		TagExplicit:   tag != "",
-	}
-	if c.TagExplicit {
-		c.BaseImage = "ghcr.io/maruel/md:" + tag
-	} else {
-		c.BaseImage = "ghcr.io/maruel/md:latest"
 	}
 	c.keysDir = filepath.Join(c.XDGConfigHome, "md")
 	return c, nil

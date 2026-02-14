@@ -60,7 +60,11 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 	}
 	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
 
-	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, c.BaseImage, c.TagExplicit, opts.Quiet); err != nil {
+	baseImage := opts.BaseImage
+	if baseImage == "" {
+		baseImage = DefaultBaseImage
+	}
+	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, opts.Quiet); err != nil {
 		return err
 	}
 	if err := runContainer(ctx, c, opts); err != nil {
@@ -77,7 +81,9 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 }
 
 // Run starts a temporary container, runs a command, then cleans up.
-func (c *Container) Run(ctx context.Context, command []string) (_ int, retErr error) {
+// baseImage is the full Docker image reference; if empty, DefaultBaseImage is
+// used.
+func (c *Container) Run(ctx context.Context, baseImage string, command []string) (_ int, retErr error) {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
 	tmp := &Container{
@@ -94,7 +100,10 @@ func (c *Container) Run(ctx context.Context, command []string) (_ int, retErr er
 	}
 	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
 
-	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, c.BaseImage, c.TagExplicit, true); err != nil {
+	if baseImage == "" {
+		baseImage = DefaultBaseImage
+	}
+	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, true); err != nil {
 		return 1, err
 	}
 	opts := StartOpts{NoSSH: true, Quiet: true}

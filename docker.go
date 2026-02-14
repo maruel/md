@@ -169,13 +169,13 @@ func dateToEpoch(dateStr string) int64 {
 // buildCustomizedImage builds the per-user Docker image. keysDir is the
 // directory containing SSH host keys and authorized_keys, supplied to Docker
 // as a named build context "md-keys".
-func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir, imageName, baseImage string, tagExplicit, quiet bool) error {
+func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir, imageName, baseImage string, quiet bool) error {
 	arch, err := hostArch()
 	if err != nil {
 		return err
 	}
 	// Check if local md-base is newer than remote.
-	if !tagExplicit && baseImage == "ghcr.io/maruel/md:latest" {
+	if baseImage == DefaultBaseImage {
 		localBase := getImageCreatedTime(ctx, "md-base")
 		if localBase != "" {
 			remoteBase := getImageCreatedTime(ctx, baseImage)
@@ -254,8 +254,15 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 	return nil
 }
 
+// DefaultBaseImage is the base image used when none is specified.
+const DefaultBaseImage = "ghcr.io/maruel/md:latest"
+
 // StartOpts configures container startup.
 type StartOpts struct {
+	// BaseImage is the full Docker image reference (e.g.
+	// "ghcr.io/maruel/md:v1.0" or "myregistry/custom:tag"). When empty,
+	// DefaultBaseImage is used.
+	BaseImage          string
 	Display            bool
 	Tailscale          bool
 	TailscaleAuthKey   string

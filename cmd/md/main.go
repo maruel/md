@@ -86,12 +86,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  build-base  Build the base Docker image locally")
 }
 
-func newClient(tagFlag *string) (*md.Client, error) {
-	var tag string
-	if tagFlag != nil {
-		tag = *tagFlag
-	}
-	c, err := md.New(tag)
+func newClient() (*md.Client, error) {
+	c, err := md.New()
 	if err != nil {
 		return nil, err
 	}
@@ -105,16 +101,17 @@ func newClient(tagFlag *string) (*md.Client, error) {
 
 // containerFlags holds the common flags for commands that target a container.
 type containerFlags struct {
-	tag    *string
+	image  *string
 	branch *string
 	repo   *string
 }
 
 // addContainerFlags registers -b/-branch and -repo on the given FlagSet.
-func addContainerFlags(fs *flag.FlagSet, tag bool) *containerFlags {
+// When image is true, --image is also registered.
+func addContainerFlags(fs *flag.FlagSet, image bool) *containerFlags {
 	cf := &containerFlags{}
-	if tag {
-		cf.tag = fs.String("tag", "", "Tag for the base image")
+	if image {
+		cf.image = fs.String("image", "", "Base Docker image (default: "+md.DefaultBaseImage+")")
 	}
 	cf.branch = fs.String("branch", "", "Branch to use (default: current branch)")
 	fs.StringVar(cf.branch, "b", "", "Branch to use (default: current branch)")
@@ -124,7 +121,7 @@ func addContainerFlags(fs *flag.FlagSet, tag bool) *containerFlags {
 }
 
 func newContainer(ctx context.Context, cf *containerFlags) (*md.Container, error) {
-	c, err := newClient(cf.tag)
+	c, err := newClient()
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +172,12 @@ func cmdStart(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var baseImage string
+	if cf.image != nil {
+		baseImage = *cf.image
+	}
 	opts := md.StartOpts{
+		BaseImage:        baseImage,
 		Display:          *display,
 		Tailscale:        *tailscale,
 		TailscaleAuthKey: os.Getenv("TAILSCALE_AUTHKEY"),
@@ -203,7 +205,11 @@ func cmdRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	exitCode, err := ct.Run(ctx, extra)
+	var baseImage string
+	if cf.image != nil {
+		baseImage = *cf.image
+	}
+	exitCode, err := ct.Run(ctx, baseImage, extra)
 	if err != nil {
 		return err
 	}
@@ -217,7 +223,7 @@ func cmdList(ctx context.Context, args []string) error {
 	if err := noArgs("list", args); err != nil {
 		return err
 	}
-	c, err := md.New("")
+	c, err := md.New()
 	if err != nil {
 		return err
 	}
@@ -347,7 +353,7 @@ func cmdBuildBase(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	c, err := newClient(nil)
+	c, err := newClient()
 	if err != nil {
 		return err
 	}

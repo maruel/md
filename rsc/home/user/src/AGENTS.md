@@ -1,6 +1,12 @@
+# Environment
+
+You are running inside a docker container.
+
+Subdirectories from the current working directory are the projects (as git repositories) the user wants to work on.
+
 ## Preinstalled Tools
 
-The complete list of tool versions is at `~/tool_versions.md`
+The complete list of tool versions is at `tool_versions.md`
 
 Notable executables available in the container:
 
@@ -20,4 +26,4 @@ Notable executables available in the container:
 - GitHub: gh
 - Debugging: strace, lsof, dlv (Go), lldb/rust-lldb (Rust)
 
-**Web Remote Debugging**: `google-chrome --remote-debugging-port` now **requires** `--user-data-dir` pointing to a non-default directory.
+Web Remote Debugging: `google-chrome --remote-debugging-port` requires `--user-data-dir` pointing to a non-default directory.

@@ -8,8 +8,6 @@ echo "Connected to $(hostname)" >/etc/motd
 if [ -n "${MD_REPO_DIR:-}" ]; then
 	echo "export MD_REPO_DIR='$MD_REPO_DIR'" >/etc/profile.d/00-md-repo-dir.sh
 	chmod 644 /etc/profile.d/00-md-repo-dir.sh
-	# Create ~/src directory for git repositories.
-	su - user -c "mkdir -p ~/src"
 fi
 
 # If /dev/kvm exists, update the kvm group GID to match the host
@@ -74,8 +72,6 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 		tailscale up --hostname="$(hostname)" --ssh 2>&1 | tee /tmp/tailscale_auth_url &
 	fi
 fi
-
-echo "⚠️ Tell your agent to read ~/AGENTS.md" >>/etc/motd
 
 # Start SSH server (after VNC so DISPLAY is available)
 service ssh start

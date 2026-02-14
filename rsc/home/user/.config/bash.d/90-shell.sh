@@ -9,7 +9,6 @@ export EDITOR=nvim
 alias ll='ls --color=auto -la'
 alias vimdiff='nvim -d'
 
-if [ -n "$MD_REPO_DIR" ] && [ -d "$HOME/src/$MD_REPO_DIR" ]; then
-	# shellcheck disable=SC2164
-	cd "$HOME/src/$MD_REPO_DIR"
+if [ -d "$HOME/src" ]; then
+	cd "$HOME/src"
 fi

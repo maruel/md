@@ -402,7 +402,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 		_, _ = fmt.Fprintln(c.W, "- git clone into container ...")
 	}
 	_, _ = runCmd(ctx, c.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":./src/" + c.RepoName}, false); err != nil {
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + c.RepoName}, false); err != nil {
 		return fmt.Errorf("adding git remote: %w", err)
 	}
 
@@ -425,19 +425,18 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	branch := shellQuote(c.Branch)
 
 	// Initialize git repo in container.
-	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "mkdir -p ./src/" + repo + " && git init -q ./src/" + repo}, false); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "git init -q ~/src/" + repo}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", c.Name}, false); err != nil {
-		return err
-	}
+	/*
+		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", c.Name}, false); err != nil {
+			return err
+		}
+	*/
 	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "--tags", c.Name, c.Branch + ":refs/heads/" + c.Branch}, false); err != nil {
 		return err
 	}
-	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git switch -q " + branch}, false); err != nil {
-		return err
-	}
-	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git branch -f base " + branch + " && git switch -q base && git switch -q " + branch}, false); err != nil {
+	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ~/src/" + repo + " && git switch -q " + branch + " && git branch -f base " + branch + " && git switch -q base && git switch -q " + branch}, false); err != nil {
 		return err
 	}
 
@@ -445,7 +444,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	originURL, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", "origin"}, true)
 	if err == nil && originURL != "" {
 		httpsURL := convertGitURLToHTTPS(originURL)
-		_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ./src/" + repo + " && git remote add origin " + shellQuote(httpsURL)}, true)
+		_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ~/src/" + repo + " && git remote add origin " + shellQuote(httpsURL)}, true)
 		if !opts.Quiet {
 			_, _ = fmt.Fprintf(c.W, "- Set container origin to %s\n", httpsURL)
 		}

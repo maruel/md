@@ -56,11 +56,12 @@ go install github.com/maruel/md/cmd/md@latest
 
 **Recommended:** Also install [git-maruel](https://github.com/maruel/git-maruel) for the `git squash` and `git rb` helpers.
 
-### Readme for agents (https://agents.md)
+### Harnesses
 
-**For coding agents:** The container includes `/home/user/AGENTS.md` which provides information about
-preinstalled tools (list available in `~/tool_versions.md`) and system configuration. Reference it in your
-AGENTS.md to help agents understand the available development environment. Here's the locations:
+For coding agents: The container includes `/home/user/src/AGENTS.md` which provides information about
+preinstalled tools (list available in `~/src/tool_versions.md`).
+
+Harnesses preinstalled:
 
 - [amp](https://ampcode.com/manual#AGENTS.md): `~/.config/amp/AGENTS.md`
 - [claude](https://www.anthropic.com/engineering/claude-code-best-practices): `~/.claude/CLAUDE.md`
@@ -73,7 +74,9 @@ AGENTS.md to help agents understand the available development environment. Here'
 - [qwen](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/#example-context-file-content-eg-qwenmd): `~/.qwen/QWEN.md`
     - Recommended in `~/.qwen/settings.json` to change `"context"` / `"fileName"` to `AGENTS.md`
 
-Here's a quick change:
+### Readme for agents (https://agents.md) and Skills (https://agentskills.io)
+
+FYI, here's locations of AGENTS.md for each harness:
 
 ```bash
 mkdir -p ~/.config/agents ~/.config/amp ~/.claude ~/.codex ~/.gemini ~/.kilocode/rules ~/.config/opencode ~/.pi/agent ~/.qwen
@@ -88,7 +91,7 @@ ln -s ../../.config/agents/AGENTS.md ~/.pi/agent/AGENTS.md
 ln -s ../.config/agents/AGENTS.md ~/.qwen/AGENTS.md
 ```
 
-### Skills (https://agentskills.io)
+FYI, here's locations of skills for each harness:
 
 - [amp](https://ampcode.com/manual#agent-skills): `~/.config/agents/skills/**/SKILL.md` (recursive)
     - Fallbacks to `~/.claude/skills/`
@@ -162,9 +165,8 @@ OPENAI_API_KEY=your_key
 
 ### GitHub Authentication
 
-By default the container doesn't have access to your GitHub credentials. To
-enable git credentials and access to GitHub (e.g. to create PRs or issues),
-authenticate inside the container via:
+The container doesn't have access to your GitHub credentials. To enable git credentials and access to GitHub
+(e.g. to create PRs or issues), authenticate inside the container via:
 
 ```bash
 gh auth login

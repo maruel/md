@@ -92,6 +92,15 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
+      - run: shellcheck -x rsc/**/*.sh
+      - run: $HOME/go/bin/shfmt -d rsc/**/*.sh
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
+      - run: pip install pylint ruff
+      - run: pylint .
+      - run: ruff check
       - uses: golangci/golangci-lint-action@v9
       - name: "go install necessary tools (ubuntu)"
         if: always() && matrix.os == 'ubuntu-latest'

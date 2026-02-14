@@ -32,21 +32,6 @@ jobs:
       - id: date
         run: echo "value=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-  linter:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-      - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
-      - run: shellcheck -x rsc/**/*.sh
-      - run: $HOME/go/bin/shfmt -d rsc/**/*.sh
-      - uses: actions/setup-python@v6
-        with:
-          python-version-file: '.python-version'
-      - run: pip install pylint ruff
-      - run: pylint md
-      - run: ruff check md
-
   docker-build:
     needs: [setup]
     strategy:

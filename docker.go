@@ -274,7 +274,6 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	if opts.Display {
 		dockerArgs = append(dockerArgs, "-p", "127.0.0.1:0:5901", "-e", "MD_DISPLAY=1")
 	}
-	dockerArgs = append(dockerArgs, "-e", "MD_REPO_DIR="+c.RepoName)
 
 	if kvmAvailable() {
 		dockerArgs = append(dockerArgs, "--device=/dev/kvm")

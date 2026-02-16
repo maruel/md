@@ -178,6 +178,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	display := fs.Bool("display", false, "Enable X11/VNC display")
 	fs.BoolVar(display, "d", false, "Enable X11/VNC display")
 	tailscale := fs.Bool("tailscale", false, "Enable Tailscale networking")
+	usb := fs.Bool("usb", false, "Pass through USB devices (/dev/bus/usb)")
 	cf := addContainerFlags(fs, true)
 	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the container after starting")
 	quiet := fs.Bool("q", false, "Suppress informational messages")
@@ -200,6 +201,7 @@ func cmdStart(ctx context.Context, args []string) error {
 		BaseImage:        baseImage,
 		Display:          *display,
 		Tailscale:        *tailscale,
+		USB:              *usb,
 		TailscaleAuthKey: os.Getenv("TAILSCALE_AUTHKEY"),
 		Labels:           labels.values,
 		NoSSH:            *noSSH,

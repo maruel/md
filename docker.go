@@ -253,6 +253,7 @@ type StartOpts struct {
 	Tailscale          bool
 	TailscaleAuthKey   string
 	TailscaleEphemeral bool
+	USB                bool
 	Labels             []string
 	NoSSH              bool
 	Quiet              bool
@@ -299,6 +300,15 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 		if opts.TailscaleEphemeral {
 			dockerArgs = append(dockerArgs, "-e", "MD_TAILSCALE_EPHEMERAL=1")
 		}
+	}
+
+	// USB passthrough (Linux only; Docker Desktop on macOS/Windows runs in a
+	// VM that cannot access host USB devices).
+	if opts.USB {
+		if runtime.GOOS != "linux" {
+			return fmt.Errorf("--usb requires Linux; Docker Desktop on %s cannot pass through host USB devices", runtime.GOOS)
+		}
+		dockerArgs = append(dockerArgs, "--device=/dev/bus/usb")
 	}
 
 	// Agent config mounts.

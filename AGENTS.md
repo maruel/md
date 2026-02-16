@@ -53,6 +53,7 @@ https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/common/p
 - **Chrome Sandbox**: To run Chrome/Chromium with the sandbox enabled, the container must be launched with `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined`. The `md` script handles this automatically.
 - **Debugging Tools**: strace requires `--cap-add=SYS_PTRACE`. The `md` script handles this automatically.
 - **Tailscale**: Requires `--cap-add=NET_ADMIN`, `--cap-add=NET_RAW`, and `--cap-add=MKNOD`. The TUN device is created inside the container's namespace. The `md` script handles this automatically when `--tailscale` is passed to `md start`.
+- **USB Passthrough**: Requires `--device=/dev/bus/usb` to expose host USB devices (e.g. for ADB). The `md` script handles this automatically when `--usb` is passed to `md start`.
 
 ## For End Users: Remote GUI Access
 

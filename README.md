@@ -149,6 +149,7 @@ Agent configurations and credentials are automatically mounted:
 - Agent configurations: `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.kilocode`, `~/.pi`, `~/.qwen`,
   `~/.config/agents`, `~/.config/opencode`, `~/.local/state/opencode`, `~/.local/share/opencode`
 - Android ADB keys: `~/.android`
+- Gradle cache: `~/.gradle`
 
 Environment variables can be passed via:
 

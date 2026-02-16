@@ -219,7 +219,7 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 	}
 
 	if !quiet {
-		_, _ = fmt.Fprintf(w, "- Building Docker image %s ...\n", imageName)
+		_, _ = fmt.Fprintf(w, "- Building Docker image %s from %s ...\n", imageName, baseImage)
 	}
 	buildCmd := []string{
 		"docker", "build",
@@ -303,12 +303,15 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	}
 
 	// USB passthrough (Linux only; Docker Desktop on macOS/Windows runs in a
-	// VM that cannot access host USB devices).
+	// VM that cannot access host USB devices). Use a bind mount + cgroup
+	// rule so that devices plugged in after container start are visible.
 	if opts.USB {
 		if runtime.GOOS != "linux" {
 			return fmt.Errorf("--usb requires Linux; Docker Desktop on %s cannot pass through host USB devices", runtime.GOOS)
 		}
-		dockerArgs = append(dockerArgs, "--device=/dev/bus/usb")
+		dockerArgs = append(dockerArgs,
+			"-v", "/dev/bus/usb:/dev/bus/usb",
+			"--device-cgroup-rule=c 189:* rwm")
 	}
 
 	// Agent config mounts.

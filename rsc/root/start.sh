@@ -67,6 +67,12 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 	fi
 fi
 
+# Fix USB device permissions so the unprivileged user can access them.
+if [ -d /dev/bus/usb ]; then
+	echo "[start.sh] Fixing USB device permissions..."
+	chmod -R o+rw /dev/bus/usb
+fi
+
 # Start SSH server (after VNC so DISPLAY is available)
 service ssh start
 

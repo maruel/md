@@ -67,10 +67,15 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 	fi
 fi
 
-# Fix USB device permissions so the unprivileged user can access them.
+# If /dev/bus/usb exists, update the plugdev group GID to match the host
 if [ -d /dev/bus/usb ]; then
-	echo "[start.sh] Fixing USB device permissions..."
-	chmod -R o+rw /dev/bus/usb
+	host_plugdev_gid=$(stat -c %g /dev/bus/usb/001/* 2>/dev/null | grep -v '^0$' | head -1)
+	if [ -n "$host_plugdev_gid" ]; then
+		current_plugdev_gid=$(getent group plugdev | cut -d: -f3)
+		if [ "$host_plugdev_gid" != "$current_plugdev_gid" ]; then
+			groupmod -g "$host_plugdev_gid" plugdev
+		fi
+	fi
 fi
 
 # Start SSH server (after VNC so DISPLAY is available)

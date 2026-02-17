@@ -55,7 +55,9 @@ RUN mkdir -p /home/user/.ssh /home/user/.config/git /home/user/.local/share && \
 # Install tools (as user) in parallel (set MD_SERIAL_SETUP=1 for serial execution)
 ARG MD_SERIAL_SETUP=0
 ENV MD_SERIAL_SETUP=${MD_SERIAL_SETUP}
-RUN --mount=type=secret,id=github_token,uid=1000 \
+RUN --mount=type=cache,target=/home/user/.cache/go-build,uid=1000 \
+    --mount=type=cache,target=/home/user/go/pkg/mod,uid=1000 \
+    --mount=type=secret,id=github_token,uid=1000 \
     /home/user/setup/run_all.sh
 
 # Generate tool version report

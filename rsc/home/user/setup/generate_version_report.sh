@@ -59,7 +59,7 @@
 	check_version "tokei" "tokei" "--version"
 	check_version "shfmt" "shfmt" "--version"
 	check_version "golangci-lint" "golangci-lint" "--version"
-	check_version "delve" "dlv" "version"
+	check_version "delve" "dlv" "version" "^Version:"
 	check_version "lldb" "lldb" "--version"
 	check_version "strace" "strace" "-V"
 	check_version "yq" "yq" "--version"

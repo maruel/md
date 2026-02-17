@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -164,10 +165,7 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 
 // BuildBase builds the base Docker image locally.
 func (c *Client) BuildBase(ctx context.Context, serialSetup bool) (retErr error) {
-	arch, err := hostArch()
-	if err != nil {
-		return err
-	}
+	arch := runtime.GOARCH
 	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/Dockerfile.base ...")
 
 	// Extract the embedded rsc/ to a temp dir for building.

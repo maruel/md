@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,18 +25,6 @@ import (
 
 //go:embed all:rsc
 var rscFS embed.FS
-
-// hostArch returns the Docker platform architecture string.
-func hostArch() (string, error) {
-	switch runtime.GOARCH {
-	case "amd64":
-		return "amd64", nil
-	case "arm64":
-		return "arm64", nil
-	default:
-		return "", fmt.Errorf("unknown architecture: %s", runtime.GOARCH)
-	}
-}
 
 // prepareBuildContext writes the embedded rsc/ tree to a temp directory.
 // Returns the temp dir path (caller must clean up).
@@ -137,11 +126,6 @@ func dockerInspectFormat(ctx context.Context, name, format string) (string, erro
 	return runCmd(ctx, "", []string{"docker", "image", "inspect", name, "--format", format}, true)
 }
 
-func getImageCreatedTime(ctx context.Context, imageName string) string {
-	out, _ := dockerInspectFormat(ctx, imageName, "{{.Created}}")
-	return out
-}
-
 func getImageVersionLabel(ctx context.Context, imageName string) string {
 	out, err := dockerInspectFormat(ctx, imageName, `{{index .Config.Labels "org.opencontainers.image.version"}}`)
 	if err != nil || out == "" || out == "<no value>" {
@@ -150,48 +134,90 @@ func getImageVersionLabel(ctx context.Context, imageName string) string {
 	return out
 }
 
-// dateToEpoch converts Docker's date string to a Unix timestamp.
-func dateToEpoch(dateStr string) int64 {
-	// Try parsing various Docker date formats.
-	for _, layout := range []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02T15:04:05Z",
-		"2006-01-02T15:04:05-07:00",
-	} {
-		if t, err := time.Parse(layout, dateStr); err == nil {
-			return t.Unix()
+// getRemoteConfigDigest queries the registry for the config digest of the
+// given image for the specified architecture without downloading layers.
+func getRemoteConfigDigest(ctx context.Context, image, arch string) (string, error) {
+	out, err := runCmd(ctx, "", []string{"docker", "manifest", "inspect", "-v", image}, true)
+	if err != nil {
+		return "", err
+	}
+	type configRef struct {
+		Digest string `json:"digest"`
+	}
+	type manifestContent struct {
+		Config configRef `json:"config"`
+	}
+	type manifestEntry struct {
+		Descriptor struct {
+			Platform struct {
+				Architecture string `json:"architecture"`
+				OS           string `json:"os"`
+			} `json:"platform"`
+		} `json:"Descriptor"`
+		SchemaV2Manifest *manifestContent `json:"SchemaV2Manifest,omitempty"`
+		OCIManifest      *manifestContent `json:"OCIManifest,omitempty"`
+	}
+	// Handle both v2 and OCI manifests.
+	configDigest := func(e *manifestEntry) string {
+		if e.SchemaV2Manifest != nil {
+			return e.SchemaV2Manifest.Config.Digest
+		}
+		if e.OCIManifest != nil {
+			return e.OCIManifest.Config.Digest
+		}
+		return ""
+	}
+	var entries []manifestEntry
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		var single manifestEntry
+		if err2 := json.Unmarshal([]byte(out), &single); err2 != nil {
+			return "", fmt.Errorf("parsing manifest inspect output: %w", err)
+		}
+		entries = []manifestEntry{single}
+	}
+	for i := range entries {
+		p := entries[i].Descriptor.Platform
+		if p.Architecture == arch && p.OS == "linux" {
+			if d := configDigest(&entries[i]); d != "" {
+				return d, nil
+			}
 		}
 	}
-	return 0
+	if len(entries) == 1 {
+		if d := configDigest(&entries[0]); d != "" {
+			return d, nil
+		}
+	}
+	return "", fmt.Errorf("no manifest for linux/%s in %s", arch, image)
 }
 
 // buildCustomizedImage builds the per-user Docker image. keysDir is the
 // directory containing SSH host keys and authorized_keys, supplied to Docker
 // as a named build context "md-keys".
 func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir, imageName, baseImage string, quiet bool) error {
-	arch, err := hostArch()
-	if err != nil {
-		return err
+	arch := runtime.GOARCH
+	// Check if local image is already up to date with remote.
+	needsPull := true
+	if localID, err := runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{.Id}}", baseImage}, true); err == nil && localID != "" {
+		if remoteDigest, err := getRemoteConfigDigest(ctx, baseImage, arch); err == nil && remoteDigest == localID {
+			needsPull = false
+		}
 	}
-	// Check if local md-base is newer than remote.
-	if strings.HasPrefix(baseImage, DefaultBaseImage) {
-		if localBase := getImageCreatedTime(ctx, baseImage); localBase != "" {
-			if remoteBase := getImageCreatedTime(ctx, baseImage); dateToEpoch(localBase) > dateToEpoch(remoteBase) {
-				if !quiet {
-					_, _ = fmt.Fprintf(w, "- Pulling base image %s ...\n", baseImage)
-				}
-				args := []string{"docker", "pull", "--platform", "linux/" + arch, baseImage}
-				if _, err := runCmd(ctx, "", args, quiet); err != nil {
-					return fmt.Errorf("pulling base image: %w", err)
-				}
-				if !quiet {
-					if v := getImageVersionLabel(ctx, baseImage); strings.HasPrefix(v, "v") {
-						_, _ = fmt.Fprintf(w, "  Version: %s\n", v)
-					}
-				}
+	if needsPull {
+		if !quiet {
+			_, _ = fmt.Fprintf(w, "- Pulling base image %s ...\n", baseImage)
+		}
+		args := []string{"docker", "pull", "--platform", "linux/" + arch, baseImage}
+		if _, err := runCmd(ctx, "", args, quiet); err != nil {
+			return fmt.Errorf("pulling base image: %w", err)
+		}
+		if !quiet {
+			if v := getImageVersionLabel(ctx, baseImage); strings.HasPrefix(v, "v") {
+				_, _ = fmt.Fprintf(w, "  Version: %s\n", v)
 			}
 		}
+	} else if !quiet {
+		_, _ = fmt.Fprintf(w, "- Base image %s is up to date.\n", baseImage)
 	}
 
 	// Get base image digest.
@@ -261,12 +287,6 @@ type StartOpts struct {
 
 // runContainer starts the Docker container and sets up SSH access.
 func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
-	arch, err := hostArch()
-	if err != nil {
-		return err
-	}
-	_ = arch // Used for documentation; platform already set in image.
-
 	var dockerArgs []string
 	dockerArgs = append(dockerArgs, "docker", "run", "-d",
 		"--name", c.Name, "--hostname", c.Name,
@@ -337,6 +357,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	}
 
 	// Set md metadata labels.
+	// TODO: This will need a bit more work when we support multiple repos.
 	dockerArgs = append(dockerArgs,
 		"--label", "md.git_root="+c.GitRoot,
 		"--label", "md.repo_name="+c.RepoName,

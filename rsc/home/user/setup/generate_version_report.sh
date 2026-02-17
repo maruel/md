@@ -67,6 +67,7 @@
 	check_version "jq" "jq" "--version"
 	check_version "actionlint" "actionlint" "--version"
 	check_version "curl" "curl" "--version"
+	check_version "xxd" "xxd" "-v"
 	check_version "SQLite" "sqlite3" "--version"
 	check_version "asciinema" "asciinema" "--version"
 	check_version "FFmpeg" "ffmpeg" "-hide_banner -version | head -n 1"

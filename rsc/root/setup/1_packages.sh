@@ -70,6 +70,7 @@ apt-get install -qq -y --no-install-recommends \
 	xfce4 \
 	xfce4-terminal \
 	xvfb \
+	xxd \
 	zstd >/dev/null
 
 sed -i 's/^# - /- /g' /etc/extrepo/config.yaml

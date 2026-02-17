@@ -84,5 +84,5 @@ go install github.com/go-delve/delve/cmd/dlv@latest
 go install golang.org/x/tools/cmd/goimports@latest
 go install golang.org/x/tools/gopls@latest
 
-# golangci-lint
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$HOME/go/bin"
+# golangci-lint v2
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest

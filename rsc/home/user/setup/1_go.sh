@@ -73,37 +73,16 @@ download_github_tarball() {
 	rm -rf "${tmpdir}"
 }
 
-pids=()
-
 # Pre-built binary downloads
-download_github_binary "mikefarah/yq" "^yq_linux_${ARCH}$" "yq" &
-pids+=($!)
-download_github_tarball "rhysd/actionlint" "actionlint_[0-9.]+_linux_${ARCH}\\.tar\\.gz$" "actionlint" &
-pids+=($!)
-download_github_binary "mvdan/sh" "shfmt_v[0-9.]+_linux_${ARCH}$" "shfmt" &
-pids+=($!)
+download_github_binary "mikefarah/yq" "^yq_linux_${ARCH}$" "yq"
+download_github_tarball "rhysd/actionlint" "actionlint_[0-9.]+_linux_${ARCH}\\.tar\\.gz$" "actionlint"
+download_github_binary "mvdan/sh" "shfmt_v[0-9.]+_linux_${ARCH}$" "shfmt"
 
 # Go install (no pre-built binaries available)
-go install github.com/maruel/ask/cmd/ask@latest &
-pids+=($!)
-go install github.com/go-delve/delve/cmd/dlv@latest &
-pids+=($!)
-go install golang.org/x/tools/cmd/goimports@latest &
-pids+=($!)
-go install golang.org/x/tools/gopls@latest &
-pids+=($!)
+go install github.com/maruel/ask/cmd/ask@latest
+go install github.com/go-delve/delve/cmd/dlv@latest
+go install golang.org/x/tools/cmd/goimports@latest
+go install golang.org/x/tools/gopls@latest
 
-# golangci-lint (already a binary download)
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$HOME/go/bin" &
-pids+=($!)
-
-# Wait for all background jobs
-FAILED=0
-for pid in "${pids[@]}"; do
-	wait "$pid" || FAILED=1
-done
-
-if [[ "${FAILED}" -ne 0 ]]; then
-	echo "One or more Go tool installations failed" >&2
-	exit 1
-fi
+# golangci-lint
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$HOME/go/bin"

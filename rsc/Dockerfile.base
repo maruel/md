@@ -44,6 +44,7 @@ RUN measure_exec.sh "KVM Setup" /root/setup/6_kvm.sh
 ### Second phase, as user
 
 USER user
+WORKDIR /home/user
 SHELL ["/bin/bash", "-lc"]
 
 # Copy all /home/user files.

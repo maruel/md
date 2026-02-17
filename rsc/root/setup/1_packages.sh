@@ -12,6 +12,7 @@ apt-get upgrade -qq -y >/dev/null
 echo "- apt-get install"
 apt-get install -qq -y --no-install-recommends \
 	bash-completion \
+	binutils \
 	brotli \
 	bubblewrap \
 	build-essential \

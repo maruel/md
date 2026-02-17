@@ -13,11 +13,17 @@
 		local name=$1
 		local cmd=$2
 		local version_flag=${3:---version}
+		local filter=${4:-}
 
 		if command -v "$cmd" >/dev/null 2>&1; then
-			local version
+			local version output
 			# specific handling for some tools that output to stderr or have weird formats
-			version=$("$cmd" "$version_flag" 2>&1 | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+			output=$("$cmd" "$version_flag" 2>&1)
+			if [ -n "$filter" ]; then
+				version=$(echo "$output" | grep "$filter" | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+			else
+				version=$(echo "$output" | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+			fi
 			# Escape pipe symbols for markdown table
 			version=${version//|/\\|}
 			echo "| $name | $version |"
@@ -49,7 +55,7 @@
 	check_version "G++" "g++" "--version"
 
 	# Utilities
-	check_version "shellcheck" "shellcheck" "--version"
+	check_version "shellcheck" "shellcheck" "--version" "^version:"
 	check_version "tokei" "tokei" "--version"
 	check_version "shfmt" "shfmt" "--version"
 	check_version "golangci-lint" "golangci-lint" "--version"
@@ -71,9 +77,6 @@
 	check_version "Google Chrome" "google-chrome" "--version"
 	check_version "Chromium" "chromium" "--version"
 	check_version "Chrome DevTools MCP" "chrome-devtools-mcp" "--version"
-
-	# Display / VNC
-	check_version "Xvnc" "Xvnc" "-version"
 
 	# Python Tools
 	check_version "uv" "uv" "--version"
@@ -115,7 +118,7 @@
 
 	# AI Tools
 	check_version "Claude CLI" "claude" "--version"
-	check_version "Gemini CLI" "gemini" "--version"
+	NODE_OPTIONS="--no-deprecation" check_version "Gemini CLI" "gemini" "--version"
 	check_version "Codex" "codex" "--version"
 	check_version "Kilo CLI" "kilo" "--version"
 	check_version "Qwen Code" "qwen" "--version"

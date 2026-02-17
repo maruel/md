@@ -85,4 +85,6 @@ go install golang.org/x/tools/cmd/goimports@latest
 go install golang.org/x/tools/gopls@latest
 
 # golangci-lint v2
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+# TODO(https://go.dev/issue/22040): Remove CGO_ENABLED=0 once using Go 1.25+
+# which accepts ld.bfd 2.36+ on arm64 (CL 740480).
+CGO_ENABLED=0 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest

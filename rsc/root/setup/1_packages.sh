@@ -12,7 +12,6 @@ apt-get upgrade -qq -y >/dev/null
 echo "- apt-get install"
 apt-get install -qq -y --no-install-recommends \
 	bash-completion \
-	binutils \
 	brotli \
 	bubblewrap \
 	build-essential \
@@ -74,15 +73,6 @@ apt-get install -qq -y --no-install-recommends \
 	xvfb \
 	xxd \
 	zstd >/dev/null
-
-# Go's linker passes -fuse-ld=gold to gcc, but the gold linker was removed from
-# binutils on arm64 in newer Debian. Symlink to ld.bfd so collect2 finds it.
-if ! command -v ld.gold >/dev/null 2>&1; then
-	bfd="$(command -v ld.bfd 2>/dev/null || true)"
-	if [ -n "$bfd" ]; then
-		ln -s "$bfd" /usr/bin/ld.gold
-	fi
-fi
 
 sed -i 's/^# - /- /g' /etc/extrepo/config.yaml
 if ! grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen; then

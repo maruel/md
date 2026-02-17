@@ -35,6 +35,7 @@ apt-get install -qq -y --no-install-recommends \
 	jq \
 	kmod \
 	less \
+	libc6-dev \
 	libgl1 \
 	librsvg2-bin \
 	libssl-dev \

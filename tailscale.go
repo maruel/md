@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -37,14 +38,15 @@ func generateTailscaleAuthKey(apiKey string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest(http.MethodPost, "https://api.tailscale.com/api/v2/tailnet/-/keys", bytes.NewReader(body))
+	const keysURL = "https://api.tailscale.com/api/v2/tailnet/-/keys"
+	req, err := http.NewRequest(http.MethodPost, keysURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // URL is a hardcoded constant.
 	if err != nil {
 		return "", fmt.Errorf("network error: %w", err)
 	}
@@ -71,13 +73,17 @@ func deleteTailscaleDevice(apiKey, deviceID string) {
 	if apiKey == "" {
 		return
 	}
-	req, err := http.NewRequest(http.MethodDelete, "https://api.tailscale.com/api/v2/device/"+deviceID, http.NoBody)
+	u, err := url.JoinPath("https://api.tailscale.com/api/v2/device", deviceID)
+	if err != nil {
+		return
+	}
+	req, err := http.NewRequest(http.MethodDelete, u, http.NoBody)
 	if err != nil {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // Base URL is hardcoded; deviceID is path-escaped by url.JoinPath.
 	if err != nil {
 		return
 	}

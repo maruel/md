@@ -433,7 +433,34 @@ func cmdDiff(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
-	if err := fs.Parse(args); err != nil {
+	// Separate md-own flags from git passthrough args.
+	// Flags defined on fs go to mdArgs; everything else (e.g. --stat,
+	// --name-only) is forwarded to git diff. "--" explicitly ends md flag
+	// parsing; everything after goes to git.
+	var mdArgs, gitArgs []string
+	for i := 0; i < len(args); i++ {
+		if a := args[i]; a != "--" && strings.HasPrefix(a, "-") {
+			name := strings.TrimLeft(a, "-")
+			// Handle -flag=value form.
+			if eq := strings.IndexByte(name, '='); eq >= 0 {
+				name = name[:eq]
+			}
+			if f := fs.Lookup(name); f != nil {
+				mdArgs = append(mdArgs, a)
+				// Consume the next arg as value for non-bool flags without inline =.
+				type isBool interface{ IsBoolFlag() bool }
+				if _, isBoolFlag := f.Value.(isBool); !isBoolFlag && !strings.Contains(a, "=") {
+					if i++; i < len(args) {
+						mdArgs = append(mdArgs, args[i])
+					}
+				}
+				continue
+			}
+		}
+		gitArgs = append(gitArgs, args[i:]...)
+		break
+	}
+	if err := fs.Parse(mdArgs); err != nil {
 		return err
 	}
 	initLogging(*verbose)
@@ -441,7 +468,7 @@ func cmdDiff(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return ct.Diff(ctx, os.Stdout, os.Stderr, fs.Args())
+	return ct.Diff(ctx, os.Stdout, os.Stderr, gitArgs)
 }
 
 func cmdVNC(ctx context.Context, args []string) error {

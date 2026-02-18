@@ -3,9 +3,8 @@
 set -euo pipefail
 echo "- $0"
 
-# Create ~/.gradle so bind-mounted subdirectories don't cause Docker to create
-# it as root.
-mkdir -p "$HOME/.gradle"
+# Create ~/.gradle and wrapper so bind-mounted subdirectories don't cause Docker to create it as root.
+mkdir -p "$HOME/.gradle/wrapper"
 
 # Detect architecture and set appropriate system image ABI.
 ARCH=$(uname -m)

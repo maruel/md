@@ -156,7 +156,7 @@ Agent configurations and credentials are automatically mounted:
   `~/.qwen`, `~/.config/agents`, `~/.config/amp`, `~/.config/goose`, `~/.config/opencode`,
   `~/.local/share/amp`, `~/.local/share/goose`, `~/.local/share/opencode`, `~/.local/state/opencode`
 - Android ADB keys: `~/.android`
-- Gradle cache: `~/.gradle`
+- Gradle cache: `~/.gradle/caches` and `~/.gradle/wrapper/dists`
 
 Environment variables can be passed via:
 

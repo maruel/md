@@ -257,10 +257,20 @@ func cmdList(ctx context.Context, args []string) error {
 		fmt.Println("No running md containers")
 		return nil
 	}
-	fmt.Printf("%-50s %-15s %-20s\n", "Container", "Status", "Uptime")
-	fmt.Println(strings.Repeat("-", 85))
+	fmt.Printf("%-50s %-15s %-20s %s\n", "Container", "Status", "Uptime", "Features")
+	fmt.Println(strings.Repeat("-", 100))
 	for _, ct := range containers {
-		fmt.Printf("%-50s %-15s %-20s\n", ct.Name, ct.State, time.Since(ct.CreatedAt).Truncate(time.Second))
+		var features []string
+		if ct.Display {
+			features = append(features, "display")
+		}
+		if ct.Tailscale {
+			features = append(features, "tailscale")
+		}
+		if ct.USB {
+			features = append(features, "usb")
+		}
+		fmt.Printf("%-50s %-15s %-20s %s\n", ct.Name, ct.State, time.Since(ct.CreatedAt).Truncate(time.Second), strings.Join(features, ","))
 	}
 	return nil
 }

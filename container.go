@@ -22,15 +22,71 @@ import (
 	"golang.org/x/term"
 )
 
+// DefaultBaseImage is the base image used when none is specified.
+const DefaultBaseImage = "ghcr.io/maruel/md"
+
+// StartOpts configures container startup.
+type StartOpts struct {
+	// BaseImage is the full Docker image reference (e.g.
+	// "ghcr.io/maruel/md:v1.0" or "myregistry/custom:tag"). When empty,
+	// DefaultBaseImage is used.
+	BaseImage string
+	// Display enables X11/VNC virtual display (port 5901).
+	Display bool
+	// Tailscale enables Tailscale networking inside the container.
+	//
+	// It is recommended to set Client.TailscaleAPIKey to enable ephemeral nodes.
+	//
+	// https://tailscale.com/docs/features/ephemeral-nodes
+	Tailscale bool
+	// TailscaleAuthKey is a pre-authorized Tailscale auth key.
+	//
+	// When empty and Tailscale is true, Client.TailscaleAPIKey is used to generate an authentication key.
+	//
+	// The tailnet policy must allow "tag:md".
+	//
+	// https://tailscale.com/docs/features/access-control/auth-keys
+	TailscaleAuthKey string
+	// USB enables USB device passthrough (Linux only).
+	USB bool
+	// Labels are additional Docker labels (key=value) applied to the container.
+	Labels []string
+	// NoSSH skips opening an SSH session after starting the container.
+	NoSSH bool
+	// Quiet suppresses informational output during startup.
+	Quiet bool
+}
+
 // Container holds state for a single container instance.
+//
+// Fields marked with a label are persisted as Docker container labels
+// and restored by [unmarshalContainer] when listing containers.
 type Container struct {
 	*Client
-	GitRoot   string
-	RepoName  string
-	Branch    string
-	Name      string
-	State     string
+	// GitRoot is the absolute path to the git repository root on the host.
+	// Label: md.git_root
+	GitRoot string
+	// RepoName is the basename of the repository directory.
+	// Label: md.repo_name
+	RepoName string
+	// Branch is the git branch checked out in the container.
+	// Label: md.branch
+	Branch string
+	// Name is the Docker container name (e.g. "md-myrepo-main").
+	Name string
+	// State is the Docker container state (e.g. "running", "exited").
+	State string
+	// CreatedAt is when the container was created.
 	CreatedAt time.Time
+	// Display indicates the container was started with X11/VNC enabled.
+	// Label: md.display
+	Display bool
+	// Tailscale indicates the container was started with Tailscale networking.
+	// Label: md.tailscale
+	Tailscale bool
+	// USB indicates the container was started with USB passthrough.
+	// Label: md.usb
+	USB bool
 }
 
 // Start creates and starts a container.
@@ -42,6 +98,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 	}
 
 	// Generate Tailscale auth key if needed.
+	var tailscaleEphemeral bool
 	if opts.Tailscale && opts.TailscaleAuthKey == "" {
 		key, err := generateTailscaleAuthKey(c.TailscaleAPIKey)
 		if err != nil {
@@ -50,7 +107,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 			}
 		} else {
 			opts.TailscaleAuthKey = key
-			opts.TailscaleEphemeral = true
+			tailscaleEphemeral = true
 		}
 	}
 
@@ -67,7 +124,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, opts.Quiet); err != nil {
 		return err
 	}
-	if err := runContainer(ctx, c, opts); err != nil {
+	if err := runContainer(ctx, c, opts, tailscaleEphemeral); err != nil {
 		return err
 	}
 	if !opts.NoSSH {
@@ -107,7 +164,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 		return 1, err
 	}
 	opts := StartOpts{NoSSH: true, Quiet: true}
-	if err := runContainer(ctx, tmp, &opts); err != nil {
+	if err := runContainer(ctx, tmp, &opts, false); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
 	}
@@ -146,18 +203,20 @@ func (c *Container) Kill(ctx context.Context) error {
 
 	// Clean up non-ephemeral Tailscale node.
 	if containerExists {
-		envOut, err := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{range .Config.Env}}{{println .}}{{end}}`, c.Name}, true)
-		if err == nil && strings.Contains(envOut, "MD_TAILSCALE=1") && !strings.Contains(envOut, "MD_TAILSCALE_EPHEMERAL=1") {
-			statusJSON, err := runCmd(ctx, "", []string{"docker", "exec", c.Name, "tailscale", "status", "--json"}, true)
-			if err == nil {
-				var status struct {
-					Self struct {
-						ID string `json:"ID"`
-					} `json:"Self"`
-				}
-				if json.Unmarshal([]byte(statusJSON), &status) == nil && status.Self.ID != "" {
-					_, _ = fmt.Fprintln(c.W, "- Removing Tailscale node from tailnet...")
-					deleteTailscaleDevice(c.TailscaleAPIKey, status.Self.ID)
+		if !c.Tailscale {
+			tsLabel, _ := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{index .Config.Labels "md.tailscale"}}`, c.Name}, true)
+			c.Tailscale = tsLabel == "1"
+		}
+		if c.Tailscale {
+			ephLabel, _ := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{index .Config.Labels "md.tailscale_ephemeral"}}`, c.Name}, true)
+			if ephLabel != "1" {
+				statusJSON, err := runCmd(ctx, "", []string{"docker", "exec", c.Name, "tailscale", "status", "--json"}, true)
+				if err == nil {
+					var status tailscaleStatus
+					if json.Unmarshal([]byte(statusJSON), &status) == nil && status.Self.ID != "" {
+						_, _ = fmt.Fprintln(c.W, "- Removing Tailscale node from tailnet...")
+						deleteTailscaleDevice(c.TailscaleAPIKey, status.Self.ID)
+					}
 				}
 			}
 		}
@@ -321,6 +380,13 @@ func (c *Container) GetHostPort(ctx context.Context, containerPort string) (stri
 	return port, nil
 }
 
+// tailscaleStatus is the subset of `tailscale status --json` we care about.
+type tailscaleStatus struct {
+	Self struct {
+		ID string `json:"ID"`
+	} `json:"Self"`
+}
+
 // containerJSON is the raw Docker ps JSON structure.
 type containerJSON struct {
 	Names     string `json:"Names"`
@@ -362,6 +428,12 @@ func unmarshalContainer(data []byte) (Container, error) {
 			ct.RepoName = v
 		case "md.branch":
 			ct.Branch = v
+		case "md.display":
+			ct.Display = v == "1"
+		case "md.tailscale":
+			ct.Tailscale = v == "1"
+		case "md.usb":
+			ct.USB = v == "1"
 		}
 	}
 	return ct, nil

@@ -266,27 +266,10 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 	return nil
 }
 
-// DefaultBaseImage is the base image used when none is specified.
-const DefaultBaseImage = "ghcr.io/maruel/md"
-
-// StartOpts configures container startup.
-type StartOpts struct {
-	// BaseImage is the full Docker image reference (e.g.
-	// "ghcr.io/maruel/md:v1.0" or "myregistry/custom:tag"). When empty,
-	// DefaultBaseImage is used.
-	BaseImage          string
-	Display            bool
-	Tailscale          bool
-	TailscaleAuthKey   string
-	TailscaleEphemeral bool
-	USB                bool
-	Labels             []string
-	NoSSH              bool
-	Quiet              bool
-}
-
 // runContainer starts the Docker container and sets up SSH access.
-func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
+// tailscaleEphemeral indicates the Tailscale node was auto-keyed and should be
+// treated as ephemeral (cleaned up on kill without API deletion).
+func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleEphemeral bool) error {
 	var dockerArgs []string
 	dockerArgs = append(dockerArgs, "docker", "run", "-d",
 		"--name", c.Name, "--hostname", c.Name,
@@ -317,7 +300,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 		if opts.TailscaleAuthKey != "" {
 			dockerArgs = append(dockerArgs, "-e", "TAILSCALE_AUTHKEY="+opts.TailscaleAuthKey)
 		}
-		if opts.TailscaleEphemeral {
+		if tailscaleEphemeral {
 			dockerArgs = append(dockerArgs, "-e", "MD_TAILSCALE_EPHEMERAL=1")
 		}
 	}
@@ -362,6 +345,18 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 		"--label", "md.git_root="+c.GitRoot,
 		"--label", "md.repo_name="+c.RepoName,
 		"--label", "md.branch="+c.Branch)
+	if opts.Display {
+		dockerArgs = append(dockerArgs, "--label", "md.display=1")
+	}
+	if opts.Tailscale {
+		dockerArgs = append(dockerArgs, "--label", "md.tailscale=1")
+		if tailscaleEphemeral {
+			dockerArgs = append(dockerArgs, "--label", "md.tailscale_ephemeral=1")
+		}
+	}
+	if opts.USB {
+		dockerArgs = append(dockerArgs, "--label", "md.usb=1")
+	}
 	for _, l := range opts.Labels {
 		dockerArgs = append(dockerArgs, "--label", l)
 	}

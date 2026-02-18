@@ -41,8 +41,14 @@ type Client struct {
 	ImageName string
 
 	// Tokens.
-	GithubToken     string // GitHub API token for Docker build secrets.
-	TailscaleAPIKey string // Tailscale API key for auth key generation and device deletion.
+	GithubToken string // GitHub API token for Docker build secrets.
+	// TailscaleAPIKey is the Tailscale API key for auth key generation and device deletion.
+	//
+	// It is necessary to setup ephemeral nodes. The key must be rotated every 90 days.
+	//
+	// See https://tailscale.com/docs/reference/tailscale-api and
+	// https://tailscale.com/docs/features/ephemeral-nodes
+	TailscaleAPIKey string
 
 	// keysDir is the directory containing SSH host keys and authorized_keys
 	// (~/.config/md/), used as a named Docker build context.

@@ -3,6 +3,10 @@
 set -euo pipefail
 echo "- $0"
 
+# Create ~/.gradle so bind-mounted subdirectories don't cause Docker to create
+# it as root.
+mkdir -p "$HOME/.gradle"
+
 # Detect architecture and set appropriate system image ABI.
 ARCH=$(uname -m)
 # linux/arm64 is still not supported; see https://issuetracker.google.com/issues/227219818

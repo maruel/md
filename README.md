@@ -152,8 +152,9 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 
 Agent configurations and credentials are automatically mounted:
 
-- Agent configurations: `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.kilocode`, `~/.pi`, `~/.qwen`,
-  `~/.config/agents`, `~/.config/opencode`, `~/.local/state/opencode`, `~/.local/share/opencode`
+- Agent configurations: `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.kilocode`, `~/.kimi`, `~/.pi`,
+  `~/.qwen`, `~/.config/agents`, `~/.config/amp`, `~/.config/goose`, `~/.config/opencode`,
+  `~/.local/share/amp`, `~/.local/share/goose`, `~/.local/share/opencode`, `~/.local/state/opencode`
 - Android ADB keys: `~/.android`
 - Gradle cache: `~/.gradle`
 

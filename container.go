@@ -50,8 +50,6 @@ type StartOpts struct {
 	USB bool
 	// Labels are additional Docker labels (key=value) applied to the container.
 	Labels []string
-	// NoSSH skips opening an SSH session after starting the container.
-	NoSSH bool
 	// Quiet suppresses informational output during startup.
 	Quiet bool
 }
@@ -144,13 +142,6 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 		c.State = "running"
 		result.TailscaleFQDN = c.TailscaleFQDN(ctx)
 	}
-	if !opts.NoSSH {
-		cmd := exec.CommandContext(ctx, "ssh", c.Name)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return result, cmd.Run()
-	}
 	return result, nil
 }
 
@@ -180,7 +171,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, true); err != nil {
 		return 1, err
 	}
-	opts := StartOpts{NoSSH: true, Quiet: true}
+	opts := StartOpts{Quiet: true}
 	if _, err := runContainer(ctx, tmp, &opts, false); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err

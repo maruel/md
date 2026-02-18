@@ -205,7 +205,6 @@ func cmdStart(ctx context.Context, args []string) error {
 		USB:              *usb,
 		TailscaleAuthKey: os.Getenv("TAILSCALE_AUTHKEY"),
 		Labels:           labels.values,
-		NoSSH:            *noSSH,
 		Quiet:            *quiet,
 	}
 	result, err := ct.Start(ctx, &opts)
@@ -214,6 +213,13 @@ func cmdStart(ctx context.Context, args []string) error {
 	}
 	if !*quiet {
 		printStartSummary(ct, result)
+	}
+	if !*noSSH {
+		cmd := exec.CommandContext(ctx, "ssh", ct.Name)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
 	}
 	return nil
 }

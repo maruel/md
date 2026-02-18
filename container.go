@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -292,10 +293,16 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ~/src/" + repo + " && git add . && git diff --quiet HEAD -- ."}, true); err != nil {
 		commitMsg := "Pull from md"
 		if provider != "" {
-			metadata := gatherGitMetadata(ctx, c.Name, repo)
-			diff := gatherGitDiff(ctx, c.Name, repo)
-			if msg, err := generateCommitMsg(ctx, provider, model, metadata, diff); err == nil && msg != "" {
-				commitMsg = msg
+			if p, err := newProvider(ctx, provider, model); err != nil {
+				slog.WarnContext(ctx, "failed to initialize provider", "err", err)
+			} else {
+				metadata := gatherGitMetadata(ctx, c.Name, repo)
+				diff := gatherGitDiff(ctx, c.Name, repo)
+				if msg, err := generateCommitMsg(ctx, p, metadata, diff); err != nil {
+					slog.WarnContext(ctx, "failed to generate commit message", "err", err)
+				} else if msg != "" {
+					commitMsg = msg
+				}
 			}
 		}
 		gitUserName, _ := runCmd(ctx, c.GitRoot, []string{"git", "config", "user.name"}, true)
@@ -502,20 +509,21 @@ func (c *Container) cleanup(ctx context.Context) {
 	_, _ = runCmd(ctx, "", []string{"docker", "rm", "-f", "-v", c.Name}, true)
 }
 
-// genCommitMsg generates a commit message using the genai library.
-func genCommitMsg(ctx context.Context, provider, model, prompt string) (string, error) {
+// newProvider creates a genai.Provider for the given provider name and model.
+func newProvider(ctx context.Context, provider, model string) (genai.Provider, error) {
 	cfg, ok := providers.All[provider]
 	if !ok {
-		return "", fmt.Errorf("unknown provider %q", provider)
+		return nil, fmt.Errorf("unknown provider %q", provider)
 	}
 	m := genai.ProviderOptionModel(model)
 	if m == "" {
 		m = genai.ModelCheap
 	}
-	p, err := cfg.Factory(ctx, m)
-	if err != nil {
-		return "", err
-	}
+	return cfg.Factory(ctx, m)
+}
+
+// genCommitMsg generates a commit message using an already-initialized provider.
+func genCommitMsg(ctx context.Context, p genai.Provider, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	res, err := p.GenSync(ctx, genai.Messages{genai.NewTextMessage(prompt)}, &genai.GenOptionText{MaxTokens: 1024})

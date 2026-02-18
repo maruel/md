@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -33,15 +34,39 @@ func main() {
 	}
 }
 
+// addVerboseFlag registers -v/-verbose on fs and returns the bool pointer.
+func addVerboseFlag(fs *flag.FlagSet) *bool {
+	v := fs.Bool("verbose", false, "Enable debug logging")
+	fs.BoolVar(v, "v", false, "Enable debug logging")
+	return v
+}
+
+// initLogging configures the default slog handler based on the verbose flag.
+func initLogging(verbose bool) {
+	level := slog.LevelWarn
+	if verbose {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+}
+
 func mainImpl() error {
-	if len(os.Args) < 2 {
+	// Pre-parse to support flags before the subcommand (e.g. "md -v start").
+	pre := flag.NewFlagSet("md", flag.ContinueOnError)
+	preVerbose := addVerboseFlag(pre)
+	// Ignore errors: unknown flags here are subcommand flags, parsed later.
+	_ = pre.Parse(os.Args[1:])
+	initLogging(*preVerbose)
+	remaining := pre.Args()
+
+	if len(remaining) == 0 {
 		usage()
 		return errors.New("no command specified")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	cmd := os.Args[1]
-	args := os.Args[2:]
+	cmd := remaining[0]
+	args := remaining[1:]
 	switch cmd {
 	case "start":
 		return cmdStart(ctx, args)
@@ -74,6 +99,9 @@ func mainImpl() error {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "md (my devenv): local development environment with git clone")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Global flags:")
+	fmt.Fprintln(os.Stderr, "  -v, -verbose  Enable debug logging")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  start       Pull base image, rebuild if needed, start container, open shell")
@@ -176,6 +204,7 @@ func newContainer(ctx context.Context, cf *containerFlags) (*md.Container, error
 
 func cmdStart(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	display := fs.Bool("display", false, "Enable X11/VNC display")
 	fs.BoolVar(display, "d", false, "Enable X11/VNC display")
 	tailscale := fs.Bool("tailscale", false, "Enable Tailscale networking")
@@ -189,6 +218,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 
 	ct, err := newContainer(ctx, cf)
 	if err != nil {
@@ -247,10 +277,12 @@ func printStartSummary(ct *md.Container, r *md.StartResult) {
 
 func cmdRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, true)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	extra := fs.Args()
 	if len(extra) == 0 {
 		return errors.New("no command specified")
@@ -286,10 +318,12 @@ type containerListEntry struct {
 
 func cmdList(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	c, err := md.New()
 	if err != nil {
 		return err
@@ -352,10 +386,12 @@ func cmdSSH(args []string) error {
 
 func cmdKill(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("kill", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
@@ -365,10 +401,12 @@ func cmdKill(ctx context.Context, args []string) error {
 
 func cmdPush(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("push", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
@@ -378,10 +416,12 @@ func cmdPush(ctx context.Context, args []string) error {
 
 func cmdPull(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("pull", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
@@ -391,10 +431,12 @@ func cmdPull(ctx context.Context, args []string) error {
 
 func cmdDiff(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
@@ -404,10 +446,12 @@ func cmdDiff(ctx context.Context, args []string) error {
 
 func cmdVNC(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("vnc", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	ct, err := newContainer(ctx, cf)
 	if err != nil {
 		return err
@@ -449,10 +493,12 @@ func cmdVNC(ctx context.Context, args []string) error {
 
 func cmdBuildImage(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("build-image", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
 	serialSetup := fs.Bool("serial-setup", false, "Run setup steps serially instead of in parallel")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	initLogging(*verbose)
 	c, err := newClient()
 	if err != nil {
 		return err

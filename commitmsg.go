@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/maruel/genai"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -378,19 +379,19 @@ func gatherGitDiff(ctx context.Context, containerName, repo string) string {
 
 // generateCommitMsg applies a progressive reduction pipeline to fit the diff
 // under maxDiffLen, then calls the LLM to produce a commit message.
-func generateCommitMsg(ctx context.Context, provider, model, metadata, diff string) (string, error) {
+func generateCommitMsg(ctx context.Context, p genai.Provider, metadata, diff string) (string, error) {
 	files := parseDiff(diff)
 	metaLen := len(metadata) + len("=== Changes ===\n")
 
 	// Step 0: try full diff.
 	if metaLen+renderDiffLen(files) <= maxDiffLen {
-		return genCommitMsg(ctx, provider, model, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)))
+		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)))
 	}
 
 	// Step 1: reduce context lines.
 	reduceFileDiffContext(files, reducedContext)
 	if metaLen+renderDiffLen(files) <= maxDiffLen {
-		return genCommitMsg(ctx, provider, model, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)))
+		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)))
 	}
 
 	// Step 2: filter test files.
@@ -400,7 +401,7 @@ func generateCommitMsg(ctx context.Context, provider, model, metadata, diff stri
 	removed = append(removed, r...)
 	annotation := filteredAnnotation(removed)
 	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-		return genCommitMsg(ctx, provider, model, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
+		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
 	}
 
 	// Step 3: filter data files.
@@ -408,7 +409,7 @@ func generateCommitMsg(ctx context.Context, provider, model, metadata, diff stri
 	removed = append(removed, r...)
 	annotation = filteredAnnotation(removed)
 	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-		return genCommitMsg(ctx, provider, model, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
+		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
 	}
 
 	// Step 3b: filter generated/lock files.
@@ -416,12 +417,12 @@ func generateCommitMsg(ctx context.Context, provider, model, metadata, diff stri
 	removed = append(removed, r...)
 	annotation = filteredAnnotation(removed)
 	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-		return genCommitMsg(ctx, provider, model, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
+		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
 	}
 
 	// Step 4: parallel map-reduce. Include annotation in metadata so the
 	// synthesis step knows which files were omitted.
-	return parallelDescribe(ctx, provider, model, metadata+annotation, files)
+	return parallelDescribe(ctx, p, metadata+annotation, files)
 }
 
 const maxMetadataPrefix = 2000
@@ -429,7 +430,7 @@ const maxMetadataPrefix = 2000
 // parallelDescribe splits the diff into chunks, summarizes each concurrently,
 // then synthesizes the summaries into a single commit message. Each chunk
 // prompt includes a truncated metadata header for context.
-func parallelDescribe(ctx context.Context, provider, model, metadata string, files []fileDiff) (string, error) {
+func parallelDescribe(ctx context.Context, p genai.Provider, metadata string, files []fileDiff) (string, error) {
 	// Truncate metadata prefix for chunk prompts to avoid blowing the budget.
 	metaPrefix := metadata
 	if len(metaPrefix) > maxMetadataPrefix {
@@ -440,7 +441,7 @@ func parallelDescribe(ctx context.Context, provider, model, metadata string, fil
 	chunkSize = max(chunkSize, 1000)
 	chunks := splitFiles(files, chunkSize)
 	if len(chunks) == 0 {
-		return genCommitMsg(ctx, provider, model, commitMsgPrompt+"\n\n"+metadata)
+		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+metadata)
 	}
 
 	summaries := make([]string, len(chunks))
@@ -449,7 +450,7 @@ func parallelDescribe(ctx context.Context, provider, model, metadata string, fil
 	for i, chunk := range chunks {
 		g.Go(func() error {
 			prompt := chunkPrompt + "\n\n" + metaPrefix + "\n" + chunk
-			summary, err := genCommitMsg(gctx, provider, model, prompt)
+			summary, err := genCommitMsg(gctx, p, prompt)
 			if err != nil {
 				return err
 			}
@@ -463,5 +464,5 @@ func parallelDescribe(ctx context.Context, provider, model, metadata string, fil
 
 	// Synthesize.
 	combined := metadata + "\n=== Chunk Summaries ===\n" + strings.Join(summaries, "\n---\n")
-	return genCommitMsg(ctx, provider, model, synthesizePrompt+"\n\n"+combined)
+	return genCommitMsg(ctx, p, synthesizePrompt+"\n\n"+combined)
 }

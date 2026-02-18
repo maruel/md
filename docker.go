@@ -196,28 +196,39 @@ func getRemoteConfigDigest(ctx context.Context, image, arch string) (string, err
 // as a named build context "md-keys".
 func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir, imageName, baseImage string, quiet bool) error {
 	arch := runtime.GOARCH
-	// Check if local image is already up to date with remote.
-	needsPull := true
-	if localID, err := runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{.Id}}", baseImage}, true); err == nil && localID != "" {
-		if remoteDigest, err := getRemoteConfigDigest(ctx, baseImage, arch); err == nil && remoteDigest == localID {
-			needsPull = false
-		}
-	}
-	if needsPull {
-		if !quiet {
-			_, _ = fmt.Fprintf(w, "- Pulling base image %s ...\n", baseImage)
-		}
-		args := []string{"docker", "pull", "--platform", "linux/" + arch, baseImage}
-		if _, err := runCmd(ctx, "", args, quiet); err != nil {
-			return fmt.Errorf("pulling base image: %w", err)
+	// Local-only images (no "/" or ":" in name) are never pulled from a registry.
+	isLocal := !strings.Contains(baseImage, "/") && !strings.Contains(baseImage, ":")
+	if isLocal {
+		if _, err := runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{.Id}}", baseImage}, true); err != nil {
+			return fmt.Errorf("local image %s not found; build it first with 'md build-image'", baseImage)
 		}
 		if !quiet {
-			if v := getImageVersionLabel(ctx, baseImage); strings.HasPrefix(v, "v") {
-				_, _ = fmt.Fprintf(w, "  Version: %s\n", v)
+			_, _ = fmt.Fprintf(w, "- Using local base image %s.\n", baseImage)
+		}
+	} else {
+		// Check if local image is already up to date with remote.
+		needsPull := true
+		if localID, err := runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{.Id}}", baseImage}, true); err == nil && localID != "" {
+			if remoteDigest, err := getRemoteConfigDigest(ctx, baseImage, arch); err == nil && remoteDigest == localID {
+				needsPull = false
 			}
 		}
-	} else if !quiet {
-		_, _ = fmt.Fprintf(w, "- Base image %s is up to date.\n", baseImage)
+		if needsPull {
+			if !quiet {
+				_, _ = fmt.Fprintf(w, "- Pulling base image %s ...\n", baseImage)
+			}
+			args := []string{"docker", "pull", "--platform", "linux/" + arch, baseImage}
+			if _, err := runCmd(ctx, "", args, quiet); err != nil {
+				return fmt.Errorf("pulling base image: %w", err)
+			}
+			if !quiet {
+				if v := getImageVersionLabel(ctx, baseImage); strings.HasPrefix(v, "v") {
+					_, _ = fmt.Fprintf(w, "  Version: %s\n", v)
+				}
+			}
+		} else if !quiet {
+			_, _ = fmt.Fprintf(w, "- Base image %s is up to date.\n", baseImage)
+		}
 	}
 
 	// Get base image digest.

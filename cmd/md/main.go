@@ -61,8 +61,8 @@ func mainImpl() error {
 		return cmdDiff(ctx, args)
 	case "vnc":
 		return cmdVNC(ctx, args)
-	case "build-base":
-		return cmdBuildBase(ctx, args)
+	case "build-image":
+		return cmdBuildImage(ctx, args)
 	case "help", "-h", "-help", "--help":
 		usage()
 		return nil
@@ -84,7 +84,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  pull        Pull changes from container back to local branch")
 	fmt.Fprintln(os.Stderr, "  diff        Show differences between base and current changes")
 	fmt.Fprintln(os.Stderr, "  vnc         Open VNC connection to the container")
-	fmt.Fprintln(os.Stderr, "  build-base  Build the base Docker image locally")
+	fmt.Fprintln(os.Stderr, "  build-image Build the base Docker image locally")
 }
 
 func newClient() (*md.Client, error) {
@@ -441,8 +441,8 @@ func cmdVNC(ctx context.Context, args []string) error {
 	}
 }
 
-func cmdBuildBase(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("build-base", flag.ExitOnError)
+func cmdBuildImage(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("build-image", flag.ExitOnError)
 	serialSetup := fs.Bool("serial-setup", false, "Run setup steps serially instead of in parallel")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -451,7 +451,7 @@ func cmdBuildBase(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return c.BuildBase(ctx, *serialSetup)
+	return c.BuildImage(ctx, *serialSetup)
 }
 
 func noArgs(cmd string, args []string) error {

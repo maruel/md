@@ -69,7 +69,7 @@ func New() (*Client, error) {
 		XDGStateHome:  envOr("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
 		HostKeyPath:   filepath.Join(home, ".config", "md", "ssh_host_ed25519_key"),
 		UserKeyPath:   filepath.Join(home, ".ssh", "md"),
-		ImageName:     "md",
+		ImageName:     "md-user",
 	}
 	c.keysDir = filepath.Join(c.XDGConfigHome, "md")
 	return c, nil
@@ -169,8 +169,8 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 	return containers, nil
 }
 
-// BuildBase builds the base Docker image locally.
-func (c *Client) BuildBase(ctx context.Context, serialSetup bool) (retErr error) {
+// BuildImage builds the base Docker image locally.
+func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error) {
 	arch := runtime.GOARCH
 	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/Dockerfile.base ...")
 
@@ -185,7 +185,7 @@ func (c *Client) BuildBase(ctx context.Context, serialSetup bool) (retErr error)
 		"docker", "build",
 		"--platform", "linux/" + arch,
 		"-f", filepath.Join(buildCtx, "Dockerfile.base"),
-		"-t", "md-base",
+		"-t", "md-local",
 	}
 	if serialSetup {
 		cmd = append(cmd, "--build-arg", "MD_SERIAL_SETUP=1")
@@ -195,14 +195,14 @@ func (c *Client) BuildBase(ctx context.Context, serialSetup bool) (retErr error)
 	} else {
 		_, _ = fmt.Fprintln(c.W, "WARNING: GITHUB_TOKEN not found. Some tools (neovim, rust-analyzer, etc) might fail to install or hit rate limits.")
 		_, _ = fmt.Fprintln(c.W, "Please set GITHUB_TOKEN to avoid issues:")
-		_, _ = fmt.Fprintln(c.W, "  https://github.com/settings/personal-access-tokens/new?name=md-build-base&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/maruel/md")
+		_, _ = fmt.Fprintln(c.W, "  https://github.com/settings/personal-access-tokens/new?name=md-build-image&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/maruel/md")
 		_, _ = fmt.Fprintln(c.W, "  export GITHUB_TOKEN=...")
 	}
 	cmd = append(cmd, buildCtx)
 	if _, err := runCmd(ctx, "", cmd, false); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintln(c.W, "- Base image built as 'md-base'.")
+	_, _ = fmt.Fprintln(c.W, "- Base image built as 'md-local'.")
 	return nil
 }
 

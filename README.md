@@ -193,6 +193,8 @@ gh auth login
 | `md pull` | Pull changes from container back to local branch |
 | `md push` | Push local changes to the container |
 | `md kill` | Stop and remove the container |
+| `md build-image` | Build the base Docker image locally as `md-local` |
+| `md start -image md-local` | Start a container using the locally built base image |
 
 ## Remote GUI Access (VNC)
 

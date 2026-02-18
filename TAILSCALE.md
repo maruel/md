@@ -1,6 +1,6 @@
 # Tailscale Integration
 
-The `--tailscale` flag enables [Tailscale](https://tailscale.com) networking inside the container, allowing SSH access from any machine on your tailnet.
+The `--tailscale` flag enables [Tailscale](https://tailscale.com) networking inside the container, allowing SSH access from any machine on your tailnet and serving an HTTP server over HTTPS over your Tailnet.
 
 ## Setup
 
@@ -52,7 +52,7 @@ Start a container with Tailscale:
 md start --tailscale
 ```
 
-The container tailscale host name will often have a dash number suffix, e.g. `-2`, so look at the FQDN that is printed when you ssh in. You can also find it with `tailscale status`
+The container tailscale host name will often have a dash number suffix, e.g. `-2`, so look at the FQDN that is printed when you ssh in. You can also find it with `tailscale status` and with `md list`
 
 ### SSH Access
 
@@ -88,6 +88,16 @@ Install a VNC client locally and start a VNC session:
 ```bash
 vncviewer <host>.<tailnet>.ts.net:5901
 ```
+
+### HTTP Server
+
+Within the container, run:
+
+```bash
+tailscale serve --bg 8080
+```
+
+Then open `https://<host>.<tailnet>.ts.net` to access your HTTP server from any device on the tailnet.
 
 ### Cleanup
 

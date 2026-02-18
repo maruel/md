@@ -363,6 +363,9 @@ func (c *Container) Pull(ctx context.Context, provider, model string) error {
 // Diff writes the diff between base and current in the container.
 // When stdout is a terminal, a TTY is allocated so git's pager and colors work.
 func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, extraArgs []string) error {
+	if err := c.checkContainerState(ctx); err != nil {
+		return err
+	}
 	quotedArgs := make([]string, len(extraArgs))
 	for i, a := range extraArgs {
 		quotedArgs[i] = shellQuote(a)

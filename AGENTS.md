@@ -23,11 +23,12 @@ When installing a new tool in the container, ensure you update:
 3. Add entry to "Installed Tools" section in this AGENTS.md
 4. Add version check to `rsc/home/user/setup/generate_version_report.sh`
 5. Update `rsc/home/user/AGENTS.md` with any relevant changes
-6. Run `shellcheck` and `shfmt` on any shell scripts
+6. If the tool needs PATH setup, add a `bash.d` script (see [Shell Environment](#shell-environment-bash_env))
+7. Run `shellcheck` and `shfmt` on any shell scripts
 
 ## Installed Tools
 
-- Google Chrome (amd64 only, installed via extrepo during image build in rsc/root/setup/4_extrepo.sh)
+- Google Chrome (amd64 only, installed via extrepo during image build in rsc/root/setup/3_extrepo.sh)
 - Chromium Browser (arm64 fallback, installed via apt in rsc/root/setup/1_packages.sh)
 - chromium-sandbox (installed via apt in rsc/root/setup/1_packages.sh)
 - Chrome DevTools MCP (installed via npm in rsc/home/user/setup/2_nodejs.sh)
@@ -36,8 +37,36 @@ When installing a new tool in the container, ensure you update:
 - strace (installed via apt in rsc/root/setup/1_packages.sh)
 - lldb (installed via apt in rsc/root/setup/1_packages.sh, enables rust-lldb)
 - delve/dlv (installed via go install in rsc/home/user/setup/1_go.sh)
-- Tailscale (installed via extrepo in rsc/root/setup/4_extrepo.sh)
-- GitHub CLI/gh (installed via extrepo in rsc/root/setup/4_extrepo.sh)
+- Tailscale (installed via extrepo in rsc/root/setup/3_extrepo.sh)
+- GitHub CLI/gh (installed via extrepo in rsc/root/setup/3_extrepo.sh)
+
+## Shell Environment (BASH_ENV)
+
+The container uses `BASH_ENV=/etc/bash_env` to ensure PATH and environment variables are available in **all** bash invocations — interactive, non-interactive, login, and non-login. This solves the classic problem where `ssh host command` runs a non-interactive non-login shell that skips `.bashrc`'s interactive guard.
+
+### How it works
+
+1. **`/etc/bash_env`** — sourced by bash for non-interactive shells via the `BASH_ENV` env var (set in Dockerfile). It sources all `~/.config/bash.d/*.sh` scripts. Has a double-source guard.
+2. **`/etc/bash.bashrc`** — system-wide bashrc, sources `/etc/bash_env` before the interactive guard. No patching of `/etc/skel/.bashrc` is needed.
+3. **`~/.config/bash.d/*.sh`** — modular scripts for PATH and environment:
+   - `10-git.sh` — git completions and prompt (self-guards for interactive only)
+   - `20-rust-path.sh` — `~/.cargo/bin`
+   - `30-go-path.sh` — `~/.local/go/bin`, `~/go/bin`
+   - `40-android.sh` — Android SDK paths
+   - `50-nvm.sh` — nvm-managed node PATH (loads nvm function only in interactive shells)
+   - `60-bun.sh` — `~/.bun/bin`
+   - `70-opencode.sh` — `~/.opencode/bin`
+   - `80-env.sh` — sources `~/.env` and `~/.config/md/env` (API keys, etc.)
+   - `90-shell.sh` — `~/.local/bin`, pnpm, editor, aliases
+
+### Adding a tool that modifies PATH
+
+When installing a tool whose installer appends PATH lines to `.bashrc` (like nvm, bun, opencode):
+
+1. Create a `~/.config/bash.d/NN-toolname.sh` script that adds the tool's bin directory to PATH
+2. If the installer supports `PROFILE=/dev/null` (like nvm), use it to prevent writing to `.bashrc`
+3. Otherwise, add a cleanup pattern to `rsc/home/user/setup/bashrc_cleanup.sh` to remove the appended lines
+4. Interactive-only features (completions, shell functions) should be guarded with `case $- in *i*) ... ;; esac`
 
 ## Chrome/Chromium Configuration
 
@@ -67,10 +96,12 @@ The `rsc/` directory contains Docker build context and system configuration:
 
 - `rsc/Dockerfile` and `rsc/Dockerfile.base` - Docker build files
 - `rsc/etc/` - System-level configuration files (copied to `/etc/` in container)
+  - `rsc/etc/bash_env` - Environment bootstrap sourced by BASH_ENV (see Shell Environment below)
+  - `rsc/etc/bash.bashrc` - System-wide bashrc, sources bash_env for interactive shells
 - `rsc/root/` - Root-context setup and utilities
   - `rsc/root/setup/` - Root-level installation scripts (numbered 1+)
   - `rsc/root/start.sh` - Container entrypoint
 - `rsc/home/user/` - User-context setup (copied as user to `/home/user/`)
-  - `rsc/home/user/.config/bash.d/` - Modular bash extensions sourced by `.bashrc`
+  - `rsc/home/user/.config/bash.d/` - Modular bash extensions sourced via `/etc/bash_env` (see Shell Environment below)
   - `rsc/home/user/setup/` - User-level installation scripts (numbered 1+)
   - `rsc/home/user/AGENTS.md` - Agent documentation inside container (keep in sync)

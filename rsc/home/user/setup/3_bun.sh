@@ -5,4 +5,6 @@ echo "- $0"
 
 cd "$HOME"
 
+# The installer appends PATH to .bashrc; cleaned up by bashrc_cleanup.sh.
+# PATH setup is in bash.d/60-bun.sh.
 curl -fsSL https://bun.sh/install | bash

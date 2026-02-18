@@ -17,6 +17,9 @@ LABEL org.opencontainers.image.source=https://github.com/maruel/md \
 ## First phase, setup as root.
 
 ENV DEBIAN_FRONTEND=noninteractive
+# BASH_ENV is sourced by bash for every non-interactive shell (e.g. "ssh host command").
+# It sets up PATH for tools installed in user-specific directories (go, rust, nvm, bun, etc.).
+ENV BASH_ENV=/etc/bash_env
 
 COPY etc/ /etc/
 COPY opt/ /opt/
@@ -36,13 +39,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     measure_exec.sh "System Packages" /root/setup/1_packages.sh
-RUN measure_exec.sh "Skel Bashrc" /root/setup/2_etc_skel_bashrc.sh
 RUN --mount=type=secret,id=github_token \
     [ -f /run/secrets/github_token ] && export GITHUB_TOKEN=$(cat /run/secrets/github_token); \
-    measure_exec.sh "Neovim" /root/setup/3_neovim.sh
-RUN measure_exec.sh "Extrepo Packages" /root/setup/4_extrepo.sh
-RUN measure_exec.sh "Create User" /root/setup/5_create_user.sh
-RUN measure_exec.sh "KVM Setup" /root/setup/6_kvm.sh
+    measure_exec.sh "Neovim" /root/setup/2_neovim.sh
+RUN measure_exec.sh "Extrepo Packages" /root/setup/3_extrepo.sh
+RUN measure_exec.sh "Create User" /root/setup/4_create_user.sh
+RUN measure_exec.sh "KVM Setup" /root/setup/5_kvm.sh
 
 ### Second phase, as user
 

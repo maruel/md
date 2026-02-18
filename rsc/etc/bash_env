@@ -1,0 +1,16 @@
+# shellcheck shell=bash
+# /etc/bash_env — sourced by non-interactive bash via BASH_ENV and by .bashrc.
+# Only PATH and environment setup belongs here. No completions, prompts, or aliases.
+# Guard against double-sourcing.
+if [ -n "${__BASH_ENV_SOURCED:-}" ]; then
+	return 0
+fi
+__BASH_ENV_SOURCED=1
+
+if [ -d "${HOME}/.config/bash.d" ]; then
+	for __bash_env_f in "${HOME}/.config/bash.d"/*.sh; do
+		# shellcheck disable=SC1090
+		[ -r "${__bash_env_f}" ] && . "${__bash_env_f}"
+	done
+	unset __bash_env_f
+fi

@@ -44,4 +44,8 @@ else
 	fi
 fi
 
+# Remove lines that installers (nvm, bun, opencode) appended to .bashrc.
+# These are now handled by ~/.config/bash.d/ scripts sourced via /etc/bash_env.
+measure_exec.sh "Bashrc Cleanup" /home/user/setup/bashrc_cleanup.sh
+
 echo "- $0: All setup scripts completed successfully."

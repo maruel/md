@@ -24,14 +24,16 @@ AI coding agents work best when given full command execution (YOLO mode). But ru
 - Run tests in parallel without conflicts
 - Keep your local checkout clean
 - Delete containers cleanly when done
-- Accessible over [Tailscale](TAILSCALE.md)
+- Access your frontend dev server over [Tailscale](TAILSCALE.md) with HTTPS!
+- Share your host's USB port for Android debugging
+- Let the coding agent control an Android Emulator and see it over VNC
 
 ## Quick Start
 
 ```bash
 # Start container for your current branch
 git checkout -b wip origin/main
-md start --display  # Add --display if you need VNC support
+md start
 
 # SSH in and run your coding agent, where "wip" is the branch associated with this container
 ssh md-<repo>-wip

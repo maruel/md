@@ -450,7 +450,8 @@ func cmdDiff(ctx context.Context, args []string) error {
 				// Consume the next arg as value for non-bool flags without inline =.
 				type isBool interface{ IsBoolFlag() bool }
 				if _, isBoolFlag := f.Value.(isBool); !isBoolFlag && !strings.Contains(a, "=") {
-					if i++; i < len(args) {
+					i++
+					if i < len(args) {
 						mdArgs = append(mdArgs, args[i])
 					}
 				}

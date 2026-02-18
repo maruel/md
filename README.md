@@ -31,20 +31,21 @@ AI coding agents work best when given full command execution (YOLO mode). But ru
 ## Quick Start
 
 ```bash
-# Start container for your current branch
+# Start container for your current branch; this automatically ssh in.
 git checkout -b wip origin/main
 md start
 
-# SSH in and run your coding agent, where "wip" is the branch associated with this container
-ssh md-<repo>-wip
+# You are now inside the container
+cd ~/src/<repo-name>
 amp
 # Exit from the ssh session into the container (or use a separate terminal)
 exit
 
+# Check pending changes
+md diff
+
 # Pull changes back when done
 md pull
-# Verify changes
-git log -1
 
 # Clean up the container
 md kill

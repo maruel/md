@@ -23,6 +23,9 @@ COPY opt/ /opt/
 COPY root/ /root/
 COPY usr/ /usr/
 
+# Make /root readable by all users (helps with diagnosing issues)
+RUN chmod 755 /root && find /root -type f -exec chmod a+r {} + && find /root -type d -exec chmod a+rx {} +
+
 # Setup measurement tool and version report file
 RUN echo "| Step | Command | Duration |" > /var/log/build_timings.md && \
     echo "|---|---|---|" >> /var/log/build_timings.md && \

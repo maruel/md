@@ -35,9 +35,8 @@ type StartOpts struct {
 	Display bool
 	// Tailscale enables Tailscale networking inside the container.
 	//
-	// It is recommended to set Client.TailscaleAPIKey to enable ephemeral nodes.
-	//
-	// https://tailscale.com/docs/features/ephemeral-nodes
+	// It is recommended to set Client.TailscaleAPIKey to enable ephemeral nodes. If Client.TailscaleAPIKey is
+	// not set, the node will not be ephemeral. Instead, an authentication URL will be printed back by md.
 	Tailscale bool
 	// TailscaleAuthKey is a pre-authorized Tailscale auth key.
 	//

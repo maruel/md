@@ -134,7 +134,9 @@ Each container is named `md-<repo-name>-<branch-name>` with:
 - **Isolated git clone** - `~/src/<repo-name>` inside the container is a git clone of your local repository. It tracks branch `base` which matches your local branch. This is useful for commit-happy agents like Codex to track pending changes.
 - **User-mapped permissions** - Container runs as your local user ID for proper file permissions
 - **SSH access** - Connect via `ssh md-<repo>-<branch>`
-- **Remote GUI (VNC)** - Optional full desktop environment (via `--display`) accessible via VNC on a dynamic port
+- **Remote GUI (VNC)** - Optional full desktop environment (via `-display`) accessible via VNC on a dynamic port
+- **Remote network (Tailscale)** - Optional full access to your tailnet (via `-tailscale`)
+- **Local USB debugging** - Optional USB debugging (via `-usb`), especially for Android development
 - **Minimal overhead** - Only sshd runs by default; no unnecessary background services
 
 ### Preinstalled Tools
@@ -180,14 +182,14 @@ gh auth login
 | Command | Purpose |
 |---------|---------|
 | `md start` | Create and start a container for the current branch |
-| `md start --display` | Start container with X11/VNC desktop environment enabled |
-| `md start --tailscale` | Start container with [Tailscale](TAILSCALE.md) networking for remote SSH access |
-| `md start --usb` | Start container with USB device passthrough (for ADB, etc.) |
+| `md start -display` | Start container with X11/VNC desktop environment enabled |
+| `md start -tailscale` | Start container with [Tailscale](TAILSCALE.md) networking for remote SSH access |
+| `md start -usb` | Start container with USB device passthrough (for ADB, etc.) |
 | `md run <cmd>` | Start a temporary container, run a command, then clean up |
 | `md list` | List all md containers |
 | `ssh md-<repo>-<branch>` | Access the container via SSH |
 | `md vnc` | Open VNC connection to the container |
-| `md diff` | Show changes (runs `git diff base`). Arguments are passed through, e.g. `md diff --stat` |
+| `md diff` | Show changes (runs `git diff base`). Arguments are passed through, e.g. `md diff -- --stat` |
 | `md pull` | Pull changes from container back to local branch |
 | `md push` | Push local changes to the container |
 | `md kill` | Stop and remove the container |

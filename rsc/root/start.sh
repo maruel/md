@@ -50,10 +50,10 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 		fi
 		sleep 0.1
 	done
-	# Allow non-root users to access tailscale CLI
-	chmod 0666 /var/run/tailscale/tailscaled.sock
 	if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
 		tailscale up --hostname="$(hostname)" --ssh --authkey="$TAILSCALE_AUTHKEY"
+		# Allow non-root users to access tailscale CLI (must be after tailscale up)
+		tailscale set --operator=user
 		# Update MOTD with Tailscale FQDN and VNC URL if display is enabled
 		ts_fqdn=$(tailscale status --json | jq -r '.Self.DNSName // empty' | sed 's/\.$//')
 		if [ -n "$ts_fqdn" ]; then
@@ -64,8 +64,12 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 			echo "[start.sh] Tailscale connected: $ts_fqdn"
 		fi
 	else
-		# Capture auth URL for the host to display (MOTD not updated without authkey)
-		tailscale up --hostname="$(hostname)" --ssh 2>&1 | tee /tmp/tailscale_auth_url &
+		# Capture auth URL for the host to display (MOTD not updated without authkey).
+		# tailscale up blocks until user authenticates via the URL, then set operator.
+		(
+			tailscale up --hostname="$(hostname)" --ssh 2>&1 | tee /tmp/tailscale_auth_url
+			tailscale set --operator=user
+		) &
 	fi
 fi
 

@@ -37,7 +37,8 @@ md start
 
 # You are now inside the container
 cd ~/src/<repo-name>
-amp
+# Run the coding harness of your choice, a bash alias will automatically start it in YOLO mode:
+claude
 # Exit from the ssh session into the container (or use a separate terminal)
 exit
 

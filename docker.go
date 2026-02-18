@@ -269,7 +269,7 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 // runContainer starts the Docker container and sets up SSH access.
 // tailscaleEphemeral indicates the Tailscale node was auto-keyed and should be
 // treated as ephemeral (cleaned up on kill without API deletion).
-func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleEphemeral bool) error {
+func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleEphemeral bool) (*StartResult, error) {
 	var dockerArgs []string
 	dockerArgs = append(dockerArgs, "docker", "run", "-d",
 		"--name", c.Name, "--hostname", c.Name,
@@ -310,7 +310,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	// rule so that devices plugged in after container start are visible.
 	if opts.USB {
 		if runtime.GOOS != "linux" {
-			return fmt.Errorf("--usb requires Linux; Docker Desktop on %s cannot pass through host USB devices", runtime.GOOS)
+			return nil, fmt.Errorf("--usb requires Linux; Docker Desktop on %s cannot pass through host USB devices", runtime.GOOS)
 		}
 		dockerArgs = append(dockerArgs,
 			"-v", "/dev/bus/usb:/dev/bus/usb",
@@ -364,38 +364,41 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 
 	if opts.Quiet {
 		if _, err := runCmd(ctx, "", dockerArgs, true); err != nil {
-			return fmt.Errorf("starting container: %w", err)
+			return nil, fmt.Errorf("starting container: %w", err)
 		}
 	} else {
 		_, _ = fmt.Fprintf(c.W, "- Starting container %s ... ", c.Name)
 		if _, err := runCmd(ctx, "", dockerArgs, false); err != nil {
 			_, _ = fmt.Fprintln(c.W)
-			return fmt.Errorf("starting container: %w", err)
+			return nil, fmt.Errorf("starting container: %w", err)
 		}
 	}
+
+	result := &StartResult{}
 
 	// Get SSH port and creation time.
 	port, err := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "22/tcp" 0).HostPort}}`, c.Name}, true)
 	if err != nil {
-		return fmt.Errorf("getting SSH port: %w", err)
+		return nil, fmt.Errorf("getting SSH port: %w", err)
 	}
+	result.SSHPort = port
 	if !opts.Quiet {
 		_, _ = fmt.Fprintf(c.W, "- Found ssh port %s\n", port)
 	}
 	createdStr, err := runCmd(ctx, "", []string{"docker", "inspect", "--format", "{{.Created}}", c.Name}, true)
 	if err != nil {
-		return fmt.Errorf("getting container creation time: %w", err)
+		return nil, fmt.Errorf("getting container creation time: %w", err)
 	}
 	created, err := time.Parse(time.RFC3339Nano, createdStr)
 	if err != nil {
-		return fmt.Errorf("parsing container creation time %q: %w", createdStr, err)
+		return nil, fmt.Errorf("parsing container creation time %q: %w", createdStr, err)
 	}
 	c.CreatedAt = created
 
 	// Get VNC port if display enabled.
-	var vncPort string
 	if opts.Display {
-		vncPort, _ = runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "5901/tcp" 0).HostPort}}`, c.Name}, true)
+		vncPort, _ := runCmd(ctx, "", []string{"docker", "inspect", "--format", `{{(index .NetworkSettings.Ports "5901/tcp" 0).HostPort}}`, c.Name}, true)
+		result.VNCPort = vncPort
 		if vncPort != "" && !opts.Quiet {
 			_, _ = fmt.Fprintf(c.W, "- Found VNC port %s (display :1)\n", vncPort)
 		}
@@ -404,18 +407,18 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	// Write SSH config.
 	sshConfigDir := filepath.Join(home, ".ssh", "config.d")
 	if err := os.MkdirAll(sshConfigDir, 0o700); err != nil {
-		return err
+		return nil, err
 	}
 	knownHostsPath := filepath.Join(sshConfigDir, c.Name+".known_hosts")
 	hostPubKey, err := os.ReadFile(c.HostKeyPath + ".pub")
 	if err != nil {
-		return fmt.Errorf("reading host public key: %w", err)
+		return nil, fmt.Errorf("reading host public key: %w", err)
 	}
 	if err := writeSSHConfig(sshConfigDir, c.Name, port, c.UserKeyPath, knownHostsPath); err != nil {
-		return err
+		return nil, err
 	}
 	if err := writeKnownHosts(knownHostsPath, port, strings.TrimSpace(string(hostPubKey))); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Set up git remote.
@@ -424,7 +427,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	}
 	_, _ = runCmd(ctx, c.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
 	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + c.RepoName}, false); err != nil {
-		return fmt.Errorf("adding git remote: %w", err)
+		return nil, fmt.Errorf("adding git remote: %w", err)
 	}
 
 	// Wait for SSH.
@@ -438,7 +441,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		lastOutput = out
 		time.Sleep(100 * time.Millisecond)
 		if time.Since(start) > 10*time.Second {
-			return fmt.Errorf("timed out waiting for container SSH: %s", lastOutput)
+			return nil, fmt.Errorf("timed out waiting for container SSH: %s", lastOutput)
 		}
 	}
 
@@ -447,13 +450,13 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 
 	// Initialize git repo in container.
 	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "git init -q ~/src/" + repo}, false); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "--tags", c.Name, c.Branch + ":refs/heads/" + c.Branch}, false); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ~/src/" + repo + " && git switch -q " + branch + " && git branch -f base " + branch + " && git switch -q base && git switch -q " + branch}, false); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Set up origin remote in container using HTTPS.
@@ -475,7 +478,6 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	}
 
 	// Wait for Tailscale auth URL if needed.
-	var tailscaleURL string
 	if opts.Tailscale && opts.TailscaleAuthKey == "" {
 		cmd := exec.CommandContext(ctx, "ssh", c.Name, "tail -f /tmp/tailscale_auth_url")
 		stdout, err := cmd.StdoutPipe()
@@ -485,7 +487,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 				n, _ := stdout.Read(buf)
 				line := string(buf[:n])
 				if strings.Contains(line, "https://") {
-					tailscaleURL = strings.TrimSpace(line)
+					result.TailscaleAuthURL = strings.TrimSpace(line)
 				}
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
@@ -493,25 +495,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		}
 	}
 
-	// Print summary.
-	if !opts.Quiet {
-		_, _ = fmt.Fprintln(c.W, "- Cool facts:")
-		_, _ = fmt.Fprintln(c.W, "  > Remote access:")
-		_, _ = fmt.Fprintf(c.W, "  >  SSH: `ssh %s`\n", c.Name)
-		if vncPort != "" {
-			_, _ = fmt.Fprintf(c.W, "  >  VNC: connect to localhost:%s with a VNC client or: `md vnc`\n", vncPort)
-		} else {
-			_, _ = fmt.Fprintln(c.W, "  >  Next time pass --display to have a virtual display")
-		}
-		if tailscaleURL != "" {
-			_, _ = fmt.Fprintf(c.W, "  >  Tailscale: %s\n", tailscaleURL)
-		}
-		_, _ = fmt.Fprintf(c.W, "  > Host branch '%s' is mapped in the container as 'base'\n", c.Branch)
-		_, _ = fmt.Fprintln(c.W, "  > See changes (in container): `git diff base`")
-		_, _ = fmt.Fprintln(c.W, "  > See changes    (on host)  : `md diff`")
-		_, _ = fmt.Fprintln(c.W, "  > Kill container (on host)  : `md kill`")
-	}
-	return nil
+	return result, nil
 }
 
 // convertGitURLToHTTPS converts a git URL to HTTPS format.

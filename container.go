@@ -88,11 +88,23 @@ type Container struct {
 	USB bool
 }
 
+// StartResult contains information about the started container.
+type StartResult struct {
+	// SSHPort is the host port mapped to the container's SSH port.
+	SSHPort string
+	// VNCPort is the host port mapped to the container's VNC port, if display is enabled.
+	VNCPort string
+	// TailscaleFQDN is the Tailscale FQDN assigned to the container, if any.
+	TailscaleFQDN string
+	// TailscaleAuthURL is the Tailscale auth URL when no pre-auth key was provided.
+	TailscaleAuthURL string
+}
+
 // Start creates and starts a container.
-func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
+func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult, retErr error) {
 	// Check if container already exists.
 	if _, err := runCmd(ctx, "", []string{"docker", "inspect", c.Name}, true); err == nil {
-		return fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md kill' first",
+		return nil, fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md kill' first",
 			c.Name, c.Name)
 	}
 
@@ -112,7 +124,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 
 	buildCtx, err := prepareBuildContext()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
 
@@ -121,19 +133,25 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (retErr error) {
 		baseImage = DefaultBaseImage + ":latest"
 	}
 	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, opts.Quiet); err != nil {
-		return err
+		return nil, err
 	}
-	if err := runContainer(ctx, c, opts, tailscaleEphemeral); err != nil {
-		return err
+	result, err := runContainer(ctx, c, opts, tailscaleEphemeral)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Tailscale {
+		c.Tailscale = true
+		c.State = "running"
+		result.TailscaleFQDN = c.TailscaleFQDN(ctx)
 	}
 	if !opts.NoSSH {
 		cmd := exec.CommandContext(ctx, "ssh", c.Name)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		return result, cmd.Run()
 	}
-	return nil
+	return result, nil
 }
 
 // Run starts a temporary container, runs a command, then cleans up.
@@ -163,7 +181,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 		return 1, err
 	}
 	opts := StartOpts{NoSSH: true, Quiet: true}
-	if err := runContainer(ctx, tmp, &opts, false); err != nil {
+	if _, err := runContainer(ctx, tmp, &opts, false); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
 	}
@@ -382,8 +400,25 @@ func (c *Container) GetHostPort(ctx context.Context, containerPort string) (stri
 // tailscaleStatus is the subset of `tailscale status --json` we care about.
 type tailscaleStatus struct {
 	Self struct {
-		ID string `json:"ID"`
+		ID      string `json:"ID"`
+		DNSName string `json:"DNSName"`
 	} `json:"Self"`
+}
+
+// TailscaleFQDN returns the Tailscale FQDN for the container, or "" if unavailable.
+func (c *Container) TailscaleFQDN(ctx context.Context) string {
+	if !c.Tailscale || c.State != "running" {
+		return ""
+	}
+	statusJSON, err := runCmd(ctx, "", []string{"docker", "exec", c.Name, "tailscale", "status", "--json"}, true)
+	if err != nil {
+		return ""
+	}
+	var status tailscaleStatus
+	if json.Unmarshal([]byte(statusJSON), &status) != nil {
+		return ""
+	}
+	return strings.TrimRight(status.Self.DNSName, ".")
 }
 
 // containerJSON is the raw Docker ps JSON structure.

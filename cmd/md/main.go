@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -207,10 +208,35 @@ func cmdStart(ctx context.Context, args []string) error {
 		NoSSH:            *noSSH,
 		Quiet:            *quiet,
 	}
-	if err := ct.Start(ctx, &opts); err != nil {
+	result, err := ct.Start(ctx, &opts)
+	if err != nil {
 		return err
 	}
+	if !*quiet {
+		printStartSummary(ct, result)
+	}
 	return nil
+}
+
+func printStartSummary(ct *md.Container, r *md.StartResult) {
+	fmt.Println("- Cool facts:")
+	fmt.Println("  > Remote access:")
+	fmt.Printf("  >  SSH: `ssh %s`\n", ct.Name)
+	if r.VNCPort != "" {
+		fmt.Printf("  >  VNC: connect to localhost:%s with a VNC client or: `md vnc`\n", r.VNCPort)
+	} else {
+		fmt.Println("  >  Next time pass --display to have a virtual display")
+	}
+	if r.TailscaleFQDN != "" {
+		fmt.Printf("  >  Tailscale FQDN: %s\n", r.TailscaleFQDN)
+	}
+	if r.TailscaleAuthURL != "" {
+		fmt.Printf("  >  Tailscale auth: %s\n", r.TailscaleAuthURL)
+	}
+	fmt.Printf("  > Host branch '%s' is mapped in the container as 'base'\n", ct.Branch)
+	fmt.Println("  > See changes (in container): `git diff base`")
+	fmt.Println("  > See changes    (on host)  : `md diff`")
+	fmt.Println("  > Kill container (on host)  : `md kill`")
 }
 
 func cmdRun(ctx context.Context, args []string) error {
@@ -241,8 +267,21 @@ func cmdRun(ctx context.Context, args []string) error {
 	return nil
 }
 
+// containerListEntry is the JSON representation of a container in `md list --json`.
+type containerListEntry struct {
+	Name      string `json:"name"`
+	State     string `json:"state"`
+	Uptime    string `json:"uptime"`
+	Display   bool   `json:"display,omitempty"`
+	Tailscale bool   `json:"tailscale,omitempty"`
+	FQDN      string `json:"fqdn,omitempty"`
+	USB       bool   `json:"usb,omitempty"`
+}
+
 func cmdList(ctx context.Context, args []string) error {
-	if err := noArgs("list", args); err != nil {
+	fs := flag.NewFlagSet("list", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "Output in JSON format")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	c, err := md.New()
@@ -253,24 +292,47 @@ func cmdList(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *jsonOut {
+		entries := make([]containerListEntry, len(containers))
+		for i, ct := range containers {
+			entries[i] = containerListEntry{
+				Name:      ct.Name,
+				State:     ct.State,
+				Uptime:    time.Since(ct.CreatedAt).Truncate(time.Second).String(),
+				Display:   ct.Display,
+				Tailscale: ct.Tailscale,
+				USB:       ct.USB,
+			}
+			if ct.Tailscale {
+				entries[i].FQDN = ct.TailscaleFQDN(ctx)
+			}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(entries)
+	}
 	if len(containers) == 0 {
 		fmt.Println("No running md containers")
 		return nil
 	}
-	fmt.Printf("%-50s %-15s %-20s %s\n", "Container", "Status", "Uptime", "Features")
-	fmt.Println(strings.Repeat("-", 100))
+	fmt.Printf("%-30s %-10s %-12s %s\n", "Container", "Status", "Uptime", "Features")
+	fmt.Println(strings.Repeat("-", 80))
 	for _, ct := range containers {
 		var features []string
 		if ct.Display {
 			features = append(features, "display")
 		}
 		if ct.Tailscale {
-			features = append(features, "tailscale")
+			if fqdn := ct.TailscaleFQDN(ctx); fqdn != "" {
+				features = append(features, "tailscale:"+fqdn)
+			} else {
+				features = append(features, "tailscale")
+			}
 		}
 		if ct.USB {
 			features = append(features, "usb")
 		}
-		fmt.Printf("%-50s %-15s %-20s %s\n", ct.Name, ct.State, time.Since(ct.CreatedAt).Truncate(time.Second), strings.Join(features, ","))
+		fmt.Printf("%-30s %-10s %-12s %s\n", ct.Name, ct.State, time.Since(ct.CreatedAt).Truncate(time.Second), strings.Join(features, ","))
 	}
 	return nil
 }

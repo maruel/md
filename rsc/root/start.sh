@@ -50,6 +50,8 @@ if [ -n "${MD_TAILSCALE:-}" ]; then
 		fi
 		sleep 0.1
 	done
+	# Allow non-root users to access tailscale CLI
+	chmod 0666 /var/run/tailscale/tailscaled.sock
 	if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
 		tailscale up --hostname="$(hostname)" --ssh --authkey="$TAILSCALE_AUTHKEY"
 		# Update MOTD with Tailscale FQDN and VNC URL if display is enabled

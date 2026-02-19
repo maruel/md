@@ -275,6 +275,10 @@ func (c *Container) Push(ctx context.Context) error {
 	if _, err := runCmd(ctx, "", []string{"ssh", c.Name, "cd ~/src/" + repo + " && git switch -q -C " + branch + " base"}, false); err != nil {
 		return err
 	}
+	// Update the local remote-tracking ref so it reflects the pushed state.
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "update-ref", "refs/remotes/" + c.Name + "/" + c.Branch, c.Branch}, false); err != nil {
+		return err
+	}
 	_, _ = fmt.Fprintln(c.W, "- Container updated.")
 	return nil
 }

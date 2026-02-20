@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -44,6 +45,23 @@ func GitCurrentBranch(ctx context.Context, wd string) (string, error) {
 		return "", errors.New("check out a named branch")
 	}
 	return out, nil
+}
+
+// GitDefaultRemote returns the default remote for the given working directory.
+// If there is exactly one remote, it is returned. Otherwise "origin" is used.
+func GitDefaultRemote(ctx context.Context, wd string) (string, error) {
+	out, err := runCmd(ctx, wd, []string{"git", "remote"}, true)
+	if err != nil || out == "" {
+		return "", errors.New("no git remotes configured")
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) == 1 {
+		return lines[0], nil
+	}
+	if slices.Contains(lines, "origin") {
+		return "origin", nil
+	}
+	return "", fmt.Errorf("multiple remotes and no %q", "origin")
 }
 
 // GitDefaultBranch returns the default branch name (e.g. "main" or "master")

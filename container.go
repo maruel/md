@@ -85,6 +85,11 @@ type Container struct {
 	// USB indicates the container was started with USB passthrough.
 	// Label: md.usb
 	USB bool
+
+	// DefaultRemote is the host's default git remote (resolved lazily).
+	DefaultRemote string
+	// DefaultBranch is the default branch for DefaultRemote (resolved lazily).
+	DefaultBranch string
 }
 
 // StartResult contains information about the started container.
@@ -487,24 +492,38 @@ func unmarshalContainer(data []byte) (Container, error) {
 	return ct, nil
 }
 
+// resolveDefaults populates DefaultRemote and DefaultBranch if not already set.
+func (c *Container) resolveDefaults(ctx context.Context) error {
+	if c.DefaultRemote == "" {
+		remote, err := GitDefaultRemote(ctx, c.GitRoot)
+		if err != nil {
+			return err
+		}
+		c.DefaultRemote = remote
+	}
+	if c.DefaultBranch == "" {
+		branch, err := GitDefaultBranch(ctx, c.GitRoot, c.DefaultRemote)
+		if err != nil {
+			return err
+		}
+		c.DefaultBranch = branch
+	}
+	return nil
+}
+
 // SyncDefaultBranch force-pushes the host's default branch (e.g. origin/main)
 // into the container so agents can diff against it.
 func (c *Container) SyncDefaultBranch(ctx context.Context) error {
-	remote, err := GitDefaultRemote(ctx, c.GitRoot)
-	if err != nil {
-		return fmt.Errorf("sync default branch: %w", err)
-	}
-	defaultBranch, err := GitDefaultBranch(ctx, c.GitRoot, remote)
-	if err != nil {
+	if err := c.resolveDefaults(ctx); err != nil {
 		return fmt.Errorf("sync default branch: %w", err)
 	}
 	// If the container's working branch is the default branch, it's already
 	// synced as "base".
-	if defaultBranch == c.Branch {
+	if c.DefaultBranch == c.Branch {
 		return nil
 	}
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, "refs/remotes/" + remote + "/" + defaultBranch + ":refs/heads/" + defaultBranch}, true); err != nil {
-		return fmt.Errorf("sync default branch %q: %w", defaultBranch, err)
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, "refs/remotes/" + c.DefaultRemote + "/" + c.DefaultBranch + ":refs/heads/" + c.DefaultBranch}, true); err != nil {
+		return fmt.Errorf("sync default branch %q: %w", c.DefaultBranch, err)
 	}
 	return nil
 }

@@ -471,8 +471,10 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	}
 
 	// Set up origin remote in container using HTTPS.
-	remote, _ := GitDefaultRemote(ctx, c.GitRoot)
-	originURL, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", remote}, true)
+	if err := c.resolveDefaults(ctx); err != nil {
+		return nil, err
+	}
+	originURL, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", c.DefaultRemote}, true)
 	if err == nil && originURL != "" {
 		httpsURL := convertGitURLToHTTPS(originURL)
 		_, _ = runCmd(ctx, "", []string{"ssh", c.Name, "cd ~/src/" + repo + " && git remote add origin " + shellQuote(httpsURL)}, true)

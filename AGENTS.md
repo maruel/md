@@ -95,7 +95,7 @@ The container runs Xvnc (TigerVNC) + XFCE4 on port 5901 accessible via any VNC c
 The `rsc/` directory contains Docker build context and system configuration:
 
 - `rsc/Dockerfile` and `rsc/Dockerfile.base` - Docker build files
-- `rsc/etc/` - System-level configuration files (copied to `/etc/` in container)
+- `rsc/etc/`, `rsc/opt/`, `rsc/home/` - Mirrored into the container as-is (`COPY etc/ /etc/`, etc.). Place static files here instead of generating them in setup scripts.
   - `rsc/etc/bash_env` - Environment bootstrap sourced by BASH_ENV (see Shell Environment below)
   - `rsc/etc/bash.bashrc` - System-wide bashrc, sources bash_env for interactive shells
 - `rsc/root/` - Root-context setup and utilities

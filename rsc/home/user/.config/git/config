@@ -15,7 +15,7 @@
 	prompt = false
 	keepBackup = false
 [mergetool "vimdiff4way"]
-	cmd = vimdiff -c \"wincmd J\" -c \"0\" -c \"/<<<<<<< \" $MERGED $LOCAL $BASE $REMOTE
+	cmd = nvim -d -c \"wincmd J\" -c \"0\" -c \"/<<<<<<< \" $MERGED $LOCAL $BASE $REMOTE
 [user]
 	name = md
 	email = "<>"

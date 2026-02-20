@@ -47,18 +47,18 @@ func GitCurrentBranch(ctx context.Context, wd string) (string, error) {
 }
 
 // GitDefaultBranch returns the default branch name (e.g. "main" or "master")
-// for the origin remote in the given working directory.
-func GitDefaultBranch(ctx context.Context, wd string) (string, error) {
-	// Try symbolic-ref first (works when origin/HEAD is set).
-	if out, err := runCmd(ctx, wd, []string{"git", "symbolic-ref", "refs/remotes/origin/HEAD"}, true); err == nil {
-		// "refs/remotes/origin/main" → "main"
-		if _, name, ok := strings.Cut(out, "refs/remotes/origin/"); ok && name != "" {
+// for the given remote in the given working directory.
+func GitDefaultBranch(ctx context.Context, wd, remote string) (string, error) {
+	prefix := "refs/remotes/" + remote + "/"
+	// Try symbolic-ref first (works when <remote>/HEAD is set).
+	if out, err := runCmd(ctx, wd, []string{"git", "symbolic-ref", prefix + "HEAD"}, true); err == nil {
+		if _, name, ok := strings.Cut(out, prefix); ok && name != "" {
 			return name, nil
 		}
 	}
 	// Fall back to checking common names.
 	for _, name := range []string{"main", "master"} {
-		if _, err := runCmd(ctx, wd, []string{"git", "rev-parse", "--verify", "refs/remotes/origin/" + name}, true); err == nil {
+		if _, err := runCmd(ctx, wd, []string{"git", "rev-parse", "--verify", prefix + name}, true); err == nil {
 			return name, nil
 		}
 	}

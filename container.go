@@ -490,7 +490,8 @@ func unmarshalContainer(data []byte) (Container, error) {
 // SyncDefaultBranch force-pushes the host's default branch (e.g. origin/main)
 // into the container so agents can diff against it.
 func (c *Container) SyncDefaultBranch(ctx context.Context) error {
-	defaultBranch, err := GitDefaultBranch(ctx, c.GitRoot)
+	const remote = "origin"
+	defaultBranch, err := GitDefaultBranch(ctx, c.GitRoot, remote)
 	if err != nil {
 		return fmt.Errorf("sync default branch: %w", err)
 	}
@@ -499,7 +500,7 @@ func (c *Container) SyncDefaultBranch(ctx context.Context) error {
 	if defaultBranch == c.Branch {
 		return nil
 	}
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, "refs/remotes/origin/" + defaultBranch + ":refs/heads/" + defaultBranch}, true); err != nil {
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, "refs/remotes/" + remote + "/" + defaultBranch + ":refs/heads/" + defaultBranch}, true); err != nil {
 		return fmt.Errorf("sync default branch %q: %w", defaultBranch, err)
 	}
 	return nil

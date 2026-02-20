@@ -480,6 +480,11 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		}
 	}
 
+	// Push the default branch (e.g. main) so agents can diff against it.
+	if err := c.SyncDefaultBranch(ctx); err != nil {
+		return nil, err
+	}
+
 	// Copy .env if present.
 	if _, err := os.Stat(".env"); err == nil {
 		if !opts.Quiet {

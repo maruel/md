@@ -254,6 +254,9 @@ func (c *Container) Push(ctx context.Context) error {
 	if err := c.checkContainerState(ctx); err != nil {
 		return err
 	}
+	if err := c.SyncDefaultBranch(ctx); err != nil {
+		return err
+	}
 	// Refuse if there are pending local changes on the branch being pushed.
 	currentBranch, _ := runCmd(ctx, c.GitRoot, []string{"git", "branch", "--show-current"}, true)
 	if currentBranch == c.Branch {
@@ -290,6 +293,9 @@ func (c *Container) Push(ctx context.Context) error {
 // names. If provider is empty, a default message is used.
 func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 	if err := c.checkContainerState(ctx); err != nil {
+		return err
+	}
+	if err := c.SyncDefaultBranch(ctx); err != nil {
 		return err
 	}
 	repo := shellQuote(c.RepoName)
@@ -366,6 +372,9 @@ func (c *Container) Pull(ctx context.Context, provider, model string) error {
 // When stdout is a terminal, a TTY is allocated so git's pager and colors work.
 func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, extraArgs []string) error {
 	if err := c.checkContainerState(ctx); err != nil {
+		return err
+	}
+	if err := c.SyncDefaultBranch(ctx); err != nil {
 		return err
 	}
 	quotedArgs := make([]string, len(extraArgs))
@@ -476,6 +485,24 @@ func unmarshalContainer(data []byte) (Container, error) {
 		}
 	}
 	return ct, nil
+}
+
+// SyncDefaultBranch force-pushes the host's default branch (e.g. origin/main)
+// into the container so agents can diff against it.
+func (c *Container) SyncDefaultBranch(ctx context.Context) error {
+	defaultBranch, err := GitDefaultBranch(ctx, c.GitRoot)
+	if err != nil {
+		return fmt.Errorf("sync default branch: %w", err)
+	}
+	// If the container's working branch is the default branch, it's already
+	// synced as "base".
+	if defaultBranch == c.Branch {
+		return nil
+	}
+	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, "refs/remotes/origin/" + defaultBranch + ":refs/heads/" + defaultBranch}, true); err != nil {
+		return fmt.Errorf("sync default branch %q: %w", defaultBranch, err)
+	}
+	return nil
 }
 
 func (c *Container) checkContainerState(ctx context.Context) error {

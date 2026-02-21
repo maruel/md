@@ -639,6 +639,73 @@ func Test_filterFiles(t *testing.T) {
 	})
 }
 
+func Test_progressiveFilter(t *testing.T) {
+	makeTestOnlyDiff := func() []fileDiff {
+		return parseDiff(strings.Join([]string{
+			"diff --git a/foo_test.go b/foo_test.go",
+			"--- a/foo_test.go",
+			"+++ b/foo_test.go",
+			"@@ -1,2 +1,2 @@",
+			"-old",
+			"+new",
+			"diff --git a/bar_test.go b/bar_test.go",
+			"--- a/bar_test.go",
+			"+++ b/bar_test.go",
+			"@@ -1,2 +1,2 @@",
+			"-old",
+			"+new",
+		}, "\n"))
+	}
+
+	t.Run("skip filter when all files would be removed", func(t *testing.T) {
+		files := makeTestOnlyDiff()
+		// A very small budget forces the filter to be applied.
+		kept, removed := progressiveFilter(files, []func(string) bool{isTestFile}, 0)
+		if len(kept) == 0 {
+			t.Error("kept is empty: filter should have been skipped when all files match")
+		}
+		if len(removed) != 0 {
+			t.Errorf("removed = %v, want [] (filter skipped)", removed)
+		}
+	})
+
+	t.Run("filter applied when some files remain", func(t *testing.T) {
+		files := parseDiff(strings.Join([]string{
+			"diff --git a/main.go b/main.go",
+			"--- a/main.go",
+			"+++ b/main.go",
+			"@@ -1,2 +1,2 @@",
+			strings.Repeat("-x", 200),
+			strings.Repeat("+y", 200),
+			"diff --git a/main_test.go b/main_test.go",
+			"--- a/main_test.go",
+			"+++ b/main_test.go",
+			"@@ -1,2 +1,2 @@",
+			strings.Repeat("-x", 200),
+			strings.Repeat("+y", 200),
+		}, "\n"))
+		// Budget so small it forces filtering.
+		kept, removed := progressiveFilter(files, []func(string) bool{isTestFile}, 0)
+		if len(kept) != 1 || kept[0].path != "main.go" {
+			t.Errorf("kept = %v, want [main.go]", kept)
+		}
+		if len(removed) != 1 || removed[0] != "main_test.go" {
+			t.Errorf("removed = %v, want [main_test.go]", removed)
+		}
+	})
+
+	t.Run("no filter needed when diff fits budget", func(t *testing.T) {
+		files := makeTestOnlyDiff()
+		kept, removed := progressiveFilter(files, []func(string) bool{isTestFile}, 1_000_000)
+		if len(kept) != len(files) {
+			t.Errorf("kept = %d, want %d (no filtering needed)", len(kept), len(files))
+		}
+		if len(removed) != 0 {
+			t.Errorf("removed = %v, want []", removed)
+		}
+	})
+}
+
 func TestSplitFiles(t *testing.T) {
 	t.Run("single chunk", func(t *testing.T) {
 		files := parseDiff(strings.Join([]string{

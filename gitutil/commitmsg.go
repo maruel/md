@@ -391,6 +391,28 @@ func splitDiff(diff string, maxChunk int) []string {
 	return splitFiles(files, maxChunk)
 }
 
+// progressiveFilter applies filters in order to reduce files until
+// renderDiffLen(result) + len(filteredAnnotation(removed)) fits within budget.
+// If a filter would eliminate all remaining files, it is skipped to ensure
+// there is always something to describe. Returns the kept files and all
+// removed file paths accumulated across applied filters.
+func progressiveFilter(files []fileDiff, filters []func(string) bool, budget int) ([]fileDiff, []string) {
+	var removed []string
+	for _, f := range filters {
+		kept, r := filterFiles(files, f)
+		if len(kept) == 0 {
+			// Skip: applying this filter would leave nothing to describe.
+			continue
+		}
+		files = kept
+		removed = append(removed, r...)
+		if renderDiffLen(files)+len(filteredAnnotation(removed)) <= budget {
+			break
+		}
+	}
+	return files, removed
+}
+
 // GenerateCommitMsg applies a progressive reduction pipeline to fit the diff
 // under the LLM context limit, then calls the LLM to produce a commit message.
 //
@@ -417,20 +439,15 @@ func GenerateCommitMsg(ctx context.Context, p genai.Provider, metadata, diff str
 	}
 
 	// Step 2+: apply each filter progressively until the diff fits.
-	var removed []string
-	for _, f := range filters {
-		var r []string
-		files, r = filterFiles(files, f)
-		removed = append(removed, r...)
-		annotation := filteredAnnotation(removed)
-		if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-			return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
-		}
+	files, removed := progressiveFilter(files, filters, maxDiffLen-metaLen)
+	annotation := filteredAnnotation(removed)
+	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
+		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
 	}
 
 	// Final fallback: parallel map-reduce. Include annotation in metadata so
 	// the synthesis step knows which files were omitted.
-	return parallelDescribe(ctx, p, metadata+filteredAnnotation(removed), files)
+	return parallelDescribe(ctx, p, metadata+annotation, files)
 }
 
 const maxMetadataPrefix = 2000

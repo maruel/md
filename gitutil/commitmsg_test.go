@@ -639,7 +639,7 @@ func Test_filterFiles(t *testing.T) {
 	})
 }
 
-func Test_progressiveFilter(t *testing.T) {
+func TestProgressiveFilter(t *testing.T) {
 	makeTestOnlyDiff := func() []fileDiff {
 		return parseDiff(strings.Join([]string{
 			"diff --git a/foo_test.go b/foo_test.go",

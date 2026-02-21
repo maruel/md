@@ -2,14 +2,16 @@
 // source code is governed by the Apache v2 license that can be found in the
 // LICENSE file.
 
-package md
+package gitutil
 
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/maruel/genai"
 	"golang.org/x/sync/errgroup"
@@ -21,11 +23,38 @@ const (
 	maxParallelCalls = 4
 )
 
-const commitMsgPrompt = "Analyze the git context below (branch, file changes, recent commits, and diff). Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
+// commitMsgPrompt is the system prompt used by GenerateCommitMsg for direct
+// commit message generation from a diff.
+const commitMsgPrompt = "Write a git commit message for the changes below. Follow these rules:\n" +
+	"- Subject: imperative mood, no period, max 72 chars (e.g. \"Fix timeout in retry loop\")\n" +
+	"- If the change is non-trivial, add a blank line then a body explaining what and why, not how\n" +
+	"- Wrap body lines at 72 chars\n" +
+	"- Match the style of recent upstream commits if provided\n" +
+	"- Focus on the meaningful changes; ignore ancillary updates (imports, test data, build files, dependency bumps, formatting) unless they are the primary purpose of the commit\n" +
+	"- No emojis\n" +
+	"- Output only the commit message, nothing else"
 
+// chunkPrompt is the system prompt used to summarize individual diff chunks
+// during parallel map-reduce for large diffs.
 const chunkPrompt = "Summarize the following diff chunk concisely. Focus on what changed and why. Keep it brief (2-5 sentences)."
 
-const synthesizePrompt = "You are given chunk summaries of a large diff plus git metadata. Write a commit message explaining what changed and why. It should be one line, or summary + details if the change is very complex. Match the style of recent commits. No emojis."
+// synthesizePrompt is the system prompt used to combine chunk summaries into
+// a final commit message during parallel map-reduce for large diffs.
+const synthesizePrompt = "Below are descriptions of different parts of the same commit. " +
+	"Write a single unified git commit message following these rules:\n" +
+	"- Subject: imperative mood, no period, max 72 chars\n" +
+	"- If non-trivial, add a blank line then a body explaining what and why\n" +
+	"- Wrap body lines at 72 chars\n" +
+	"- Match the style of recent upstream commits if provided\n" +
+	"- No emojis\n" +
+	"- Output only the commit message, nothing else"
+
+// defaultDiffFilters is the default sequence of file predicates applied
+// progressively by GenerateCommitMsg when a diff exceeds the context limit.
+// Each filter is tried in order; matching files are removed only if the diff
+// is still too large after the previous step. Pass nil to GenerateCommitMsg
+// to use these defaults.
+var defaultDiffFilters = []func(string) bool{isTestFile, isDataFile, isGeneratedFile}
 
 // hunk represents a single hunk in a unified diff.
 type hunk struct {
@@ -214,10 +243,10 @@ func reduceFileDiffContext(files []fileDiff, target int) {
 }
 
 // reduceDiffContext rewrites a unified diff, trimming context lines in each
-// hunk to at most target lines before and after changed lines.
-func reduceDiffContext(diff string, target int) string { //nolint:unparam // target varies in tests
+// hunk to at most reducedContext lines before and after changed lines.
+func reduceDiffContext(diff string) string {
 	files := parseDiff(diff)
-	reduceFileDiffContext(files, target)
+	reduceFileDiffContext(files, reducedContext)
 	return renderDiff(files)
 }
 
@@ -362,24 +391,17 @@ func splitDiff(diff string, maxChunk int) []string {
 	return splitFiles(files, maxChunk)
 }
 
-// gatherGitMetadata runs SSH commands to collect branch, stat, and log from
-// the container. This data is always small.
-func gatherGitMetadata(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ~/src/" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
-	out, _ := runCmd(ctx, "", []string{"ssh", containerName, cmd}, true)
-	return out
-}
-
-// gatherGitDiff runs SSH to get the full patience diff from the container.
-func gatherGitDiff(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ~/src/" + repo + " && git diff --patience -U10 --cached base -- ."
-	out, _ := runCmd(ctx, "", []string{"ssh", containerName, cmd}, true)
-	return out
-}
-
-// generateCommitMsg applies a progressive reduction pipeline to fit the diff
-// under maxDiffLen, then calls the LLM to produce a commit message.
-func generateCommitMsg(ctx context.Context, p genai.Provider, metadata, diff string) (string, error) {
+// GenerateCommitMsg applies a progressive reduction pipeline to fit the diff
+// under the LLM context limit, then calls the LLM to produce a commit message.
+//
+// metadata should contain git context (branch name, file stats, recent commit
+// messages). diff should be a unified diff of the changes to describe.
+// filters is an ordered list of file predicates applied progressively to
+// reduce the diff size. Pass nil to use defaultDiffFilters.
+func GenerateCommitMsg(ctx context.Context, p genai.Provider, metadata, diff string, filters []func(string) bool) (string, error) {
+	if filters == nil {
+		filters = defaultDiffFilters
+	}
 	files := parseDiff(diff)
 	metaLen := len(metadata) + len("=== Changes ===\n")
 
@@ -394,35 +416,21 @@ func generateCommitMsg(ctx context.Context, p genai.Provider, metadata, diff str
 		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)))
 	}
 
-	// Step 2: filter test files.
+	// Step 2+: apply each filter progressively until the diff fits.
 	var removed []string
-	var r []string
-	files, r = filterFiles(files, isTestFile)
-	removed = append(removed, r...)
-	annotation := filteredAnnotation(removed)
-	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
+	for _, f := range filters {
+		var r []string
+		files, r = filterFiles(files, f)
+		removed = append(removed, r...)
+		annotation := filteredAnnotation(removed)
+		if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
+			return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
+		}
 	}
 
-	// Step 3: filter data files.
-	files, r = filterFiles(files, isDataFile)
-	removed = append(removed, r...)
-	annotation = filteredAnnotation(removed)
-	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
-	}
-
-	// Step 3b: filter generated/lock files.
-	files, r = filterFiles(files, isGeneratedFile)
-	removed = append(removed, r...)
-	annotation = filteredAnnotation(removed)
-	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
-	}
-
-	// Step 4: parallel map-reduce. Include annotation in metadata so the
-	// synthesis step knows which files were omitted.
-	return parallelDescribe(ctx, p, metadata+annotation, files)
+	// Final fallback: parallel map-reduce. Include annotation in metadata so
+	// the synthesis step knows which files were omitted.
+	return parallelDescribe(ctx, p, metadata+filteredAnnotation(removed), files)
 }
 
 const maxMetadataPrefix = 2000
@@ -449,7 +457,8 @@ func parallelDescribe(ctx context.Context, p genai.Provider, metadata string, fi
 	g.SetLimit(maxParallelCalls)
 	for i, chunk := range chunks {
 		g.Go(func() error {
-			prompt := chunkPrompt + "\n\n" + metaPrefix + "\n" + chunk
+			header := fmt.Sprintf("(part %d/%d)\n", i+1, len(chunks))
+			prompt := chunkPrompt + "\n\n" + metaPrefix + "\n" + header + chunk
 			summary, err := genCommitMsg(gctx, p, prompt)
 			if err != nil {
 				return err
@@ -465,4 +474,15 @@ func parallelDescribe(ctx context.Context, p genai.Provider, metadata string, fi
 	// Synthesize.
 	combined := metadata + "\n=== Chunk Summaries ===\n" + strings.Join(summaries, "\n---\n")
 	return genCommitMsg(ctx, p, synthesizePrompt+"\n\n"+combined)
+}
+
+// genCommitMsg generates a commit message using an already-initialized provider.
+func genCommitMsg(ctx context.Context, p genai.Provider, prompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	res, err := p.GenSync(ctx, genai.Messages{genai.NewTextMessage(prompt)}, &genai.GenOptionText{MaxTokens: 1024})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(res.String()), nil
 }

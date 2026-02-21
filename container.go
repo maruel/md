@@ -20,8 +20,24 @@ import (
 
 	"github.com/maruel/genai"
 	"github.com/maruel/genai/providers"
+	"github.com/maruel/md/gitutil"
 	"golang.org/x/term"
 )
+
+// runCmd executes a command and returns (stdout, error).
+// If capture is true, stdout/stderr are captured; otherwise they go to os.Stdout/os.Stderr.
+// If dir is non-empty, the command runs in that directory.
+func runCmd(ctx context.Context, dir string, args []string, capture bool) (string, error) {
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = dir
+	if capture {
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return "", cmd.Run()
+}
 
 // DefaultBaseImage is the base image used when none is specified.
 const DefaultBaseImage = "ghcr.io/maruel/md"
@@ -313,7 +329,7 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 			} else {
 				metadata := gatherGitMetadata(ctx, c.Name, repo)
 				diff := gatherGitDiff(ctx, c.Name, repo)
-				if msg, err := generateCommitMsg(ctx, p, metadata, diff); err != nil {
+				if msg, err := gitutil.GenerateCommitMsg(ctx, p, metadata, diff, nil); err != nil {
 					slog.WarnContext(ctx, "failed to generate commit message", "err", err)
 				} else if msg != "" {
 					commitMsg = msg
@@ -495,14 +511,14 @@ func unmarshalContainer(data []byte) (Container, error) {
 // resolveDefaults populates DefaultRemote and DefaultBranch if not already set.
 func (c *Container) resolveDefaults(ctx context.Context) error {
 	if c.DefaultRemote == "" {
-		remote, err := GitDefaultRemote(ctx, c.GitRoot)
+		remote, err := gitutil.DefaultRemote(ctx, c.GitRoot)
 		if err != nil {
 			return err
 		}
 		c.DefaultRemote = remote
 	}
 	if c.DefaultBranch == "" {
-		branch, err := GitDefaultBranch(ctx, c.GitRoot, c.DefaultRemote)
+		branch, err := gitutil.DefaultBranch(ctx, c.GitRoot, c.DefaultRemote)
 		if err != nil {
 			return err
 		}
@@ -576,15 +592,19 @@ func newProvider(ctx context.Context, provider, model string) (genai.Provider, e
 	return cfg.Factory(ctx, m)
 }
 
-// genCommitMsg generates a commit message using an already-initialized provider.
-func genCommitMsg(ctx context.Context, p genai.Provider, prompt string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	res, err := p.GenSync(ctx, genai.Messages{genai.NewTextMessage(prompt)}, &genai.GenOptionText{MaxTokens: 1024})
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(res.String()), nil
+// gatherGitMetadata runs SSH commands to collect branch, stat, and log from
+// the container. This data is always small.
+func gatherGitMetadata(ctx context.Context, containerName, repo string) string {
+	cmd := "cd ~/src/" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
+	out, _ := runCmd(ctx, "", []string{"ssh", containerName, cmd}, true)
+	return out
+}
+
+// gatherGitDiff runs SSH to get the full patience diff from the container.
+func gatherGitDiff(ctx context.Context, containerName, repo string) string {
+	cmd := "cd ~/src/" + repo + " && git diff --patience -U10 --cached base -- ."
+	out, _ := runCmd(ctx, "", []string{"ssh", containerName, cmd}, true)
+	return out
 }
 
 // shellQuote returns a shell-escaped version of s, safe for embedding in a

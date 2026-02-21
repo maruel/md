@@ -2,14 +2,14 @@
 // source code is governed by the Apache v2 license that can be found in the
 // LICENSE file.
 
-package md
+package gitutil
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestExtractPath(t *testing.T) {
+func Test_extractPath(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
@@ -33,7 +33,7 @@ func TestExtractPath(t *testing.T) {
 	}
 }
 
-func TestIsTestFile(t *testing.T) {
+func Test_isTestFile(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
@@ -56,7 +56,7 @@ func TestIsTestFile(t *testing.T) {
 	}
 }
 
-func TestIsDataFile(t *testing.T) {
+func Test_isDataFile(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
@@ -79,7 +79,7 @@ func TestIsDataFile(t *testing.T) {
 	}
 }
 
-func TestIsGeneratedFile(t *testing.T) {
+func Test_isGeneratedFile(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
@@ -112,7 +112,7 @@ func TestIsGeneratedFile(t *testing.T) {
 	}
 }
 
-func TestFilterDiff(t *testing.T) {
+func Test_filterDiff(t *testing.T) {
 	diff := strings.Join([]string{
 		"diff --git a/main.go b/main.go",
 		"--- a/main.go",
@@ -175,7 +175,7 @@ func TestFilterDiff(t *testing.T) {
 	})
 }
 
-func TestReduceDiffContext(t *testing.T) {
+func Test_reduceDiffContext(t *testing.T) {
 	t.Run("single hunk long context", func(t *testing.T) {
 		// Build a hunk with 10 context lines before and after a change.
 		lines := make([]string, 0, 24)
@@ -193,7 +193,7 @@ func TestReduceDiffContext(t *testing.T) {
 			lines = append(lines, " trailing context "+strings.Repeat("y", i))
 		}
 
-		got := reduceDiffContext(strings.Join(lines, "\n"), 3)
+		got := reduceDiffContext(strings.Join(lines, "\n"))
 		// Count context lines (lines starting with ' ').
 		var ctxCount int
 		for l := range strings.SplitSeq(got, "\n") {
@@ -211,7 +211,7 @@ func TestReduceDiffContext(t *testing.T) {
 
 	t.Run("already short", func(t *testing.T) {
 		diff := "diff --git a/f.go b/f.go\n--- a/f.go\n+++ b/f.go\n@@ -1,5 +1,5 @@\n ctx1\n ctx2\n-old\n+new\n ctx3\n"
-		got := reduceDiffContext(diff, 3)
+		got := reduceDiffContext(diff)
 		// Should be unchanged since context is already <= 3.
 		if got != diff {
 			t.Errorf("expected no change for short context:\ngot:\n%s\nwant:\n%s", got, diff)
@@ -219,7 +219,7 @@ func TestReduceDiffContext(t *testing.T) {
 	})
 
 	t.Run("empty diff", func(t *testing.T) {
-		got := reduceDiffContext("", 3)
+		got := reduceDiffContext("")
 		if got != "" {
 			t.Errorf("expected empty, got %q", got)
 		}
@@ -244,7 +244,7 @@ func TestReduceDiffContext(t *testing.T) {
 			"+new2",
 			" y",
 		}, "\n")
-		got := reduceDiffContext(diff, 3)
+		got := reduceDiffContext(diff)
 		if !strings.Contains(got, "a.go") || !strings.Contains(got, "b.go") {
 			t.Error("both files must be present")
 		}
@@ -254,7 +254,7 @@ func TestReduceDiffContext(t *testing.T) {
 	})
 }
 
-func TestTrimHunkContext(t *testing.T) {
+func Test_trimHunkContext(t *testing.T) {
 	t.Run("trim leading and trailing", func(t *testing.T) {
 		body := []string{
 			" a", " b", " c", " d", " e",
@@ -292,7 +292,7 @@ func TestTrimHunkContext(t *testing.T) {
 	})
 }
 
-func TestSplitDiff(t *testing.T) {
+func Test_splitDiff(t *testing.T) {
 	t.Run("single file", func(t *testing.T) {
 		diff := "diff --git a/f.go b/f.go\n-old\n+new"
 		chunks := splitDiff(diff, 10000)
@@ -339,7 +339,7 @@ func TestSplitDiff(t *testing.T) {
 	})
 }
 
-func TestFilteredAnnotation(t *testing.T) {
+func Test_filteredAnnotation(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		got := filteredAnnotation(nil)
 		if got != "" {
@@ -366,7 +366,7 @@ func TestFilteredAnnotation(t *testing.T) {
 	})
 }
 
-func TestBuildContext(t *testing.T) {
+func Test_buildContext(t *testing.T) {
 	got := buildContext("meta\n", "diff\n")
 	want := "meta\n=== Changes ===\ndiff\n"
 	if got != want {
@@ -374,7 +374,7 @@ func TestBuildContext(t *testing.T) {
 	}
 }
 
-func TestParseDiff(t *testing.T) {
+func Test_parseDiff(t *testing.T) {
 	t.Run("single file single hunk", func(t *testing.T) {
 		diff := strings.Join([]string{
 			"diff --git a/main.go b/main.go",
@@ -585,7 +585,7 @@ func TestReduceFileDiffContext(t *testing.T) {
 	}
 }
 
-func TestFilterFiles(t *testing.T) {
+func Test_filterFiles(t *testing.T) {
 	diff := strings.Join([]string{
 		"diff --git a/main.go b/main.go",
 		"--- a/main.go",

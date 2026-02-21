@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/maruel/md"
+	"github.com/maruel/md/gitutil"
 )
 
 func main() {
@@ -183,7 +184,7 @@ func newContainer(ctx context.Context, cf *containerFlags) (*md.Container, error
 			return nil, err
 		}
 	}
-	gitRoot, err := md.GitRootDir(ctx, repo)
+	gitRoot, err := gitutil.RootDir(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +195,7 @@ func newContainer(ctx context.Context, cf *containerFlags) (*md.Container, error
 	if cf.branch != nil && *cf.branch != "" {
 		branch = *cf.branch
 	} else {
-		branch, err = md.GitCurrentBranch(ctx, gitRoot)
+		branch, err = gitutil.CurrentBranch(ctx, gitRoot)
 		if err != nil {
 			return nil, err
 		}

@@ -143,18 +143,23 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 		}
 	}
 
-	buildCtx, err := prepareBuildContext()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
-
 	baseImage := opts.BaseImage
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, opts.Quiet); err != nil {
-		return nil, err
+	if !imageBuildNeeded(ctx, c.ImageName, baseImage, c.keysDir) {
+		if !opts.Quiet {
+			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
+		}
+	} else {
+		buildCtx, err := prepareBuildContext()
+		if err != nil {
+			return nil, err
+		}
+		defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
+		if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, opts.Quiet); err != nil {
+			return nil, err
+		}
 	}
 	result, err := runContainer(ctx, c, opts, tailscaleEphemeral)
 	if err != nil {
@@ -182,17 +187,18 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 		Name:     fmt.Sprintf("md-%s-run-%x", sanitizeDockerName(c.RepoName), buf),
 	}
 
-	buildCtx, err := prepareBuildContext()
-	if err != nil {
-		return 1, err
-	}
-	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
-
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, true); err != nil {
-		return 1, err
+	if imageBuildNeeded(ctx, c.ImageName, baseImage, c.keysDir) {
+		buildCtx, err := prepareBuildContext()
+		if err != nil {
+			return 1, err
+		}
+		defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
+		if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, true); err != nil {
+			return 1, err
+		}
 	}
 	opts := StartOpts{Quiet: true}
 	if _, err := runContainer(ctx, tmp, &opts, false); err != nil {
@@ -201,7 +207,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 	}
 
 	cmdStr := strings.Join(command, " ")
-	_, err = runCmd(ctx, "", []string{"ssh", tmp.Name, "cd ~/src/" + shellQuote(c.RepoName) + " && " + cmdStr}, false)
+	_, err := runCmd(ctx, "", []string{"ssh", tmp.Name, "cd ~/src/" + shellQuote(c.RepoName) + " && " + cmdStr}, false)
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError

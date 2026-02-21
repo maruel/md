@@ -191,6 +191,91 @@ func getRemoteConfigDigest(ctx context.Context, image, arch string) (string, err
 	return "", fmt.Errorf("no manifest for linux/%s in %s", arch, image)
 }
 
+// embeddedContextSHA computes a deterministic SHA-256 hash over the embedded
+// build context (rsc/) and SSH key files without extracting to disk. It
+// produces the same result as contextSHAHash on the extracted build context.
+func embeddedContextSHA(keysDir string) (string, error) {
+	h := sha256.New()
+	var paths []string
+	if err := fs.WalkDir(rscFS, "rsc", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			if rel := strings.TrimPrefix(path, "rsc/"); rel != "" {
+				paths = append(paths, rel)
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	sort.Strings(paths)
+	for _, rel := range paths {
+		_, _ = io.WriteString(h, rel)
+		data, err := rscFS.ReadFile("rsc/" + rel)
+		if err != nil {
+			return "", err
+		}
+		_, _ = h.Write(data)
+	}
+	for _, name := range []string{"ssh_host_ed25519_key", "ssh_host_ed25519_key.pub", "authorized_keys"} {
+		data, err := os.ReadFile(filepath.Join(keysDir, name))
+		if err != nil {
+			return "", err
+		}
+		_, _ = io.WriteString(h, name)
+		_, _ = h.Write(data)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// imageBuildNeeded reports whether the customized Docker image needs to be
+// rebuilt. It checks the base image digest and build context SHA against
+// labels on the existing customized image without extracting files to disk.
+// For remote base images it also verifies the local copy matches the registry.
+func imageBuildNeeded(ctx context.Context, imageName, baseImage, keysDir string) bool {
+	// Quick check: does the customized image have labels at all?
+	currentDigest, err := dockerInspectFormat(ctx, imageName, `{{index .Config.Labels "md.base_digest"}}`)
+	if err != nil || currentDigest == "" || currentDigest == "<no value>" {
+		return true
+	}
+	currentContext, err := dockerInspectFormat(ctx, imageName, `{{index .Config.Labels "md.context_sha"}}`)
+	if err != nil || currentContext == "" || currentContext == "<no value>" {
+		return true
+	}
+
+	// Get the base image digest.
+	var baseDigest string
+	if d, err := dockerInspectFormat(ctx, baseImage, "{{index .RepoDigests 0}}"); err == nil && d != "" {
+		baseDigest = d
+	} else if id, err := dockerInspectFormat(ctx, baseImage, "{{.Id}}"); err == nil {
+		baseDigest = id
+	} else {
+		return true
+	}
+	if currentDigest != baseDigest {
+		return true
+	}
+
+	// For remote images, verify the local base is up to date with the registry.
+	isLocal := !strings.Contains(baseImage, "/") && !strings.Contains(baseImage, ":")
+	if !isLocal {
+		localID, _ := dockerInspectFormat(ctx, baseImage, "{{.Id}}")
+		remoteDigest, err := getRemoteConfigDigest(ctx, baseImage, runtime.GOARCH)
+		if err != nil || remoteDigest != localID {
+			return true
+		}
+	}
+
+	// Compute context SHA from embedded FS without disk extraction.
+	contextSHA, err := embeddedContextSHA(keysDir)
+	if err != nil {
+		return true
+	}
+	return currentContext != contextSHA
+}
+
 // buildCustomizedImage builds the per-user Docker image. keysDir is the
 // directory containing SSH host keys and authorized_keys, supplied to Docker
 // as a named build context "md-keys".

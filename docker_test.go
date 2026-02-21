@@ -92,6 +92,52 @@ func TestContextSHAHash(t *testing.T) {
 	})
 }
 
+func TestEmbeddedContextSHA(t *testing.T) {
+	keysDir := t.TempDir()
+	for _, f := range []struct{ name, content string }{
+		{"ssh_host_ed25519_key", "hostkey"},
+		{"ssh_host_ed25519_key.pub", "hostkey.pub"},
+		{"authorized_keys", "authkeys"},
+	} {
+		if err := os.WriteFile(filepath.Join(keysDir, f.name), []byte(f.content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("matches_contextSHAHash", func(t *testing.T) {
+		buildCtx, err := prepareBuildContext()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.RemoveAll(buildCtx) }()
+		diskSHA, err := contextSHAHash(buildCtx, keysDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		embeddedSHA, err := embeddedContextSHA(keysDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diskSHA != embeddedSHA {
+			t.Fatalf("embeddedContextSHA=%q != contextSHAHash=%q", embeddedSHA, diskSHA)
+		}
+	})
+
+	t.Run("deterministic", func(t *testing.T) {
+		got1, err := embeddedContextSHA(keysDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got2, err := embeddedContextSHA(keysDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got1 != got2 {
+			t.Fatalf("expected deterministic hash, got %q then %q", got1, got2)
+		}
+	})
+}
+
 func TestConvertGitURLToHTTPS(t *testing.T) {
 	tests := []struct {
 		name string

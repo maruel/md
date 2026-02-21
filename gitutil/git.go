@@ -19,10 +19,18 @@ import (
 	"strings"
 )
 
-// RunGit executes a git command in dir and returns captured stdout.
-func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
+// newGitCmd creates an exec.Cmd for git with LANG=C set so that output is
+// always in English regardless of the system locale.
+func newGitCmd(ctx context.Context, dir string, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "LANG=C")
+	return cmd
+}
+
+// RunGit executes a git command in dir and returns captured stdout.
+func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := newGitCmd(ctx, dir, args)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -99,8 +107,7 @@ func MergeBase(ctx context.Context, dir, baseRef string) string {
 // Fetch fetches the latest refs from origin.
 func Fetch(ctx context.Context, dir string) error {
 	slog.Info("git fetch", "dir", dir)
-	cmd := exec.CommandContext(ctx, "git", "fetch", "origin")
-	cmd.Dir = dir
+	cmd := newGitCmd(ctx, dir, []string{"fetch", "origin"})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -112,8 +119,7 @@ func Fetch(ctx context.Context, dir string) error {
 // CreateBranch creates a new branch from startPoint and checks it out.
 func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
 	slog.Info("git create branch", "branch", name, "startPoint", startPoint)
-	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", name, startPoint)
-	cmd.Dir = dir
+	cmd := newGitCmd(ctx, dir, []string{"checkout", "-b", name, startPoint})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -125,8 +131,7 @@ func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
 // CheckoutBranch switches to an existing branch.
 func CheckoutBranch(ctx context.Context, dir, name string) error {
 	slog.Info("git checkout", "branch", name)
-	cmd := exec.CommandContext(ctx, "git", "checkout", name)
-	cmd.Dir = dir
+	cmd := newGitCmd(ctx, dir, []string{"checkout", name})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -186,8 +191,7 @@ func PushRef(ctx context.Context, dir, ref, branch string, force bool) error {
 		args = append(args, "--force")
 	}
 	args = append(args, "origin", ref+":refs/heads/"+branch)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
+	cmd := newGitCmd(ctx, dir, args)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -211,8 +215,7 @@ func SquashOnto(ctx context.Context, dir, sourceRef, targetBranch, message strin
 	// 2. Create the squash commit: sourceRef's tree, parented on origin/<targetBranch>.
 	target := "origin/" + targetBranch
 	commitTreeArgs := []string{"commit-tree", "-p", target, "-m", message, sourceRef + "^{tree}"}
-	cmd := exec.CommandContext(ctx, "git", commitTreeArgs...)
-	cmd.Dir = dir
+	cmd := newGitCmd(ctx, dir, commitTreeArgs)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -234,13 +237,13 @@ func RevParse(ctx context.Context, dir, ref string) (string, error) {
 // in refs/heads/ or refs/remotes/origin/. Container remote-tracking refs
 // (refs/remotes/<container>/*) are excluded by construction.
 func IsReachable(ctx context.Context, dir, commit string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "for-each-ref",
+	cmd := newGitCmd(ctx, dir, []string{
+		"for-each-ref",
 		"--contains", commit,
 		"--format=%(refname)",
 		"refs/heads/",
 		"refs/remotes/origin/",
-	)
-	cmd.Dir = dir
+	})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -254,8 +257,7 @@ func IsReachable(ctx context.Context, dir, commit string) (bool, error) {
 // out. This does not touch the working tree or index.
 func CreateBranchAt(ctx context.Context, dir, name, commit string) error {
 	slog.Info("git create branch at", "branch", name, "commit", commit)
-	cmd := exec.CommandContext(ctx, "git", "branch", name, commit)
-	cmd.Dir = dir
+	cmd := newGitCmd(ctx, dir, []string{"branch", name, commit})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

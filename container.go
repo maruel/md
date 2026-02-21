@@ -30,6 +30,7 @@ import (
 func runCmd(ctx context.Context, dir string, args []string, capture bool) (string, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "LANG=C")
 	if capture {
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err
@@ -218,7 +219,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 func (c *Container) Kill(ctx context.Context) error {
 	_, containerErr := runCmd(ctx, "", []string{"docker", "inspect", c.Name}, true)
 	containerExists := containerErr == nil
-	_, remoteErr := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", c.Name}, true)
+	_, remoteErr := gitutil.RunGit(ctx, c.GitRoot, "remote", "get-url", c.Name)
 	remoteExists := remoteErr == nil
 	sshConfigDir := filepath.Join(c.Home, ".ssh", "config.d")
 	sshConf := filepath.Join(sshConfigDir, c.Name+".conf")
@@ -257,7 +258,7 @@ func (c *Container) Kill(ctx context.Context) error {
 
 	var retErr error
 	if remoteExists {
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "remove", c.Name}, true); err != nil {
+		if _, err := gitutil.RunGit(ctx, c.GitRoot, "remote", "remove", c.Name); err != nil {
 			retErr = err
 		}
 	}
@@ -279,9 +280,9 @@ func (c *Container) Push(ctx context.Context) error {
 		return err
 	}
 	// Refuse if there are pending local changes on the branch being pushed.
-	currentBranch, _ := runCmd(ctx, c.GitRoot, []string{"git", "branch", "--show-current"}, true)
+	currentBranch, _ := gitutil.RunGit(ctx, c.GitRoot, "branch", "--show-current")
 	if currentBranch == c.Branch {
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "diff", "--quiet", "--exit-code"}, true); err != nil {
+		if _, err := gitutil.RunGit(ctx, c.GitRoot, "diff", "--quiet", "--exit-code"); err != nil {
 			return errors.New("there are pending changes locally. Please commit or stash them before pushing")
 		}
 	}
@@ -336,8 +337,8 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 				}
 			}
 		}
-		gitUserName, _ := runCmd(ctx, c.GitRoot, []string{"git", "config", "user.name"}, true)
-		gitUserEmail, _ := runCmd(ctx, c.GitRoot, []string{"git", "config", "user.email"}, true)
+		gitUserName, _ := gitutil.RunGit(ctx, c.GitRoot, "config", "user.name")
+		gitUserEmail, _ := gitutil.RunGit(ctx, c.GitRoot, "config", "user.email")
 		gitAuthor := shellQuote(gitUserName + " <" + gitUserEmail + ">")
 		commitCmd := "cd ~/src/" + repo + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
 		if _, err := runCmd(ctx, "", []string{"ssh", c.Name, commitCmd}, false); err != nil {
@@ -357,13 +358,13 @@ func (c *Container) Pull(ctx context.Context, provider, model string) error {
 		return err
 	}
 	remoteRef := c.Name + "/" + c.Branch
-	currentBranch, _ := runCmd(ctx, c.GitRoot, []string{"git", "branch", "--show-current"}, true)
+	currentBranch, _ := gitutil.RunGit(ctx, c.GitRoot, "branch", "--show-current")
 	if currentBranch == c.Branch {
 		// Already on the branch, rebase locally.
 		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
 			return err
 		}
-	} else if _, err := runCmd(ctx, c.GitRoot, []string{"git", "merge-base", "--is-ancestor", c.Branch, remoteRef}, true); err == nil {
+	} else if _, err := gitutil.RunGit(ctx, c.GitRoot, "merge-base", "--is-ancestor", c.Branch, remoteRef); err == nil {
 		// Fast-forward: update ref without checkout.
 		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "update-ref", "refs/heads/" + c.Branch, remoteRef}, false); err != nil {
 			return err
@@ -372,7 +373,7 @@ func (c *Container) Pull(ctx context.Context, provider, model string) error {
 		// Not a fast-forward. Checkout the branch, rebase, then checkout back.
 		origRef := currentBranch
 		if origRef == "" {
-			origRef, _ = runCmd(ctx, c.GitRoot, []string{"git", "rev-parse", "HEAD"}, true)
+			origRef, _ = gitutil.RunGit(ctx, c.GitRoot, "rev-parse", "HEAD")
 		}
 		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", c.Branch}, false); err != nil {
 			return err
@@ -538,7 +539,7 @@ func (c *Container) SyncDefaultBranch(ctx context.Context) error {
 	if c.DefaultBranch == c.Branch {
 		return nil
 	}
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, "refs/remotes/" + c.DefaultRemote + "/" + c.DefaultBranch + ":refs/heads/" + c.DefaultBranch}, true); err != nil {
+	if _, err := gitutil.RunGit(ctx, c.GitRoot, "push", "-q", "-f", c.Name, "refs/remotes/"+c.DefaultRemote+"/"+c.DefaultBranch+":refs/heads/"+c.DefaultBranch); err != nil {
 		return fmt.Errorf("sync default branch %q: %w", c.DefaultBranch, err)
 	}
 	return nil
@@ -547,7 +548,7 @@ func (c *Container) SyncDefaultBranch(ctx context.Context) error {
 func (c *Container) checkContainerState(ctx context.Context) error {
 	_, containerErr := runCmd(ctx, "", []string{"docker", "inspect", c.Name}, true)
 	containerExists := containerErr == nil
-	_, remoteErr := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", c.Name}, true)
+	_, remoteErr := gitutil.RunGit(ctx, c.GitRoot, "remote", "get-url", c.Name)
 	remoteExists := remoteErr == nil
 	sshConfigDir := filepath.Join(c.Home, ".ssh", "config.d")
 	_, sshErr := os.Stat(filepath.Join(sshConfigDir, c.Name+".conf"))
@@ -575,7 +576,7 @@ func (c *Container) checkContainerState(ctx context.Context) error {
 
 func (c *Container) cleanup(ctx context.Context) {
 	removeSSHConfig(filepath.Join(c.Home, ".ssh", "config.d"), c.Name)
-	_, _ = runCmd(ctx, c.GitRoot, []string{"git", "remote", "remove", c.Name}, true)
+	_, _ = gitutil.RunGit(ctx, c.GitRoot, "remote", "remove", c.Name)
 	_, _ = runCmd(ctx, "", []string{"docker", "rm", "-f", "-v", c.Name}, true)
 }
 

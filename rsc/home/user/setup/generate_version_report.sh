@@ -61,6 +61,8 @@
 	check_version "golangci-lint" "golangci-lint" "--version"
 	check_version "delve" "dlv" "version" "^Version:"
 	check_version "lldb" "lldb" "--version"
+	check_version "objdump" "objdump" "--version"
+	check_version "radare2" "r2" "-v"
 	check_version "strace" "strace" "-V"
 	check_version "yq" "yq" "--version"
 	check_version "bubblewrap" "bwrap" "--version"

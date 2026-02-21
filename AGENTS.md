@@ -22,23 +22,9 @@ When installing a new tool in the container, ensure you update:
 2. Add `RUN measure_exec.sh` command to `rsc/Dockerfile.base`
 3. Add entry to "Installed Tools" section in this AGENTS.md
 4. Add version check to `rsc/home/user/setup/generate_version_report.sh`
-5. Update `rsc/home/user/AGENTS.md` with any relevant changes
-6. If the tool needs PATH setup, add a `bash.d` script (see [Shell Environment](#shell-environment-bash_env))
-7. Run `shellcheck` and `shfmt` on any shell scripts
-
-## Installed Tools
-
-- Google Chrome (amd64 only, installed via extrepo during image build in rsc/root/setup/3_extrepo.sh)
-- Chromium Browser (arm64 fallback, installed via apt in rsc/root/setup/1_packages.sh)
-- chromium-sandbox (installed via apt in rsc/root/setup/1_packages.sh)
-- Chrome DevTools MCP (installed via npm in rsc/home/user/setup/2_nodejs.sh)
-- tokei (installed via apt in rsc/root/setup/1_packages.sh)
-- golangci-lint (installed via curl in rsc/home/user/setup/1_go.sh)
-- strace (installed via apt in rsc/root/setup/1_packages.sh)
-- lldb (installed via apt in rsc/root/setup/1_packages.sh, enables rust-lldb)
-- delve/dlv (installed via go install in rsc/home/user/setup/1_go.sh)
-- Tailscale (installed via extrepo in rsc/root/setup/3_extrepo.sh)
-- GitHub CLI/gh (installed via extrepo in rsc/root/setup/3_extrepo.sh)
+6. Update `rsc/home/user/src/AGENTS.md` "Preinstalled Tools" section to reflect the change
+7. If the tool needs PATH setup, add a `bash.d` script (see [Shell Environment](#shell-environment-bash_env))
+8. Run `shellcheck` and `shfmt` on any shell scripts
 
 ## Shell Environment (BASH_ENV)
 
@@ -104,4 +90,4 @@ The `rsc/` directory contains Docker build context and system configuration:
 - `rsc/home/user/` - User-context setup (copied as user to `/home/user/`)
   - `rsc/home/user/.config/bash.d/` - Modular bash extensions sourced via `/etc/bash_env` (see Shell Environment below)
   - `rsc/home/user/setup/` - User-level installation scripts (numbered 1+)
-  - `rsc/home/user/AGENTS.md` - Agent documentation inside container (keep in sync)
+  - `rsc/home/user/src/AGENTS.md` - Agent documentation inside container (keep in sync)

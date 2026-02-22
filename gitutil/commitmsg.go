@@ -450,7 +450,7 @@ func GenerateCommitMsg(ctx context.Context, p genai.Provider, metadata, diff str
 	return parallelDescribe(ctx, p, metadata+annotation, files)
 }
 
-const maxMetadataPrefix = 2000
+const maxMetadataPrefix = 10000
 
 // parallelDescribe splits the diff into chunks, summarizes each concurrently,
 // then synthesizes the summaries into a single commit message. Each chunk

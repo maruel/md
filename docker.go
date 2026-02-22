@@ -19,7 +19,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -230,11 +232,30 @@ func embeddedContextSHA(keysDir string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// cacheSpecKey returns a short hash over the requested cache names and
+// container paths. Returns empty string when caches is nil or empty.
+// Only the spec (name + path) is hashed, not the cache contents.
+func cacheSpecKey(caches []CacheMount) string {
+	if len(caches) == 0 {
+		return ""
+	}
+	specs := make([]string, len(caches))
+	for i, c := range caches {
+		specs[i] = c.Name + ":" + c.ContainerPath
+	}
+	sort.Strings(specs)
+	h := sha256.Sum256([]byte(strings.Join(specs, ",")))
+	return hex.EncodeToString(h[:8])
+}
+
 // imageBuildNeeded reports whether the customized Docker image needs to be
-// rebuilt. It checks the base image digest and build context SHA against
-// labels on the existing customized image without extracting files to disk.
-// For remote base images it also verifies the local copy matches the registry.
-func imageBuildNeeded(ctx context.Context, imageName, baseImage, keysDir string) bool {
+// rebuilt. It checks the base image digest, build context SHA, and cache spec
+// key against labels on the existing image. For remote base images it also
+// verifies the local copy matches the registry.
+// home is used to resolve "~/" in cache HostPaths so only caches whose host
+// directory currently exists are compared (matching what appendCacheLayers
+// would actually inject).
+func imageBuildNeeded(ctx context.Context, imageName, baseImage, keysDir, home string, caches []CacheMount) bool {
 	// Quick check: does the customized image have labels at all?
 	currentDigest, err := dockerInspectFormat(ctx, imageName, `{{index .Config.Labels "md.base_digest"}}`)
 	if err != nil || currentDigest == "" || currentDigest == "<no value>" {
@@ -273,13 +294,114 @@ func imageBuildNeeded(ctx context.Context, imageName, baseImage, keysDir string)
 	if err != nil {
 		return true
 	}
-	return currentContext != contextSHA
+	if currentContext != contextSHA {
+		return true
+	}
+
+	// Compare what appendCacheLayers would actually inject (active caches whose
+	// host dirs exist) against what's currently baked in. Using the active key
+	// avoids perpetual rebuilds when some requested cache dirs don't exist yet.
+	var activeCaches []CacheMount
+	for _, c := range caches {
+		if _, err := os.Stat(resolveHostPath(c.HostPath, home)); err == nil {
+			activeCaches = append(activeCaches, c)
+		}
+	}
+	currentKey, err := dockerInspectFormat(ctx, imageName, `{{index .Config.Labels "md.cache_key"}}`)
+	if err != nil || currentKey == "<no value>" {
+		currentKey = ""
+	}
+	if cacheSpecKey(activeCaches) != currentKey {
+		return true
+	}
+
+	return false
+}
+
+// appendCacheLayers appends a RUN mkdir and COPY instructions to the Dockerfile
+// at dockerfilePath, returns --build-context args for docker build and the
+// cache spec key for the caches that were actually injected (may differ from
+// the requested set when some host paths do not exist).
+// mountPaths lists container-side -v mount targets whose leaf dirs must be
+// pre-created. For caches only the intermediary ancestors are created; COPY
+// --chown handles the leaf. Caches whose host path does not exist are silently
+// skipped. "~/" in HostPath is resolved using home.
+func appendCacheLayers(dockerfilePath string, caches []CacheMount, home string, mountPaths []string) (extraArgs []string, activeKey string, err error) {
+	type activeCM struct {
+		cm       CacheMount
+		hostPath string
+	}
+	var active []activeCM
+	for _, cm := range caches {
+		hostPath := resolveHostPath(cm.HostPath, home)
+		if _, err := os.Stat(hostPath); err != nil {
+			continue
+		}
+		active = append(active, activeCM{cm, hostPath})
+	}
+
+	// activeKey reflects only the caches actually injected, not all requested.
+	// This ensures imageBuildNeeded detects when a previously-skipped cache dir
+	// appears on the host and triggers a rebuild.
+	activeMounts := make([]CacheMount, len(active))
+	for i, a := range active {
+		activeMounts[i] = a.cm
+	}
+	activeKey = cacheSpecKey(activeMounts)
+
+	// Collect directories to pre-create:
+	// - For cache COPY destinations: intermediaries only; COPY --chown creates
+	//   and owns the leaf.
+	// - For runtime -v mount targets: the full path (leaf included), since no
+	//   COPY will create it. mkdir -p also covers any intermediaries.
+	const base = "/home/user"
+	seen := map[string]bool{}
+	for _, a := range active {
+		for dir := filepath.Dir(a.cm.ContainerPath); dir != base && dir != "." && dir != "/"; dir = filepath.Dir(dir) {
+			seen[dir] = true
+		}
+	}
+	for _, p := range mountPaths {
+		seen[p] = true
+	}
+
+	dirs := make([]string, 0, len(seen))
+	for d := range seen {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+
+	extraArgs = make([]string, 0, 2*len(active))
+	var copies strings.Builder
+	for _, a := range active {
+		fmt.Fprintf(&copies, "COPY --chown=user:user --from=%s / %s/\n", a.cm.Name, a.cm.ContainerPath)
+		extraArgs = append(extraArgs, "--build-context", a.cm.Name+"="+a.hostPath)
+	}
+
+	if len(dirs) == 0 && copies.Len() == 0 {
+		return nil, activeKey, nil
+	}
+	f, err := os.OpenFile(dockerfilePath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return nil, activeKey, err
+	}
+	var snippet strings.Builder
+	snippet.WriteString("\n# Pre-create mount targets and inject build-time cache layers.\n")
+	if len(dirs) > 0 {
+		joined := strings.Join(dirs, " ")
+		fmt.Fprintf(&snippet, "RUN mkdir -p %s && chown user:user %s\n", joined, joined)
+	}
+	snippet.WriteString(copies.String())
+	_, err = fmt.Fprint(f, snippet.String())
+	return extraArgs, activeKey, errors.Join(err, f.Close())
 }
 
 // buildCustomizedImage builds the per-user Docker image. keysDir is the
 // directory containing SSH host keys and authorized_keys, supplied to Docker
-// as a named build context "md-keys".
-func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir, imageName, baseImage string, quiet bool) error {
+// as a named build context "md-keys". home is the user's home directory used
+// to resolve "~/" in cache HostPaths. mountPaths lists container-side -v mount
+// targets to pre-create with user ownership.
+func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir, imageName, baseImage, home string, caches []CacheMount, mountPaths []string, quiet bool) error {
 	arch := runtime.GOARCH
 	// Local-only images (no "/" or ":" in name) are never pulled from a registry.
 	isLocal := !strings.Contains(baseImage, "/") && !strings.Contains(baseImage, ":")
@@ -316,9 +438,10 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 		}
 	}
 
-	// Get base image digest.
+	// Get base image digest. For locally-built images (no registry), RepoDigests
+	// is empty; fall back to the image ID so the label is never stored as "".
 	baseDigest, err := runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", baseImage}, true)
-	if err != nil {
+	if err != nil || baseDigest == "" {
 		baseDigest, _ = runCmd(ctx, "", []string{"docker", "image", "inspect", "--format", "{{.Id}}", baseImage}, true)
 	}
 
@@ -328,16 +451,15 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 		return fmt.Errorf("computing context SHA: %w", err)
 	}
 
-	// Check if current image already matches.
-	currentDigest, err := runCmd(ctx, "", []string{"docker", "image", "inspect", imageName, "--format", `{{index .Config.Labels "md.base_digest"}}`}, true)
-	if err == nil && currentDigest != "<no value>" {
-		currentContext, _ := runCmd(ctx, "", []string{"docker", "image", "inspect", imageName, "--format", `{{index .Config.Labels "md.context_sha"}}`}, true)
-		if currentDigest == baseDigest && currentContext == contextSHA {
-			if !quiet {
-				_, _ = fmt.Fprintf(w, "- Docker image %s already matches %s (%s), skipping rebuild.\n", imageName, baseImage, baseDigest)
-			}
-			return nil
-		}
+	// Inject COPY layers into the extracted Dockerfile.
+	// activeKey reflects only the caches that were actually found on the host;
+	// use it (not cacheSpecKey(caches)) so the label accurately represents what
+	// was baked in.
+	var cacheArgs []string
+	var activeKey string
+	cacheArgs, activeKey, err = appendCacheLayers(filepath.Join(buildCtxDir, "Dockerfile"), caches, home, mountPaths)
+	if err != nil {
+		return fmt.Errorf("appending cache layers: %w", err)
 	}
 
 	if !quiet {
@@ -346,20 +468,122 @@ func buildCustomizedImage(ctx context.Context, w io.Writer, buildCtxDir, keysDir
 	buildCmd := []string{
 		"docker", "build",
 		"--build-context", "md-keys=" + keysDir,
+		"-f", filepath.Join(buildCtxDir, "Dockerfile"),
 		"--platform", "linux/" + arch,
 		"--build-arg", "BASE_IMAGE=" + baseImage,
 		"--build-arg", "BASE_IMAGE_DIGEST=" + baseDigest,
 		"--build-arg", "CONTEXT_SHA=" + contextSHA,
+		"--build-arg", "CACHE_KEY=" + activeKey,
 		"-t", imageName,
 	}
 	if quiet {
 		buildCmd = append(buildCmd[:2], append([]string{"-q"}, buildCmd[2:]...)...)
 	}
+	buildCmd = append(buildCmd, cacheArgs...)
 	buildCmd = append(buildCmd, buildCtxDir)
 	if _, err := runCmd(ctx, "", buildCmd, false); err != nil {
 		return fmt.Errorf("building Docker image: %w", err)
 	}
 	return nil
+}
+
+// dirStats returns the number of regular files and total byte size under dir.
+// Unreadable entries are silently skipped.
+func dirStats(dir string) (files, bytes int64) {
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				files++
+				bytes += info.Size()
+			}
+		}
+		return nil
+	})
+	return files, bytes
+}
+
+// formatBytes formats n bytes as a human-readable string (e.g. "1.2 GB").
+func formatBytes(n int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case n >= gb:
+		return fmt.Sprintf("%.1f GB", float64(n)/float64(gb))
+	case n >= mb:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb))
+	case n >= kb:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
+// formatCount formats n with comma thousands separators (e.g. 1234567 → "1,234,567").
+func formatCount(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	start := len(s) % 3
+	var b strings.Builder
+	b.Grow(len(s) + len(s)/3)
+	if start > 0 {
+		b.WriteString(s[:start])
+	}
+	for i := start; i < len(s); i += 3 {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+// resolveHostPath expands a leading "~/" to home; absolute paths are returned
+// unchanged.
+func resolveHostPath(path, home string) string {
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+// printCacheInfo walks each cache directory in parallel and writes one summary
+// line per cache to w. "~/" in HostPath is resolved using home. Caches whose
+// host path does not exist are reported as "not found".
+func printCacheInfo(w io.Writer, caches []CacheMount, home string) {
+	type stat struct {
+		name     string
+		hostPath string
+		files    int64
+		bytes    int64
+		missing  bool
+	}
+	stats := make([]stat, len(caches))
+	var wg sync.WaitGroup
+	for i, c := range caches {
+		wg.Add(1)
+		go func(i int, c CacheMount) {
+			defer wg.Done()
+			hostPath := resolveHostPath(c.HostPath, home)
+			stats[i].name = c.Name
+			stats[i].hostPath = hostPath
+			if _, err := os.Stat(hostPath); err != nil {
+				stats[i].missing = true
+				return
+			}
+			stats[i].files, stats[i].bytes = dirStats(hostPath)
+		}(i, c)
+	}
+	wg.Wait()
+	for _, s := range stats {
+		if s.missing {
+			_, _ = fmt.Fprintf(w, "- Cache %s: %s not found, skipping\n", s.name, s.hostPath)
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "- Cache %s (%s): %s files, %s\n",
+			s.name, s.hostPath, formatCount(s.files), formatBytes(s.bytes))
+	}
 }
 
 // runContainer starts the Docker container and sets up SSH access.

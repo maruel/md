@@ -66,6 +66,10 @@ type StartOpts struct {
 	TailscaleAuthKey string
 	// USB enables USB device passthrough (Linux only).
 	USB bool
+	// Caches lists host directories to COPY into the image at build time.
+	// Use well-known names from [WellKnownCaches] or construct [CacheMount]
+	// values directly. Paths that do not exist on the host are silently skipped.
+	Caches []CacheMount
 	// Labels are additional Docker labels (key=value) applied to the container.
 	Labels []string
 	// Quiet suppresses informational output during startup.
@@ -147,17 +151,20 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if !imageBuildNeeded(ctx, c.ImageName, baseImage, c.keysDir) {
+	if !imageBuildNeeded(ctx, c.ImageName, baseImage, c.keysDir, c.Home, opts.Caches) {
 		if !opts.Quiet {
 			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
 		}
 	} else {
+		if !opts.Quiet && len(opts.Caches) > 0 {
+			printCacheInfo(c.W, opts.Caches, c.Home)
+		}
 		buildCtx, err := prepareBuildContext()
 		if err != nil {
 			return nil, err
 		}
 		defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
-		if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, opts.Quiet); err != nil {
+		if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
 			return nil, err
 		}
 	}
@@ -175,8 +182,9 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 
 // Run starts a temporary container, runs a command, then cleans up.
 // baseImage is the full Docker image reference; if empty, DefaultBaseImage is
-// used.
-func (c *Container) Run(ctx context.Context, baseImage string, command []string) (_ int, retErr error) {
+// used. caches lists host directories to COPY into the image (same semantics
+// as StartOpts.Caches); nil means no caches.
+func (c *Container) Run(ctx context.Context, baseImage string, command []string, caches []CacheMount) (_ int, retErr error) {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
 	tmp := &Container{
@@ -190,13 +198,13 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string)
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if imageBuildNeeded(ctx, c.ImageName, baseImage, c.keysDir) {
+	if imageBuildNeeded(ctx, c.ImageName, baseImage, c.keysDir, c.Home, caches) {
 		buildCtx, err := prepareBuildContext()
 		if err != nil {
 			return 1, err
 		}
 		defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
-		if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, true); err != nil {
+		if err := buildCustomizedImage(ctx, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, caches, agentContainerPaths(), true); err != nil {
 			return 1, err
 		}
 	}

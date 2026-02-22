@@ -156,7 +156,44 @@ Agent configurations and credentials are automatically mounted:
   `~/.qwen`, `~/.config/agents`, `~/.config/amp`, `~/.config/goose`, `~/.config/opencode`,
   `~/.local/share/amp`, `~/.local/share/goose`, `~/.local/share/opencode`, `~/.local/state/opencode`
 - Android ADB keys: `~/.android`
-- Gradle cache: `~/.gradle/caches` and `~/.gradle/wrapper/dists`
+
+### Build Cache Injection
+
+`md start` and `md run` automatically bake your local build-tool caches into the `md-user` Docker image at
+build time. This means the container starts with warm caches, skipping the slow cold downloads that would
+otherwise happen on every fresh container.
+
+**Enabled by default** (host directory must exist; silently skipped otherwise):
+
+| Name | Host path | Container path |
+|------|-----------|----------------|
+| `bun` | `~/.bun/install/cache` | `/home/user/.bun/install/cache` |
+| `cargo` | `~/.cargo/registry`, `~/.cargo/git` | `/home/user/.cargo/{registry,git}` |
+| `go-mod` | `~/go/pkg/mod` | `/home/user/go/pkg/mod` |
+| `gradle` | `~/.gradle/caches`, `~/.gradle/wrapper/dists` | `/home/user/.gradle/{caches,wrapper/dists}` |
+| `maven` | `~/.m2/repository` | `/home/user/.m2/repository` |
+| `npm` | `~/.npm` | `/home/user/.npm` |
+| `pip` | `~/.cache/pip` | `/home/user/.cache/pip` |
+| `pnpm` | `~/.local/share/pnpm/store` | `/home/user/.local/share/pnpm/store` |
+| `uv` | `~/.cache/uv` | `/home/user/.cache/uv` |
+
+The `md-user` image is only rebuilt when the set of available caches changes, the base image updates, or
+the build context changes. Cache contents are snapshotted at build time; they are not kept in sync after
+that.
+
+**Opt out** of specific caches:
+
+```bash
+md start --no-cache go-mod --no-cache cargo   # skip specific caches
+md start --no-caches                           # disable all caches
+md start --no-caches --cache go-mod            # only go-mod
+```
+
+**Custom cache directories** (any `host:container[:ro]` path pair):
+
+```bash
+md start --cache /path/to/my/cache:/home/user/.mycache
+```
 
 Environment variables can be passed via:
 
@@ -188,6 +225,9 @@ gh auth login
 | `md start -display` | Start container with X11/VNC desktop environment enabled |
 | `md start -tailscale` | Start container with [Tailscale](TAILSCALE.md) networking for remote SSH access |
 | `md start -usb` | Start container with USB device passthrough (for ADB, etc.) |
+| `md start -no-cache <name>` | Exclude a default cache (repeatable); e.g. `-no-cache go-mod` |
+| `md start -no-caches` | Disable all default caches |
+| `md start -cache host:container` | Add a custom cache directory |
 | `md run <cmd>` | Start a temporary container, run a command, then clean up |
 | `md list` | List all md containers |
 | `ssh md-<repo>-<branch>` | Access the container via SSH |

@@ -4,7 +4,10 @@
 
 package md
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSanitizeDockerName(t *testing.T) {
 	tests := []struct {
@@ -48,6 +51,28 @@ func TestContainerName(t *testing.T) {
 				t.Errorf("containerName(%q, %q) = %q, want %q", tt.repo, tt.branch, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestWellKnownCaches(t *testing.T) {
+	if len(WellKnownCaches) == 0 {
+		t.Fatal("WellKnownCaches must not be empty")
+	}
+	for name, mounts := range WellKnownCaches {
+		if len(mounts) == 0 {
+			t.Errorf("WellKnownCaches[%q] is empty", name)
+		}
+		for _, m := range mounts {
+			if m.Name == "" {
+				t.Errorf("WellKnownCaches[%q]: CacheMount.Name is empty", name)
+			}
+			if !strings.HasPrefix(m.HostPath, "~/") {
+				t.Errorf("WellKnownCaches[%q] %q: HostPath should start with ~/; got %q", name, m.Name, m.HostPath)
+			}
+			if !strings.HasPrefix(m.ContainerPath, "/home/user/") {
+				t.Errorf("WellKnownCaches[%q] %q: ContainerPath should start with /home/user/; got %q", name, m.Name, m.ContainerPath)
+			}
+		}
 	}
 }
 

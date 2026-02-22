@@ -225,8 +225,6 @@ var agentConfig = struct {
 		".codex",
 		".claude",
 		".gemini",
-		".gradle/caches",
-		".gradle/wrapper/dists",
 		".kilocode",
 		".kimi",
 		".pi",
@@ -247,6 +245,87 @@ var agentConfig = struct {
 	LocalStatePaths: []string{
 		"opencode",
 	},
+}
+
+// CacheMount defines a host directory to bind-mount as a build cache inside
+// the container. Well-known caches are defined in [WellKnownCaches]; custom
+// mounts can be constructed directly.
+type CacheMount struct {
+	// Name is a human-readable identifier shown in progress output (e.g. "go-mod").
+	Name string
+	// HostPath is the absolute path on the host. In [WellKnownCaches] entries
+	// "~/" is used as a placeholder; call [CachesForHome] to resolve it.
+	HostPath string
+	// ContainerPath is the absolute path inside the container.
+	ContainerPath string
+	// ReadOnly mounts the directory read-only inside the container.
+	ReadOnly bool
+}
+
+// WellKnownCaches is the set of predefined build-tool caches, keyed by short
+// name. Each name may expand to multiple [CacheMount]s (e.g. "cargo" covers
+// both the registry index and git sources). HostPath values use "~/" as a
+// placeholder; call [CachesForHome] to get fully resolved paths.
+// WellKnownCaches is the set of predefined build-tool caches, keyed by short
+// name. Each name may expand to multiple [CacheMount]s (e.g. "cargo" covers
+// both the registry index and git sources). HostPath values use "~/" as a
+// prefix that [Container.Start] resolves to the user's home directory at
+// runtime; custom absolute paths are also accepted.
+var WellKnownCaches = map[string][]CacheMount{
+	"bun": {
+		{Name: "bun", HostPath: "~/.bun/install/cache", ContainerPath: "/home/user/.bun/install/cache"},
+	},
+	"cargo": {
+		{Name: "cargo-registry", HostPath: "~/.cargo/registry", ContainerPath: "/home/user/.cargo/registry"},
+		{Name: "cargo-git", HostPath: "~/.cargo/git", ContainerPath: "/home/user/.cargo/git"},
+	},
+	// "go-build": {
+	// 	{Name: "go-build", HostPath: "~/.cache/go-build", ContainerPath: "/home/user/.cache/go-build"},
+	// },
+	"go-mod": {
+		{Name: "go-mod", HostPath: "~/go/pkg/mod", ContainerPath: "/home/user/go/pkg/mod"},
+	},
+	"gradle": {
+		{Name: "gradle-caches", HostPath: "~/.gradle/caches", ContainerPath: "/home/user/.gradle/caches"},
+		{Name: "gradle-wrapper", HostPath: "~/.gradle/wrapper/dists", ContainerPath: "/home/user/.gradle/wrapper/dists"},
+	},
+	"maven": {
+		{Name: "maven", HostPath: "~/.m2/repository", ContainerPath: "/home/user/.m2/repository"},
+	},
+	"npm": {
+		{Name: "npm", HostPath: "~/.npm", ContainerPath: "/home/user/.npm"},
+	},
+	"pip": {
+		{Name: "pip", HostPath: "~/.cache/pip", ContainerPath: "/home/user/.cache/pip"},
+	},
+	"pnpm": {
+		{Name: "pnpm", HostPath: "~/.local/share/pnpm/store", ContainerPath: "/home/user/.local/share/pnpm/store"},
+	},
+	"uv": {
+		{Name: "uv", HostPath: "~/.cache/uv", ContainerPath: "/home/user/.cache/uv"},
+	},
+}
+
+// agentContainerPaths returns the container-side mount target paths for all
+// agent config mounts. These are the -v targets that must be pre-created with
+// user ownership in the Docker image before docker run creates them as root.
+func agentContainerPaths() []string {
+	paths := make([]string, 0,
+		len(agentConfig.HomePaths)+len(agentConfig.XDGConfigPaths)+
+			len(agentConfig.LocalSharePaths)+len(agentConfig.LocalStatePaths))
+	for _, p := range agentConfig.HomePaths {
+		paths = append(paths, "/home/user/"+p)
+	}
+	for _, p := range agentConfig.XDGConfigPaths {
+		paths = append(paths, "/home/user/.config/"+p)
+	}
+	for _, p := range agentConfig.LocalSharePaths {
+		paths = append(paths, "/home/user/.local/share/"+p)
+	}
+	for _, p := range agentConfig.LocalStatePaths {
+		paths = append(paths, "/home/user/.local/state/"+p)
+	}
+	return paths
 }
 
 var (

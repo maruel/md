@@ -10,6 +10,7 @@ FROM ${BASE_IMAGE}
 ARG BASE_IMAGE
 ARG BASE_IMAGE_DIGEST=unknown
 ARG CONTEXT_SHA=unknown
+ARG CACHE_KEY=
 
 ARG ENV_FILE
 
@@ -17,7 +18,8 @@ LABEL \
 	org.opencontainers.image.licenses=Apache-2.0 \
 	md.base_image="${BASE_IMAGE}" \
 	md.base_digest="${BASE_IMAGE_DIGEST}" \
-	md.context_sha="${CONTEXT_SHA}"
+	md.context_sha="${CONTEXT_SHA}" \
+	md.cache_key="${CACHE_KEY}"
 
 # Specialize the SSH configuration using keys from the md-keys named context.
 RUN rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub

@@ -16,7 +16,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -216,6 +218,11 @@ func cmdStart(ctx context.Context, args []string) error {
 	labels := &stringSlice{}
 	fs.Var(labels, "label", "Set Docker container label (key=value); can be repeated")
 	fs.Var(labels, "l", "Set Docker container label (key=value); can be repeated")
+	cacheSpecs := &stringSlice{}
+	fs.Var(cacheSpecs, "cache", "Add a cache: well-known name ("+wellKnownCacheList()+") or host:container[:ro]; may be repeated")
+	noCacheSpecs := &stringSlice{}
+	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
+	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -229,12 +236,17 @@ func cmdStart(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	caches, err := resolveCaches(cacheSpecs.values, noCacheSpecs.values, *noCaches)
+	if err != nil {
+		return err
+	}
 	opts := md.StartOpts{
 		BaseImage:        baseImage,
 		Display:          *display,
 		Tailscale:        *tailscale,
 		USB:              *usb,
 		TailscaleAuthKey: os.Getenv("TAILSCALE_AUTHKEY"),
+		Caches:           caches,
 		Labels:           labels.values,
 		Quiet:            *quiet,
 	}
@@ -280,6 +292,11 @@ func cmdRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, true)
+	cacheSpecs := &stringSlice{}
+	fs.Var(cacheSpecs, "cache", "Add a cache: well-known name ("+wellKnownCacheList()+") or host:container[:ro]; may be repeated")
+	noCacheSpecs := &stringSlice{}
+	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
+	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -296,7 +313,11 @@ func cmdRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	exitCode, err := ct.Run(ctx, baseImage, extra)
+	caches, err := resolveCaches(cacheSpecs.values, noCacheSpecs.values, *noCaches)
+	if err != nil {
+		return err
+	}
+	exitCode, err := ct.Run(ctx, baseImage, extra, caches)
 	if err != nil {
 		return err
 	}
@@ -550,6 +571,89 @@ type exitCodeError struct {
 
 func (e *exitCodeError) Error() string {
 	return fmt.Sprintf("exit code %d", e.code)
+}
+
+// wellKnownCacheList returns a sorted comma-separated list of well-known cache
+// names for use in flag help text.
+func wellKnownCacheList() string {
+	names := make([]string, 0, len(md.WellKnownCaches))
+	for k := range md.WellKnownCaches {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// resolveCaches builds the list of CacheMounts to bake into the image.
+//
+// By default all well-known caches are included (sorted by name).
+// excluded names remove specific well-known caches from that default set.
+// noAll disables all defaults; only caches from customSpecs are included.
+// customSpecs accepts well-known names (to re-add an excluded cache when used
+// with noAll) or "host:container[:ro]" custom paths.
+func resolveCaches(customSpecs, excluded []string, noAll bool) ([]md.CacheMount, error) {
+	result := make([]md.CacheMount, 0)
+
+	if !noAll {
+		// Validate excluded names before building the result.
+		for _, n := range excluded {
+			if _, ok := md.WellKnownCaches[n]; !ok {
+				return nil, fmt.Errorf("unknown --no-cache name %q; valid names: %s", n, wellKnownCacheList())
+			}
+		}
+		excl := make(map[string]struct{}, len(excluded))
+		for _, n := range excluded {
+			excl[n] = struct{}{}
+		}
+		names := make([]string, 0, len(md.WellKnownCaches))
+		for k := range md.WellKnownCaches {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if _, excluded := excl[name]; !excluded {
+				result = append(result, md.WellKnownCaches[name]...)
+			}
+		}
+	}
+
+	// Track mount names already present to avoid duplicates from --cache.
+	seen := make(map[string]struct{}, len(result))
+	for _, m := range result {
+		seen[m.Name] = struct{}{}
+	}
+
+	// Process --cache specs: well-known names or custom host:container[:ro].
+	for _, spec := range customSpecs {
+		if mounts, ok := md.WellKnownCaches[spec]; ok {
+			for _, m := range mounts {
+				if _, ok := seen[m.Name]; !ok {
+					result = append(result, m)
+					seen[m.Name] = struct{}{}
+				}
+			}
+			continue
+		}
+		// Custom spec: host:container or host:container:ro.
+		parts := strings.SplitN(spec, ":", 3)
+		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+			return nil, fmt.Errorf("invalid --cache %q: use a well-known name (%s) or host:container[:ro]",
+				spec, wellKnownCacheList())
+		}
+		cm := md.CacheMount{
+			Name:          filepath.Base(parts[0]),
+			HostPath:      parts[0],
+			ContainerPath: parts[1],
+		}
+		if len(parts) == 3 {
+			if parts[2] != "ro" {
+				return nil, fmt.Errorf("invalid --cache %q: only ':ro' modifier is supported", spec)
+			}
+			cm.ReadOnly = true
+		}
+		result = append(result, cm)
+	}
+	return result, nil
 }
 
 // stringSlice implements flag.Value for repeatable string flags.

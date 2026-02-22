@@ -14,6 +14,46 @@ A file to [guide coding agents](https://agents.md/).
 - For Python code changes, ensure code passes `pylint` and `ruff` checks as defined in `.github/workflows/docker-build.yml`
 - When adding new tools to the system, they must also be added to `rsc/home/user/setup/generate_version_report.sh` to ensure they appear in version reports. The script generates `/home/user/src/tool_versions.md` which is used in release notes and build reports
 
+## md Tool: Image Build and Cache Injection
+
+### Image hierarchy
+
+- **`md-local`** — base image built locally from `rsc/Dockerfile.base` via `md build-image`. Tagged as `md-local`. Used as base when no `--image`/`--tag` flag is given and the user prefers a local build.
+- **`ghcr.io/maruel/md:latest`** (default) or any `--image`/`--tag` variant — remote base image.
+- **`md-user`** — customized per-user image always built from `rsc/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. Always named `md-user` regardless of the base tag.
+
+### When md-user is rebuilt
+
+`imageBuildNeeded` (`docker.go`) returns `true` (triggering a rebuild) when any of the following change:
+1. `md.base_digest` label missing/empty, or differs from the current base image digest.
+2. For remote base images: registry has a newer version than the local copy.
+3. `md.context_sha` label differs from the SHA of the embedded `rsc/` build context + SSH keys.
+4. `md.cache_key` label differs from `cacheSpecKey` of the **active** caches (those whose host directories currently exist).
+
+### Cache injection
+
+`md start` and `md run` bake host cache directories into `md-user` at build time via `COPY --from=<name>` in the Dockerfile. This avoids slow cold-start downloads inside the container.
+
+**Default behaviour**: all `WellKnownCaches` entries are included. Caches whose host directory does not exist are silently skipped (no rebuild triggered for missing dirs).
+
+**CLI flags** (on both `md start` and `md run`):
+- `--no-cache <name>` — exclude a specific well-known cache (repeatable).
+- `--no-caches` — disable all default caches; use `--cache` to add back specific ones.
+- `--cache <spec>` — add a well-known name (re-adds when used with `--no-caches`) or a custom `host:container[:ro]` path.
+
+**Well-known cache names** (defined in `WellKnownCaches`, `client.go`): bun, cargo, go-mod, gradle, maven, npm, pip, pnpm, uv.
+
+**Adding a new well-known cache**: add an entry to `WellKnownCaches` in `client.go`. No other changes needed — it is automatically picked up by `resolveCaches`, `appendCacheLayers`, and the flag help text.
+
+### Key labels on md-user
+
+| Label | Value |
+|---|---|
+| `md.base_image` | Base image reference used at build time |
+| `md.base_digest` | Digest (or image ID for local images) of the base |
+| `md.context_sha` | SHA-256 of `rsc/` build context + SSH keys |
+| `md.cache_key` | 8-byte hex hash of the **active** (injected) cache names+paths |
+
 ## Adding a New Tool Checklist
 
 When installing a new tool in the container, ensure you update:

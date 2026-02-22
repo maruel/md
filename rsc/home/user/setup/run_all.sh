@@ -28,18 +28,20 @@ if [ "${MD_SERIAL_SETUP:-0}" = "1" ]; then
 else
 	echo "- $0: Starting parallel setup..."
 	pids=()
+	pid_names=()
 	for ((i = 0; i < ${#SCRIPTS[@]}; i += 2)); do
 		measure_exec.sh "${SCRIPTS[i]}" "${SCRIPTS[i + 1]}" &
 		pids+=($!)
+		pid_names+=("${SCRIPTS[i]}")
 	done
 
-	FAILED=0
-	for pid in "${pids[@]}"; do
-		wait "$pid" || FAILED=1
+	failed_names=()
+	for ((i = 0; i < ${#pids[@]}; i++)); do
+		wait "${pids[i]}" || failed_names+=("${pid_names[i]}")
 	done
 
-	if [ "$FAILED" -ne 0 ]; then
-		echo "Error: One or more setup scripts failed." >&2
+	if [ "${#failed_names[@]}" -ne 0 ]; then
+		echo "Error: Setup script(s) failed: ${failed_names[*]}" >&2
 		exit 1
 	fi
 fi

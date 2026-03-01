@@ -7,6 +7,7 @@ package md
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -106,7 +107,11 @@ func TestDetectRuntime(t *testing.T) {
 	})
 	t.Run("finds_podman_when_no_docker", func(t *testing.T) {
 		dir := t.TempDir()
-		podmanPath := filepath.Join(dir, "podman")
+		name := "podman"
+		if runtime.GOOS == "windows" {
+			name = "podman.exe"
+		}
+		podmanPath := filepath.Join(dir, name)
 		if err := os.WriteFile(podmanPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}

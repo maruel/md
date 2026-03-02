@@ -666,6 +666,15 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		"--security-opt", "seccomp=unconfined",
 		"--security-opt", "apparmor=unconfined")
 
+	// Rootless podman: --userns=keep-id maps host UID to same UID inside the
+	// container so bind-mounted configs are writable. --user 0:0 keeps
+	// start.sh running as root for privileged setup (groupmod, sshd, dbus).
+	// Rootless Docker is handled inside start.sh via /proc/self/uid_map
+	// detection since Docker lacks --userns=keep-id.
+	if isRootlessPodman(rt) {
+		dockerArgs = append(dockerArgs, "--userns=keep-id", "--user", "0:0")
+	}
+
 	// Tailscale.
 	if opts.Tailscale {
 		dockerArgs = append(dockerArgs,

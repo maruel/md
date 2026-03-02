@@ -122,6 +122,26 @@ func TestDetectRuntime(t *testing.T) {
 	})
 }
 
+func TestIsRootlessPodman(t *testing.T) {
+	t.Run("docker", func(t *testing.T) {
+		if isRootlessPodman("docker") {
+			t.Error("isRootlessPodman(\"docker\") = true, want false")
+		}
+	})
+	t.Run("podman", func(t *testing.T) {
+		got := isRootlessPodman("podman")
+		if runtime.GOOS == "linux" {
+			// On Linux, result depends on whether tests run as root.
+			want := os.Getuid() != 0
+			if got != want {
+				t.Errorf("isRootlessPodman(\"podman\") = %v, want %v (uid=%d)", got, want, os.Getuid())
+			}
+		} else if got {
+			t.Error("isRootlessPodman(\"podman\") = true on non-Linux, want false")
+		}
+	})
+}
+
 func TestRscFS(t *testing.T) {
 	t.Run("Dockerfile", func(t *testing.T) {
 		if _, err := rscFS.ReadFile("rsc/Dockerfile"); err != nil {

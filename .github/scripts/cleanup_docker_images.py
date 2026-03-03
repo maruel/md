@@ -41,6 +41,7 @@ def _request(
 def github_api(
     url: str, token: str, method: str = "GET"
 ) -> tuple[int, bytes]:
+    """Make an authenticated GitHub API request."""
     return _request(
         url,
         method,
@@ -110,6 +111,7 @@ def _should_keep(tags: list[str]) -> bool:
 
 
 def main():
+    """Delete old untagged Docker images from GHCR."""
     owner = get_env("GITHUB_REPOSITORY_OWNER")
     repo = get_env("GITHUB_REPOSITORY").split("/", 1)[-1]
     token = get_env("GITHUB_TOKEN")
@@ -189,7 +191,7 @@ def main():
 
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if summary_path:
-        with open(summary_path, "a") as f:
+        with open(summary_path, "a", encoding="utf-8") as f:
             f.write("# Docker Image Cleanup Report\n\n")
             f.write(f"**Repository:** {owner}/{repo}\n")
             f.write(f"**Date:** {datetime.now(timezone.utc)}\n")
@@ -212,6 +214,7 @@ def main():
 
 
 def get_env(name: str) -> str:
+    """Return the value of an environment variable or exit."""
     val = os.environ.get(name, "")
     if not val:
         print(f"Error: {name} is not set.", file=sys.stderr)

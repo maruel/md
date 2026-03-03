@@ -27,4 +27,4 @@ jobs:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./.github/scripts/cleanup_docker_images.sh
+        run: python3 ./.github/scripts/cleanup_docker_images.py

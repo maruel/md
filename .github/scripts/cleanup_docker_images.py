@@ -5,36 +5,108 @@
 
 """Cleans up old Docker images from GitHub Container Registry.
 
-Deletes container package versions older than 7 days, keeping 'latest' and
-semantic version tags (v1, v1.2, v1.2.3, etc).
+Handles multi-platform manifests: resolves manifest lists to find referenced
+platform images and protects them from deletion.
+
+Keeps: latest, edge, semver (v*), and their arch-suffixed variants.
+Deletes: everything else older than 7 days.
 """
 
+import base64
+import json
 import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-import json
+
+# Tags matching these patterns are always kept.
+_KEEP_RE = re.compile(r"^(latest(-.+)?|v\d+.*|edge(-.+)?)$")
 
 
-def get_env(name: str) -> str:
-    val = os.environ.get(name, "")
-    if not val:
-        print(f"Error: {name} is not set.", file=sys.stderr)
-        sys.exit(1)
-    return val
-
-
-def api_request(url: str, token: str, method: str = "GET") -> tuple[int, bytes]:
+def _request(
+    url: str, method: str = "GET", headers: dict[str, str] | None = None
+) -> tuple[int, bytes]:
     req = Request(url, method=method)
-    req.add_header("Accept", "application/vnd.github.v3+json")
-    req.add_header("Authorization", f"token {token}")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     try:
         with urlopen(req) as resp:
             return resp.status, resp.read()
     except HTTPError as e:
         return e.code, e.read()
+
+
+def github_api(
+    url: str, token: str, method: str = "GET"
+) -> tuple[int, bytes]:
+    return _request(
+        url,
+        method,
+        {
+            "Accept": "application/vnd.github.v3+json",
+            "Authorization": f"token {token}",
+        },
+    )
+
+
+def _get_ghcr_token(owner: str, repo: str, github_token: str) -> str:
+    """Exchange GitHub token for a GHCR registry token."""
+    url = f"https://ghcr.io/token?scope=repository:{owner}/{repo}:pull&service=ghcr.io"
+    cred = base64.b64encode(f"token:{github_token}".encode()).decode()
+    status, body = _request(url, headers={"Authorization": f"Basic {cred}"})
+    if status != 200:
+        return ""
+    return json.loads(body).get("token", "")
+
+
+def _fetch_manifest_refs(
+    owner: str, repo: str, registry_token: str, tag: str
+) -> set[str]:
+    """Return digests of platform images referenced by a manifest list."""
+    url = f"https://ghcr.io/v2/{owner}/{repo}/manifests/{tag}"
+    accept = (
+        "application/vnd.oci.image.index.v1+json,"
+        "application/vnd.docker.distribution.manifest.list.v2+json"
+    )
+    status, body = _request(
+        url,
+        headers={"Authorization": f"Bearer {registry_token}", "Accept": accept},
+    )
+    if status != 200:
+        return set()
+    data = json.loads(body)
+    return {m["digest"] for m in data.get("manifests", [])}
+
+
+def _fetch_all_versions(owner: str, repo: str, token: str) -> list[dict]:
+    all_versions: list[dict] = []
+    page = 1
+    while True:
+        print(f"Fetching versions page {page}...")
+        url = (
+            f"https://api.github.com/users/{owner}/packages/container"
+            f"/{repo}/versions?per_page=100&page={page}"
+        )
+        status, body = github_api(url, token)
+        if status != 200:
+            print(f"Error fetching versions: HTTP {status}", file=sys.stderr)
+            break
+        batch = json.loads(body)
+        if not batch:
+            break
+        all_versions.extend(batch)
+        page += 1
+    return all_versions
+
+
+def _get_tags(v: dict) -> list[str]:
+    return v.get("metadata", {}).get("container", {}).get("tags", [])
+
+
+def _should_keep(tags: list[str]) -> bool:
+    return any(_KEEP_RE.match(t) for t in tags)
 
 
 def main():
@@ -44,52 +116,76 @@ def main():
     print(f"Starting cleanup for image package: {owner}/{repo}")
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     print(f"Cutoff date: {cutoff}")
+
+    versions = _fetch_all_versions(owner, repo, token)
+    print(f"Found {len(versions)} total versions")
+
+    # Phase 1: Identify versions to keep by their tags.
+    keep_ids: set[int] = set()
+    keep_tags: list[str] = []
+    for v in versions:
+        tags = _get_tags(v)
+        if _should_keep(tags):
+            keep_ids.add(v["id"])
+            keep_tags.extend(tags)
+
+    # Phase 2: Resolve manifest lists to protect referenced platform images.
+    registry_token = _get_ghcr_token(owner, repo, token)
+    referenced_digests: set[str] = set()
+    if registry_token:
+        seen: set[str] = set()
+        for tag in keep_tags:
+            if tag in seen:
+                continue
+            seen.add(tag)
+            refs = _fetch_manifest_refs(owner, repo, registry_token, tag)
+            referenced_digests.update(refs)
+        if referenced_digests:
+            print(
+                f"Protecting {len(referenced_digests)} platform digests"
+                " referenced by kept manifests"
+            )
+    else:
+        print("Warning: could not get GHCR token, skipping manifest resolution")
+    for v in versions:
+        # v["name"] is the version digest (sha256:...).
+        if v["id"] not in keep_ids and v["name"] in referenced_digests:
+            keep_ids.add(v["id"])
+
+    # Phase 3: Delete old, non-kept versions.
     deleted_count = 0
     failed_count = 0
     kept_count = 0
-    processed: list[tuple[str, str, str]] = []  # (tag, created_at, status)
+    processed: list[tuple[str, str, str]] = []
+    for v in versions:
+        tags = _get_tags(v)
+        label = ", ".join(tags) if tags else v["name"][:20]
+        if v["id"] in keep_ids:
+            kept_count += 1
+            continue
+        created = datetime.fromisoformat(v["created_at"])
+        if created >= cutoff:
+            kept_count += 1
+            continue
+        created_fmt = str(created)
+        print(f"Deleting: {label} (created: {created_fmt})")
+        del_url = (
+            f"https://api.github.com/users/{owner}/packages/container"
+            f"/{repo}/versions/{v['id']}"
+        )
+        del_status, _ = github_api(del_url, token, method="DELETE")
+        if del_status == 204:
+            deleted_count += 1
+            processed.append((label, created_fmt, "Deleted"))
+        else:
+            print(f"Failed to delete {label} (HTTP {del_status})")
+            failed_count += 1
+            processed.append((label, created_fmt, f"Failed ({del_status})"))
 
-    page = 1
-    while True:
-        print(f"Processing page {page}...")
-        url = f"https://api.github.com/users/{owner}/packages/container/{repo}/versions?per_page=100&page={page}"
-        status, body = api_request(url, token)
-        if status != 200:
-            print(f"Error fetching versions: HTTP {status}", file=sys.stderr)
-            break
-        versions = json.loads(body)
-        if not versions:
-            break
-        for v in versions:
-            version_id = v["id"]
-            tag = v["name"]
-            created_at = v["created_at"]
-            # Skip special tags.
-            if tag == "latest":
-                kept_count += 1
-                continue
-            # Skip semantic version tags (v1, v1.2, v1.2.3, etc).
-            if re.match(r"^v[0-9]+", tag):
-                kept_count += 1
-                continue
-            created = datetime.fromisoformat(created_at)
-            if created < cutoff:
-                created_fmt = str(created)
-                print(f"Deleting image: {tag} (created: {created_fmt})")
-                del_url = f"https://api.github.com/users/{owner}/packages/container/{repo}/versions/{version_id}"
-                del_status, _ = api_request(del_url, token, method="DELETE")
-                if del_status == 204:
-                    deleted_count += 1
-                    processed.append((tag, created_fmt, "Deleted"))
-                else:
-                    print(f"Failed to delete {tag} (HTTP Status: {del_status})")
-                    failed_count += 1
-                    processed.append((tag, created_fmt, f"Failed ({del_status})"))
-            else:
-                kept_count += 1
-        page += 1
-
-    print(f"Cleanup complete. Deleted: {deleted_count}, Failed: {failed_count}, Kept/Skipped: {kept_count}")
+    print(
+        f"Cleanup complete. Deleted: {deleted_count},"
+        f" Failed: {failed_count}, Kept/Skipped: {kept_count}"
+    )
 
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if summary_path:
@@ -113,6 +209,14 @@ def main():
             else:
                 f.write("_No images were old enough to be deleted._\n")
     return 0
+
+
+def get_env(name: str) -> str:
+    val = os.environ.get(name, "")
+    if not val:
+        print(f"Error: {name} is not set.", file=sys.stderr)
+        sys.exit(1)
+    return val
 
 
 if __name__ == "__main__":

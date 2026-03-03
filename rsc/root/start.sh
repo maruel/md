@@ -20,22 +20,13 @@ fi
 
 # Rootless container runtime detection: if UID 0 inside the container maps to a
 # non-root host UID, bind-mounted host directories appear root-owned but the
-# "user" account (UID 1000) can't write to them. Remap "user" to UID/GID 0 so
-# it shares root's identity. This is safe because UID 0 in a rootless runtime
-# is the unprivileged host user.
+# "user" account (UID 1000) can't write to them. In this case, add "user" to
+# the "root" group.
 # Skip when --userns=keep-id already mapped the host UID correctly (podman),
 # detected by checking that "user" is no longer UID 1000.
 if awk '$1 == 0 && $2 != 0 { found=1 } END { exit !found }' /proc/self/uid_map &&
 	[ "$(id -u user)" != "0" ]; then
-	usermod -o -u 0 -g 0 user
-	# Fix ownership of all image-baked directories (UID 1000 from the build).
-	# Bind-mounted dirs are already UID 0 via the namespace mapping.
-	# Non-recursive to avoid touching bind-mount contents.
-	find /home/user -maxdepth 1 -exec chown 0:0 {} +
-	for d in .config .local/share .local/state; do
-		[ -d "/home/user/$d" ] && find "/home/user/$d" -maxdepth 1 -exec chown 0:0 {} +
-	done
-	chown -R 0:0 /home/user/.ssh
+	usermod -aG root user
 fi
 
 # Start dbus service and ensure user has a DBus session available

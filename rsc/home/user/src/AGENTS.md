@@ -23,7 +23,7 @@ Notable executables available in the container:
 - Media: ffmpeg, imagemagick
 - Android: android-sdk, gradle, adb, sdkmanager
 - Database: sqlite3
-- Network: curl, wget, net-tools, iproute2, tailscale
+- Network: curl, wget, net-tools, iproute2, nmap, tailscale
 - GitHub: gh
 - Debugging: strace, lsof, dlv (Go), lldb/rust-lldb (Rust), objdump, radare2 (r2)
 

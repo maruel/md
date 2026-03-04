@@ -53,6 +53,7 @@ apt-get install -qq -y --no-install-recommends \
 	locales \
 	lsof \
 	net-tools \
+	nmap \
 	ninja-build \
 	openjdk-21-jdk-headless \
 	openssh-server \

@@ -4,7 +4,9 @@
 *.rej
 *.swp
 *~
-.DS_Store
+__pycache__/
 .coverage
-.vscode
+.DS_Store
+.env
+.vscode/
 cover.cov

@@ -266,6 +266,52 @@ func CreateBranchAt(ctx context.Context, dir, name, commit string) error {
 	return nil
 }
 
+// ListBranches returns branches sorted alphabetically. It always runs git
+// directly with no caching so the result is always fresh even when branches
+// are created or deleted frequently.
+//
+// If remote is empty, local branches (refs/heads/) are listed and each entry's
+// first element is the short branch name. If remote is non-empty, remote
+// tracking branches for that remote (refs/remotes/<remote>/) are listed and
+// HEAD is excluded.
+func ListBranches(ctx context.Context, dir, remote string) ([][2]string, error) {
+	var refPath, prefix string
+	if remote == "" {
+		refPath = "refs/heads/"
+	} else {
+		refPath = "refs/remotes/" + remote + "/"
+		prefix = remote + "/"
+	}
+	out, err := RunGit(ctx, dir, "for-each-ref", "--format=%(refname:short) %(objectname)", refPath)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	lines := strings.Split(out, "\n")
+	branches := make([][2]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		ref, hash, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		if prefix != "" {
+			name, cut := strings.CutPrefix(ref, prefix)
+			if !cut || name == "HEAD" {
+				continue
+			}
+			ref = name
+		}
+		branches = append(branches, [2]string{ref, hash})
+	}
+	slices.SortFunc(branches, func(a, b [2]string) int { return strings.Compare(a[0], b[0]) })
+	return branches, nil
+}
+
 // DiscoverRepos recursively walks root up to maxDepth levels, returning
 // absolute paths of directories containing a .git subdirectory. Hidden
 // directories (prefix ".") are skipped. Recursion stops once .git is found.

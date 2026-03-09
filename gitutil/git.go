@@ -116,14 +116,15 @@ func Fetch(ctx context.Context, dir string) error {
 	return nil
 }
 
-// CreateBranch creates a new branch from startPoint and checks it out.
+// CreateBranch creates a new branch from startPoint without touching the
+// working tree or index.
 func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
 	slog.Info("git create branch", "branch", name, "startPoint", startPoint)
-	cmd := newGitCmd(ctx, dir, []string{"checkout", "-b", name, startPoint})
+	cmd := newGitCmd(ctx, dir, []string{"branch", name, startPoint})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git checkout -b %s: %w: %s", name, err, stderr.String())
+		return fmt.Errorf("git branch %s %s: %w: %s", name, startPoint, err, stderr.String())
 	}
 	return nil
 }

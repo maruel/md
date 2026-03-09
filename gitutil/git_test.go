@@ -463,3 +463,47 @@ func TestCreateBranchAt(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateBranch(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+
+	run := func(t *testing.T, d string, args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir = d
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	run(t, "", "init", "--initial-branch=main", dir)
+	run(t, dir, "config", "user.name", "Test")
+	run(t, dir, "config", "user.email", "test@test")
+	run(t, dir, "commit", "--allow-empty", "-m", "init")
+	startCommit := run(t, dir, "rev-parse", "HEAD")
+
+	t.Run("DoesNotChangeWorkingTree", func(t *testing.T) {
+		if err := CreateBranch(ctx, dir, "caic-1", "main"); err != nil {
+			t.Fatal(err)
+		}
+		// Branch points at the same commit as main.
+		got := run(t, dir, "rev-parse", "caic-1")
+		if got != startCommit {
+			t.Errorf("branch points at %s, want %s", got, startCommit)
+		}
+		// Working tree must still be on main, not caic-1.
+		current := run(t, dir, "branch", "--show-current")
+		if current != "main" {
+			t.Errorf("current branch is %q, want %q", current, "main")
+		}
+	})
+
+	t.Run("AlreadyExists", func(t *testing.T) {
+		if err := CreateBranch(ctx, dir, "caic-1", "main"); err == nil {
+			t.Error("expected error for duplicate branch")
+		}
+	})
+}

@@ -46,7 +46,7 @@ func generateTailscaleAuthKey(apiKey string) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req) //nolint:gosec // URL is a hardcoded constant.
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("network error: %w", err)
 	}
@@ -83,7 +83,7 @@ func deleteTailscaleDevice(apiKey, deviceID string) {
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req) //nolint:gosec // Base URL is hardcoded; deviceID is path-escaped by url.JoinPath.
+	resp, err := client.Do(req)
 	if err != nil {
 		return
 	}

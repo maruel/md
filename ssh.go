@@ -63,7 +63,7 @@ func ensurePublicKey(privPath string) error {
 		return fmt.Errorf("parsing private key %s: %w", privPath, err)
 	}
 	pubLine := string(ssh.MarshalAuthorizedKey(signer.PublicKey()))
-	return os.WriteFile(pubPath, []byte(pubLine), 0o600)
+	return os.WriteFile(pubPath, []byte(pubLine), 0o600) //nolint:gosec // path is constructed from trusted key dir
 }
 
 // writeSSHConfig writes the SSH config file for a container.
@@ -77,7 +77,7 @@ func writeSSHConfig(configDir, containerName, port, identityFile, knownHostsFile
 // writeKnownHosts writes the known hosts file for a container.
 func writeKnownHosts(knownHostsPath, port, hostPubKey string) error {
 	content := fmt.Sprintf("[127.0.0.1]:%s %s\n", port, hostPubKey)
-	return os.WriteFile(knownHostsPath, []byte(content), 0o600)
+	return os.WriteFile(knownHostsPath, []byte(content), 0o600) //nolint:gosec // path is constructed from trusted config dir
 }
 
 // ensureSSHConfigInclude ensures ~/.ssh/config contains an Include directive

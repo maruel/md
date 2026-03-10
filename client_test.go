@@ -57,8 +57,30 @@ func TestContainerName(t *testing.T) {
 	}
 }
 
-func TestContainer(t *testing.T) {
-	t.Run("RepoName", func(t *testing.T) {
+func TestWellKnownCaches(t *testing.T) {
+	if len(WellKnownCaches) == 0 {
+		t.Fatal("WellKnownCaches must not be empty")
+	}
+	for name, mounts := range WellKnownCaches {
+		if len(mounts) == 0 {
+			t.Errorf("WellKnownCaches[%q] is empty", name)
+		}
+		for _, m := range mounts {
+			if m.Name == "" {
+				t.Errorf("WellKnownCaches[%q]: CacheMount.Name is empty", name)
+			}
+			if !strings.HasPrefix(m.HostPath, "~/") {
+				t.Errorf("WellKnownCaches[%q] %q: HostPath should start with ~/; got %q", name, m.Name, m.HostPath)
+			}
+			if !strings.HasPrefix(m.ContainerPath, "/home/user/") {
+				t.Errorf("WellKnownCaches[%q] %q: ContainerPath should start with /home/user/; got %q", name, m.Name, m.ContainerPath)
+			}
+		}
+	}
+}
+
+func TestClient(t *testing.T) {
+	t.Run("Container", func(t *testing.T) {
 		c := &Client{}
 		tests := []struct {
 			name     string
@@ -82,45 +104,25 @@ func TestContainer(t *testing.T) {
 			})
 		}
 	})
-}
-
-func TestWellKnownCaches(t *testing.T) {
-	if len(WellKnownCaches) == 0 {
-		t.Fatal("WellKnownCaches must not be empty")
-	}
-	for name, mounts := range WellKnownCaches {
-		if len(mounts) == 0 {
-			t.Errorf("WellKnownCaches[%q] is empty", name)
-		}
-		for _, m := range mounts {
-			if m.Name == "" {
-				t.Errorf("WellKnownCaches[%q]: CacheMount.Name is empty", name)
+	t.Run("Runtime", func(t *testing.T) {
+		t.Run("new_defaults_to_docker", func(t *testing.T) {
+			tmp := t.TempDir()
+			t.Setenv("HOME", tmp)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, ".config"))
+			c, err := New()
+			if err != nil {
+				t.Fatal(err)
 			}
-			if !strings.HasPrefix(m.HostPath, "~/") {
-				t.Errorf("WellKnownCaches[%q] %q: HostPath should start with ~/; got %q", name, m.Name, m.HostPath)
+			if c.Runtime == "" {
+				t.Error("New() should set Runtime")
 			}
-			if !strings.HasPrefix(m.ContainerPath, "/home/user/") {
-				t.Errorf("WellKnownCaches[%q] %q: ContainerPath should start with /home/user/; got %q", name, m.Name, m.ContainerPath)
+		})
+		t.Run("explicit", func(t *testing.T) {
+			c := &Client{Runtime: "podman"}
+			if c.Runtime != "podman" {
+				t.Errorf("Runtime = %q, want %q", c.Runtime, "podman")
 			}
-		}
-	}
-}
-
-func TestRuntime(t *testing.T) {
-	t.Run("new_defaults_to_docker", func(t *testing.T) {
-		c, err := New()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if c.Runtime == "" {
-			t.Error("New() should set Runtime")
-		}
-	})
-	t.Run("explicit", func(t *testing.T) {
-		c := &Client{Runtime: "podman"}
-		if c.Runtime != "podman" {
-			t.Errorf("Runtime = %q, want %q", c.Runtime, "podman")
-		}
+		})
 	})
 }
 

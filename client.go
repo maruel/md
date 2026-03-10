@@ -121,7 +121,7 @@ func (c *Client) setupSSH() error {
 	if existing, _ := os.ReadFile(authKeysPath); bytes.Equal(existing, pubKey) {
 		return nil
 	}
-	return os.WriteFile(authKeysPath, pubKey, 0o600)
+	return os.WriteFile(authKeysPath, pubKey, 0o600) //nolint:gosec // path is constructed from trusted config dir
 }
 
 // detectRuntime returns the container runtime to use.

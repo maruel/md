@@ -69,13 +69,14 @@ func New() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	xdgConfigHome := envOr("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	c := &Client{
 		W:             os.Stdout,
 		Home:          home,
-		XDGConfigHome: envOr("XDG_CONFIG_HOME", filepath.Join(home, ".config")),
+		XDGConfigHome: xdgConfigHome,
 		XDGDataHome:   envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
 		XDGStateHome:  envOr("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
-		HostKeyPath:   filepath.Join(home, ".config", "md", "ssh_host_ed25519_key"),
+		HostKeyPath:   filepath.Join(xdgConfigHome, "md", "ssh_host_ed25519_key"),
 		UserKeyPath:   filepath.Join(home, ".ssh", "md"),
 		ImageName:     "md-user",
 		Runtime:       detectRuntime(),

@@ -849,6 +849,10 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git switch -q "+branch+" && git branch -f base "+branch+" && git switch -q base && git switch -q "+branch), false); err != nil {
 			return nil, err
 		}
+		// Push submodule bare repos and initialize them.
+		if err := c.pushSubmodules(ctx, "/home/user/src/"+c.repoName(), c.primary().GitRoot, opts.Quiet); err != nil {
+			return nil, err
+		}
 
 		// Set up origin remote in container using HTTPS.
 		if err := c.resolveDefaults(ctx); err != nil {
@@ -890,6 +894,10 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 			// Switch to branch and create base ref.
 			if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git switch -q "+rBranch+" && git branch -f base "+rBranch+" && git switch -q base && git switch -q "+rBranch), false); err != nil {
 				return nil, fmt.Errorf("switch extra repo %s: %w", rName, err)
+			}
+			// Push submodule bare repos and initialize them.
+			if err := c.pushSubmodules(ctx, "/home/user/src/"+rName, r.GitRoot, opts.Quiet); err != nil {
+				return nil, fmt.Errorf("push submodules for %s: %w", rName, err)
 			}
 			// Set origin remote in container (best-effort).
 			rOriginURL, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "get-url", "origin"}, true)
@@ -935,6 +943,86 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	}
 
 	return result, nil
+}
+
+// pushSubmodules transfers submodule bare repos from hostGitRoot into the
+// container at containerRepoPath and initializes them at all nesting depths
+// without requiring network access. containerRepoPath is the absolute path
+// inside the container (e.g. /home/user/src/myrepo).
+//
+// Returns nil when no submodules are declared or when submodules are declared
+// but not yet cloned on the host (uninitialized).
+func (c *Container) pushSubmodules(ctx context.Context, containerRepoPath, hostGitRoot string, quiet bool) error {
+	subs, err := gitutil.ListSubmodules(ctx, hostGitRoot)
+	if err != nil {
+		return err
+	}
+	if len(subs) == 0 {
+		return nil
+	}
+	moduleDirs, err := gitutil.FindModuleDirs(hostGitRoot)
+	if err != nil {
+		return err
+	}
+	if len(moduleDirs) == 0 {
+		// Submodules declared but not yet cloned on host — skip silently.
+		return nil
+	}
+	if !quiet {
+		_, _ = fmt.Fprintf(c.W, "- pushing %d submodule(s) ...\n", len(moduleDirs))
+	}
+
+	containerModulesBase := containerRepoPath + "/.git/modules"
+	hostModulesBase := filepath.Join(hostGitRoot, ".git", "modules")
+
+	for _, relPath := range moduleDirs {
+		hostModuleDir := filepath.Join(hostModulesBase, relPath)
+		// Use forward slashes: container is always Linux.
+		containerModuleDir := containerModulesBase + "/" + filepath.ToSlash(relPath)
+
+		// Initialize as bare so git push can transfer objects, then unset
+		// core.bare (git submodule update sets core.worktree on the module
+		// gitdir, which conflicts with core.bare=true). Also set
+		// receive.denyCurrentBranch=ignore so that git push works even though
+		// the repo is no longer bare after the unset.
+		initCmd := "git init -q --bare " + shellQuote(containerModuleDir) +
+			" && git -C " + shellQuote(containerModuleDir) + " config --unset core.bare" +
+			" && git -C " + shellQuote(containerModuleDir) + " config receive.denyCurrentBranch ignore"
+		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, initCmd), false); err != nil {
+			return fmt.Errorf("init submodule %s: %w", relPath, err)
+		}
+		// Push all refs from host bare module repo to container.
+		containerURL := "user@" + c.Name + ":" + containerModuleDir
+		if _, err := gitutil.RunGit(ctx, hostModuleDir, "push", "-q", containerURL, "--all"); err != nil {
+			return fmt.Errorf("push submodule refs %s: %w", relPath, err)
+		}
+		if _, err := gitutil.RunGit(ctx, hostModuleDir, "push", "-q", containerURL, "--tags"); err != nil {
+			return fmt.Errorf("push submodule tags %s: %w", relPath, err)
+		}
+	}
+
+	// Recursive function: at each nesting level, init submodules, override
+	// URLs to local module-gitdir paths, update without network, then recurse.
+	// git rev-parse --git-dir returns the absolute module gitdir path, so
+	// "$gd/modules/$n" is always the correct local URL for submodule named $n.
+	script := "cd " + shellQuote(containerRepoPath) + ` && __md_sm_fix() {
+  git submodule init -q
+  gd=$(git rev-parse --git-dir)
+  git config --list --local 2>/dev/null | grep '^submodule\..*\.url=' | while IFS= read -r line; do
+    k=${line%%=*}
+    n=${k#submodule.}; n=${n%.url}
+    git config "submodule.$n.url" "$gd/modules/$n"
+  done
+  git submodule update --no-fetch -q
+  git submodule foreach -q 'echo "$sm_path"' | while IFS= read -r p; do
+    (cd "$p" && __md_sm_fix)
+  done
+}
+export -f __md_sm_fix && __md_sm_fix`
+	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, script), false); err != nil {
+		return fmt.Errorf("submodule update: %w", err)
+	}
+	return nil
 }
 
 // convertGitURLToHTTPS converts a git URL to HTTPS format.

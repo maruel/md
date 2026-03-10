@@ -313,6 +313,121 @@ func ListBranches(ctx context.Context, dir, remote string) ([][2]string, error) 
 	return branches, nil
 }
 
+// Submodule represents a git submodule declaration from .gitmodules.
+type Submodule struct {
+	Name string // submodule name (key in .gitmodules, usually equals Path)
+	Path string // relative path in the worktree
+}
+
+// ListSubmodules returns the submodules declared in .gitmodules for the repo
+// at dir. Returns nil if no .gitmodules file exists or it has no entries.
+func ListSubmodules(ctx context.Context, dir string) ([]Submodule, error) {
+	if _, err := os.Stat(filepath.Join(dir, ".gitmodules")); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out, err := RunGit(ctx, dir, "config", "--file", ".gitmodules", "--list")
+	if err != nil {
+		return nil, err
+	}
+	byName := map[string]*Submodule{}
+	for line := range strings.SplitSeq(out, "\n") {
+		if line == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		// key is "submodule.<name>.<field>"
+		after, fieldOK := strings.CutPrefix(key, "submodule.")
+		if !fieldOK {
+			continue
+		}
+		dot := strings.LastIndex(after, ".")
+		if dot < 0 {
+			continue
+		}
+		name, field := after[:dot], after[dot+1:]
+		if field != "path" {
+			continue
+		}
+		if _, exists := byName[name]; !exists {
+			byName[name] = &Submodule{Name: name}
+		}
+		byName[name].Path = val
+	}
+	subs := make([]Submodule, 0, len(byName))
+	for _, s := range byName {
+		if s.Path != "" {
+			subs = append(subs, *s)
+		}
+	}
+	slices.SortFunc(subs, func(a, b Submodule) int { return strings.Compare(a.Name, b.Name) })
+	return subs, nil
+}
+
+// FindModuleDirs returns relative paths (from <gitRoot>/.git/modules/) for
+// every bare module repository found under that directory. Bare repos are
+// detected by the presence of a HEAD file, an objects/ directory, and a
+// refs/ directory. Nested module repos (submodules of submodules) stored
+// under <module>/modules/ are included recursively.
+// Returns nil if the modules directory does not exist.
+func FindModuleDirs(gitRoot string) ([]string, error) {
+	base := filepath.Join(gitRoot, ".git", "modules")
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return nil, nil
+	}
+	var paths []string
+	if err := findModuleDirs(base, base, &paths); err != nil {
+		return nil, err
+	}
+	slices.Sort(paths)
+	return paths, nil
+}
+
+func findModuleDirs(base, dir string, paths *[]string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read dir %s: %w", dir, err)
+	}
+	var hasHEAD, hasObjects, hasRefs, hasModules bool
+	for _, e := range entries {
+		switch e.Name() {
+		case "HEAD":
+			hasHEAD = !e.IsDir()
+		case "objects":
+			hasObjects = e.IsDir()
+		case "refs":
+			hasRefs = e.IsDir()
+		case "modules":
+			hasModules = e.IsDir()
+		}
+	}
+	if hasHEAD && hasObjects && hasRefs {
+		rel, err := filepath.Rel(base, dir)
+		if err != nil {
+			return err
+		}
+		*paths = append(*paths, rel)
+		// Recurse into <module>/modules/ to find nested submodule repos.
+		if hasModules {
+			_ = findModuleDirs(base, filepath.Join(dir, "modules"), paths)
+		}
+		return nil
+	}
+	// Not a bare repo — recurse into all subdirectories.
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		_ = findModuleDirs(base, filepath.Join(dir, e.Name()), paths)
+	}
+	return nil
+}
+
 // DiscoverRepos recursively walks root up to maxDepth levels, returning
 // absolute paths of git repositories. Both regular repos (containing a .git
 // subdirectory) and bare repos (containing HEAD, objects/, and refs/ directly)

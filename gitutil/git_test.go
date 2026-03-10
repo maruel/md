@@ -13,6 +13,119 @@ import (
 	"testing"
 )
 
+func TestListSubmodules(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+
+	run := func(d string, args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "git", args...)
+		if d != "" {
+			cmd.Dir = d
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Create a bare repo to serve as the submodule remote.
+	subBare := filepath.Join(dir, "sub.git")
+	run("", "init", "--bare", "--initial-branch=main", subBare)
+	subClone := filepath.Join(dir, "sub-clone")
+	run("", "clone", subBare, subClone)
+	run(subClone, "config", "user.name", "Test")
+	run(subClone, "config", "user.email", "test@test")
+	run(subClone, "commit", "--allow-empty", "-m", "init")
+	run(subClone, "push", "origin", "main")
+
+	// Create a main repo and add the submodule.
+	main := filepath.Join(dir, "main")
+	run("", "init", "--initial-branch=main", main)
+	run(main, "config", "user.name", "Test")
+	run(main, "config", "user.email", "test@test")
+	run(main, "commit", "--allow-empty", "-m", "init")
+	run(main, "-c", "protocol.file.allow=always", "submodule", "add", subBare, "lib/sub")
+	run(main, "commit", "-m", "add submodule")
+
+	subs, err := ListSubmodules(ctx, main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 1 {
+		t.Fatalf("got %d submodules, want 1: %v", len(subs), subs)
+	}
+	if subs[0].Name != "lib/sub" {
+		t.Errorf("Name = %q, want %q", subs[0].Name, "lib/sub")
+	}
+	if subs[0].Path != "lib/sub" {
+		t.Errorf("Path = %q, want %q", subs[0].Path, "lib/sub")
+	}
+
+	// Repo with no submodules returns nil.
+	empty := filepath.Join(dir, "empty")
+	run("", "init", "--initial-branch=main", empty)
+	subs, err = ListSubmodules(ctx, empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 0 {
+		t.Errorf("empty repo: got %v, want nil", subs)
+	}
+}
+
+func TestFindModuleDirs(t *testing.T) {
+	dir := t.TempDir()
+
+	// mkBare creates a minimal bare repo layout under .git/modules/<parts...>.
+	mkBare := func(parts ...string) {
+		t.Helper()
+		base := filepath.Join(append([]string{dir, ".git", "modules"}, parts...)...)
+		for _, sub := range []string{"objects", "refs"} {
+			if err := os.MkdirAll(filepath.Join(base, sub), 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(base, "HEAD"), []byte("ref: refs/heads/main\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create the .git directory so gitRoot is detected correctly.
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	// Direct submodule.
+	mkBare("subA")
+	// Nested submodule inside subA.
+	mkBare("subA", "modules", "subB")
+	// Another direct submodule under a path prefix.
+	mkBare("lib", "subC")
+
+	paths, err := FindModuleDirs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"lib/subC", "subA", "subA/modules/subB"}
+	if !slices.Equal(paths, want) {
+		t.Errorf("FindModuleDirs = %v, want %v", paths, want)
+	}
+
+	// Repo with no .git/modules returns nil.
+	empty := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(empty, ".git"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	paths, err = FindModuleDirs(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("empty: got %v, want nil", paths)
+	}
+}
+
 func TestDiscoverRepos(t *testing.T) {
 	root := t.TempDir()
 

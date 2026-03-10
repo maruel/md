@@ -75,6 +75,11 @@ type StartOpts struct {
 	Labels []string
 	// Quiet suppresses informational output during startup.
 	Quiet bool
+	// AgentPaths specifies which agent config directories to mount. Pass one
+	// entry per harness using values from [HarnessMounts]. Always-mounted
+	// directories (~/.config/agents, ~/.config/md) are added automatically.
+	// Nil or empty mounts only those shared directories.
+	AgentPaths []AgentPaths
 }
 
 // Container holds state for a single container instance.
@@ -126,8 +131,52 @@ type StartResult struct {
 	TailscaleAuthURL string
 }
 
+// prepare creates harness-specific config directories on the host so they can
+// be bind-mounted into the container. Always-mounted directories
+// (~/.config/agents, ~/.config/md) are created regardless.
+func (c *Container) prepare(paths []AgentPaths) error {
+	combined := mergePaths(paths)
+	dirs := make([]string, 0, len(combined.HomePaths)+len(combined.XDGConfigPaths)+len(combined.LocalSharePaths)+len(combined.LocalStatePaths))
+	for _, p := range combined.HomePaths {
+		dirs = append(dirs, filepath.Join(c.Home, p))
+	}
+	for _, p := range combined.XDGConfigPaths {
+		dirs = append(dirs, filepath.Join(c.XDGConfigHome, p))
+	}
+	for _, p := range combined.LocalSharePaths {
+		dirs = append(dirs, filepath.Join(c.XDGDataHome, p))
+	}
+	for _, p := range combined.LocalStatePaths {
+		dirs = append(dirs, filepath.Join(c.XDGStateHome, p))
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+	}
+	// Ensure ~/.claude.json symlink when ~/.claude is being prepared.
+	for _, p := range combined.HomePaths {
+		if p == ".claude" {
+			claudeJSON := filepath.Join(c.Home, ".claude.json")
+			target := filepath.Join(c.Home, ".claude", "claude.json")
+			if fi, err := os.Lstat(claudeJSON); err != nil {
+				if err := os.Symlink(target, claudeJSON); err != nil {
+					return fmt.Errorf("creating claude.json symlink: %w", err)
+				}
+			} else if fi.Mode()&os.ModeSymlink == 0 {
+				return fmt.Errorf("file %s exists but is not a symlink", claudeJSON)
+			}
+			break
+		}
+	}
+	return nil
+}
+
 // Start creates and starts a container.
 func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult, retErr error) {
+	if err := c.prepare(opts.AgentPaths); err != nil {
+		return nil, err
+	}
 	// Check if container already exists.
 	if _, err := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name}, true); err == nil {
 		return nil, fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md kill' first",

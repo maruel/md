@@ -10,6 +10,7 @@
 package md
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -55,13 +56,14 @@ type Client struct {
 	// keysDir is the directory containing SSH host keys and authorized_keys
 	// (~/.config/md/), used as a named Docker build context.
 	keysDir string
-	// sshArgs is the base SSH command, set by Prepare(). It includes
+	// sshArgs is the base SSH command, set by New(). It includes
 	// "-o Include=~/.ssh/config.d/*.conf" when the user's ~/.ssh/config
 	// lacks the Include directive.
 	sshArgs []string
 }
 
-// New creates a Client with global MD tool config.
+// New creates a Client with global MD tool config and initialises SSH
+// infrastructure (keys, authorized_keys, config.d include).
 func New() (*Client, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -79,7 +81,47 @@ func New() (*Client, error) {
 		Runtime:       detectRuntime(),
 	}
 	c.keysDir = filepath.Join(c.XDGConfigHome, "md")
+	if err := c.setupSSH(); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// setupSSH ensures SSH keys, authorized_keys, and ~/.ssh/config.d exist.
+// Called once by New(); idempotent.
+func (c *Client) setupSSH() error {
+	for _, d := range []string{
+		filepath.Dir(c.HostKeyPath), // ~/.config/md/
+		filepath.Join(c.Home, ".ssh", "config.d"),
+	} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+	}
+	sshDir := filepath.Join(c.Home, ".ssh")
+	missing, err := ensureSSHConfigInclude(c.W, sshDir)
+	if err != nil {
+		return err
+	}
+	c.sshArgs = []string{"ssh"}
+	if missing {
+		c.sshArgs = append(c.sshArgs, "-o", "Include="+filepath.Join(sshDir, "config.d", "*.conf"))
+	}
+	if err := ensureEd25519Key(c.W, c.UserKeyPath, "md-user"); err != nil {
+		return err
+	}
+	if err := ensureEd25519Key(c.W, c.HostKeyPath, "md-host"); err != nil {
+		return err
+	}
+	pubKey, err := os.ReadFile(c.UserKeyPath + ".pub")
+	if err != nil {
+		return err
+	}
+	authKeysPath := filepath.Join(c.keysDir, "authorized_keys")
+	if existing, _ := os.ReadFile(authKeysPath); bytes.Equal(existing, pubKey) {
+		return nil
+	}
+	return os.WriteFile(authKeysPath, pubKey, 0o600)
 }
 
 // detectRuntime returns the container runtime to use.
@@ -106,73 +148,6 @@ func (c *Client) Container(gitRoot, branch string) *Container {
 		Branch:   branch,
 		Name:     containerName(repoName, branch),
 	}
-}
-
-// Prepare ensures all directories and keys exist.
-func (c *Client) Prepare() error {
-	dirs := make([]string, 0, 2+len(agentConfig.HomePaths)+len(agentConfig.XDGConfigPaths)+len(agentConfig.LocalSharePaths)+len(agentConfig.LocalStatePaths))
-	dirs = append(dirs,
-		filepath.Dir(c.HostKeyPath),
-		filepath.Join(c.Home, ".ssh", "config.d"),
-	)
-	for _, p := range agentConfig.HomePaths {
-		dirs = append(dirs, filepath.Join(c.Home, p))
-	}
-	for _, p := range agentConfig.XDGConfigPaths {
-		dirs = append(dirs, filepath.Join(c.XDGConfigHome, p))
-	}
-	for _, p := range agentConfig.LocalSharePaths {
-		dirs = append(dirs, filepath.Join(c.XDGDataHome, p))
-	}
-	for _, p := range agentConfig.LocalStatePaths {
-		dirs = append(dirs, filepath.Join(c.XDGStateHome, p))
-	}
-	for _, d := range dirs {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
-	}
-
-	// Ensure ~/.ssh/config includes config.d/*.conf.
-	sshDir := filepath.Join(c.Home, ".ssh")
-	missing, err := ensureSSHConfigInclude(c.W, sshDir)
-	if err != nil {
-		return err
-	}
-	c.sshArgs = []string{"ssh"}
-	if missing {
-		c.sshArgs = append(c.sshArgs, "-o", "Include="+filepath.Join(sshDir, "config.d", "*.conf"))
-	}
-
-	// Ensure ~/.claude.json symlink.
-	claudeJSON := filepath.Join(c.Home, ".claude.json")
-	target := filepath.Join(c.Home, ".claude", "claude.json")
-	if fi, err := os.Lstat(claudeJSON); err != nil {
-		// Doesn't exist, create symlink.
-		if err := os.Symlink(target, claudeJSON); err != nil {
-			return fmt.Errorf("creating claude.json symlink: %w", err)
-		}
-	} else if fi.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("file %s exists but is not a symlink", claudeJSON)
-	}
-
-	if err := ensureEd25519Key(c.W, c.UserKeyPath, "md-user"); err != nil {
-		return err
-	}
-	if err := ensureEd25519Key(c.W, c.HostKeyPath, "md-host"); err != nil {
-		return err
-	}
-
-	// Write authorized_keys from user public key.
-	pubKey, err := os.ReadFile(c.UserKeyPath + ".pub")
-	if err != nil {
-		return err
-	}
-	userAuthKeysPath := filepath.Join(c.keysDir, "authorized_keys")
-	if err := os.WriteFile(userAuthKeysPath, pubKey, 0o600); err != nil {
-		return err
-	}
-	return nil
 }
 
 // SSHCommand returns the base SSH command args. Extra arguments (flags,
@@ -263,43 +238,67 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 
 //
 
-// agentConfig defines the host paths that get mounted into containers.
-var agentConfig = struct {
-	// HomePaths are mounted as-is under /home/user/.
-	HomePaths []string
-	// XDGConfigPaths are mounted under /home/user/.config/.
-	XDGConfigPaths []string
-	// LocalSharePaths are mounted under /home/user/.local/share/.
+// Harness identifies an agent harness whose config directories are mounted
+// into a container.
+type Harness string
+
+// Known agent harnesses.
+const (
+	HarnessAmp      Harness = "amp"
+	HarnessAndroid  Harness = "android"
+	HarnessClaude   Harness = "claude"
+	HarnessCodex    Harness = "codex"
+	HarnessGemini   Harness = "gemini"
+	HarnessGoose    Harness = "goose"
+	HarnessKilo     Harness = "kilo"
+	HarnessKimi     Harness = "kimi"
+	HarnessOpencode Harness = "opencode"
+	HarnessPi       Harness = "pi"
+	HarnessQwen     Harness = "qwen"
+)
+
+// AgentPaths groups the relative host directory paths for one or more agent
+// harnesses. Paths under HomePaths are relative to $HOME, XDGConfigPaths to
+// $XDG_CONFIG_HOME (~/.config), LocalSharePaths to $XDG_DATA_HOME
+// (~/.local/share), and LocalStatePaths to $XDG_STATE_HOME (~/.local/state).
+type AgentPaths struct {
+	HomePaths       []string
+	XDGConfigPaths  []string
 	LocalSharePaths []string
-	// LocalStatePaths are mounted under /home/user/.local/state/.
 	LocalStatePaths []string
-}{
-	HomePaths: []string{
-		".amp",
-		".android",
-		".codex",
-		".claude",
-		".gemini",
-		".kilocode",
-		".kimi",
-		".pi",
-		".qwen",
-	},
-	XDGConfigPaths: []string{
-		"agents",
-		"amp",
-		"goose",
-		"md",
-		"opencode",
-	},
-	LocalSharePaths: []string{
-		"amp",
-		"goose",
-		"opencode",
-	},
-	LocalStatePaths: []string{
-		"opencode",
-	},
+}
+
+// alwaysPaths are merged into every container's mount set automatically.
+// Callers do not need to include these; Client methods add them internally.
+var alwaysPaths = AgentPaths{
+	XDGConfigPaths: []string{"agents", "md"},
+}
+
+// HarnessMounts maps each known harness to its path configuration.
+var HarnessMounts = map[Harness]AgentPaths{
+	HarnessAmp:      {HomePaths: []string{".amp"}, XDGConfigPaths: []string{"amp"}, LocalSharePaths: []string{"amp"}},
+	HarnessAndroid:  {HomePaths: []string{".android"}},
+	HarnessClaude:   {HomePaths: []string{".claude"}},
+	HarnessCodex:    {HomePaths: []string{".codex"}},
+	HarnessGemini:   {HomePaths: []string{".gemini"}},
+	HarnessGoose:    {XDGConfigPaths: []string{"goose"}, LocalSharePaths: []string{"goose"}},
+	HarnessKilo:     {HomePaths: []string{".kilocode"}},
+	HarnessKimi:     {HomePaths: []string{".kimi"}},
+	HarnessOpencode: {XDGConfigPaths: []string{"opencode"}, LocalSharePaths: []string{"opencode"}, LocalStatePaths: []string{"opencode"}},
+	HarnessPi:       {HomePaths: []string{".pi"}},
+	HarnessQwen:     {HomePaths: []string{".qwen"}},
+}
+
+// mergePaths concatenates a slice of AgentPaths into one, prepending alwaysPaths.
+func mergePaths(paths []AgentPaths) AgentPaths {
+	result := alwaysPaths
+	for _, p := range paths {
+		result.HomePaths = append(result.HomePaths, p.HomePaths...)
+		result.XDGConfigPaths = append(result.XDGConfigPaths, p.XDGConfigPaths...)
+		result.LocalSharePaths = append(result.LocalSharePaths, p.LocalSharePaths...)
+		result.LocalStatePaths = append(result.LocalStatePaths, p.LocalStatePaths...)
+	}
+	return result
 }
 
 // CacheMount defines a host directory to bind-mount as a build cache inside
@@ -365,19 +364,24 @@ var WellKnownCaches = map[string][]CacheMount{
 // agent config mounts. These are the -v targets that must be pre-created with
 // user ownership in the Docker image before docker run creates them as root.
 func agentContainerPaths() []string {
-	paths := make([]string, 0,
-		len(agentConfig.HomePaths)+len(agentConfig.XDGConfigPaths)+
-			len(agentConfig.LocalSharePaths)+len(agentConfig.LocalStatePaths))
-	for _, p := range agentConfig.HomePaths {
+	all := alwaysPaths
+	for _, p := range HarnessMounts {
+		all.HomePaths = append(all.HomePaths, p.HomePaths...)
+		all.XDGConfigPaths = append(all.XDGConfigPaths, p.XDGConfigPaths...)
+		all.LocalSharePaths = append(all.LocalSharePaths, p.LocalSharePaths...)
+		all.LocalStatePaths = append(all.LocalStatePaths, p.LocalStatePaths...)
+	}
+	paths := make([]string, 0, len(all.HomePaths)+len(all.XDGConfigPaths)+len(all.LocalSharePaths)+len(all.LocalStatePaths))
+	for _, p := range all.HomePaths {
 		paths = append(paths, "/home/user/"+p)
 	}
-	for _, p := range agentConfig.XDGConfigPaths {
+	for _, p := range all.XDGConfigPaths {
 		paths = append(paths, "/home/user/.config/"+p)
 	}
-	for _, p := range agentConfig.LocalSharePaths {
+	for _, p := range all.LocalSharePaths {
 		paths = append(paths, "/home/user/.local/share/"+p)
 	}
-	for _, p := range agentConfig.LocalStatePaths {
+	for _, p := range all.LocalStatePaths {
 		paths = append(paths, "/home/user/.local/state/"+p)
 	}
 	return paths

@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -138,9 +140,6 @@ func newClient() (*md.Client, error) {
 	}
 	c.GithubToken = os.Getenv("GITHUB_TOKEN")
 	c.TailscaleAPIKey = os.Getenv("TAILSCALE_API_KEY")
-	if err := c.Prepare(); err != nil {
-		return nil, err
-	}
 	return c, nil
 }
 
@@ -262,6 +261,7 @@ func cmdStart(ctx context.Context, args []string) error {
 		Caches:           caches,
 		Labels:           labels.values,
 		Quiet:            *quiet,
+		AgentPaths:       slices.Collect(maps.Values(md.HarnessMounts)),
 	}
 	result, err := ct.Start(ctx, &opts)
 	if err != nil {

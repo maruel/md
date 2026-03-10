@@ -700,25 +700,26 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 			"--device-cgroup-rule=c 189:* rwm")
 	}
 
-	// Agent config mounts.
+	// Agent config mounts: always-mounted paths plus caller-specified harness paths.
+	combined := mergePaths(opts.AgentPaths)
 	home := c.Home
 	xdgConfig := c.XDGConfigHome
 	xdgData := c.XDGDataHome
 	xdgState := c.XDGStateHome
-	for _, p := range agentConfig.HomePaths {
+	for _, p := range combined.HomePaths {
 		dockerArgs = append(dockerArgs, "-v", filepath.Join(home, p)+":/home/user/"+p)
 	}
-	for _, p := range agentConfig.XDGConfigPaths {
+	for _, p := range combined.XDGConfigPaths {
 		ro := ""
 		if p == "md" {
 			ro = ":ro"
 		}
 		dockerArgs = append(dockerArgs, "-v", filepath.Join(xdgConfig, p)+":/home/user/.config/"+p+ro)
 	}
-	for _, p := range agentConfig.LocalSharePaths {
+	for _, p := range combined.LocalSharePaths {
 		dockerArgs = append(dockerArgs, "-v", filepath.Join(xdgData, p)+":/home/user/.local/share/"+p)
 	}
-	for _, p := range agentConfig.LocalStatePaths {
+	for _, p := range combined.LocalStatePaths {
 		dockerArgs = append(dockerArgs, "-v", filepath.Join(xdgState, p)+":/home/user/.local/state/"+p)
 	}
 

@@ -84,6 +84,54 @@ func TestDiscoverReposEmpty(t *testing.T) {
 	}
 }
 
+func TestDiscoverReposBare(t *testing.T) {
+	root := t.TempDir()
+
+	// mkBare creates a minimal bare repo layout (HEAD file + objects/ + refs/).
+	mkBare := func(parts ...string) {
+		base := filepath.Join(append([]string{root}, parts...)...)
+		if err := os.MkdirAll(filepath.Join(base, "objects"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(base, "refs"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, "HEAD"), []byte("ref: refs/heads/main\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// mkGit creates a regular (non-bare) repo layout.
+	mkGit := func(parts ...string) {
+		p := append(append([]string{root}, parts...), ".git")
+		if err := os.MkdirAll(filepath.Join(p...), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mkBare("myrepo.git")
+	mkBare("org", "other.git")
+	mkGit("regular")
+	// Bare repo too deep (depth 4) — excluded at maxDepth=3.
+	mkBare("deep", "nested", "too", "deep.git")
+
+	repos, err := DiscoverRepos(root, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		filepath.Join(root, "myrepo.git"),
+		filepath.Join(root, "org", "other.git"),
+		filepath.Join(root, "regular"),
+	}
+	slices.Sort(repos)
+	slices.Sort(want)
+
+	if !slices.Equal(repos, want) {
+		t.Errorf("repos = %v\n want %v", repos, want)
+	}
+}
+
 func TestDefaultBranch(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()

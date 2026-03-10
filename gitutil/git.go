@@ -314,8 +314,10 @@ func ListBranches(ctx context.Context, dir, remote string) ([][2]string, error) 
 }
 
 // DiscoverRepos recursively walks root up to maxDepth levels, returning
-// absolute paths of directories containing a .git subdirectory. Hidden
-// directories (prefix ".") are skipped. Recursion stops once .git is found.
+// absolute paths of git repositories. Both regular repos (containing a .git
+// subdirectory) and bare repos (containing HEAD, objects/, and refs/ directly)
+// are detected. Hidden directories (prefix ".") are skipped. Recursion stops
+// once a repo is found.
 func DiscoverRepos(root string, maxDepth int) ([]string, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -334,12 +336,24 @@ func discoverRepos(dir string, depth int, repos *[]string) error {
 	if err != nil {
 		return fmt.Errorf("read dir %s: %w", dir, err)
 	}
-	// Check if this directory contains .git.
+	// Scan entries to detect regular (.git subdir) or bare repos (HEAD file +
+	// objects/ + refs/ dirs).
+	var hasGit, hasHEAD, hasObjects, hasRefs bool
 	for _, e := range entries {
-		if e.Name() == ".git" {
-			*repos = append(*repos, dir)
-			return nil // Don't recurse into repos.
+		switch e.Name() {
+		case ".git":
+			hasGit = true
+		case "HEAD":
+			hasHEAD = !e.IsDir()
+		case "objects":
+			hasObjects = e.IsDir()
+		case "refs":
+			hasRefs = e.IsDir()
 		}
+	}
+	if hasGit || (hasHEAD && hasObjects && hasRefs) {
+		*repos = append(*repos, dir)
+		return nil // Don't recurse into repos.
 	}
 	// Recurse into subdirectories.
 	for _, e := range entries {

@@ -57,6 +57,33 @@ func TestContainerName(t *testing.T) {
 	}
 }
 
+func TestContainer(t *testing.T) {
+	t.Run("RepoName", func(t *testing.T) {
+		c := &Client{}
+		tests := []struct {
+			name     string
+			gitRoot  string
+			wantRepo string
+			wantName string
+		}{
+			{"regular", "/home/user/src/myrepo", "myrepo", "md-myrepo-main"},
+			{"bare", "/home/user/src/myrepo.git", "myrepo", "md-myrepo-main"},
+			{"no_git_suffix", "/home/user/src/myrepo.git.git", "myrepo.git", "md-myrepo.git-main"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ct := c.Container(tt.gitRoot, "main")
+				if ct.RepoName != tt.wantRepo {
+					t.Errorf("RepoName = %q, want %q", ct.RepoName, tt.wantRepo)
+				}
+				if ct.Name != tt.wantName {
+					t.Errorf("Name = %q, want %q", ct.Name, tt.wantName)
+				}
+			})
+		}
+	})
+}
+
 func TestWellKnownCaches(t *testing.T) {
 	if len(WellKnownCaches) == 0 {
 		t.Fatal("WellKnownCaches must not be empty")

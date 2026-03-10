@@ -98,7 +98,7 @@ func detectRuntime() string {
 //
 // It doesn't start it, it is just a reference.
 func (c *Client) Container(gitRoot, branch string) *Container {
-	repoName := filepath.Base(gitRoot)
+	repoName := strings.TrimSuffix(filepath.Base(gitRoot), ".git")
 	return &Container{
 		Client:   c,
 		GitRoot:  gitRoot,

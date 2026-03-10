@@ -6,12 +6,15 @@
 // agents.
 //
 // It provides programmatic access to create, manage, and tear down containers
-// that each get a full git clone of your repository with SSH access.
+// with SSH access. Containers optionally receive a full git clone of one or
+// more repositories; repo-less containers are also supported for general
+// agent workloads.
 package md
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -137,17 +140,36 @@ func detectRuntime() string {
 	return "docker"
 }
 
-// Container returns a Container handle for the given git root and branch.
+// ContainerByName returns a Container handle for an existing container
+// identified only by name. Use this when the repos are unknown (e.g.
+// no-repo containers). Only Kill and inspect operations are meaningful
+// on the returned handle.
+func (c *Client) ContainerByName(name string) *Container {
+	return &Container{Client: c, Name: name}
+}
+
+// Container returns a Container handle for the given repos.
+// The first repo is the primary; the rest are pushed alongside it at
+// /home/user/src/<basename> inside the container. When called with no repos,
+// the container has no associated git repository and a name is generated
+// automatically.
 //
 // It doesn't start it, it is just a reference.
-func (c *Client) Container(gitRoot, branch string) *Container {
-	repoName := strings.TrimSuffix(filepath.Base(gitRoot), ".git")
+func (c *Client) Container(repos ...Repo) *Container {
+	if len(repos) == 0 {
+		var buf [4]byte
+		_, _ = rand.Read(buf[:])
+		return &Container{
+			Client: c,
+			Name:   fmt.Sprintf("md-agent-%x", buf),
+		}
+	}
+	primary := repos[0]
+	repoName := strings.TrimSuffix(filepath.Base(primary.GitRoot), ".git")
 	return &Container{
-		Client:   c,
-		GitRoot:  gitRoot,
-		RepoName: repoName,
-		Branch:   branch,
-		Name:     containerName(repoName, branch),
+		Client: c,
+		Repos:  repos,
+		Name:   containerName(repoName, primary.Branch),
 	}
 }
 

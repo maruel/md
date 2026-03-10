@@ -7,6 +7,7 @@ package md
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,6 +44,15 @@ func runCmd(ctx context.Context, dir string, args []string, capture bool) (strin
 
 // DefaultBaseImage is the base image used when none is specified.
 const DefaultBaseImage = "ghcr.io/caic-xyz/md"
+
+// Repo describes a git repository to push into a container.
+// It is mounted at /home/user/src/<basename>.
+type Repo struct {
+	// GitRoot is the absolute path to the git repository root on the host.
+	GitRoot string `json:"git_root"`
+	// Branch is the git branch to push into the container.
+	Branch string `json:"branch"`
+}
 
 // StartOpts configures container startup.
 type StartOpts struct {
@@ -88,15 +98,10 @@ type StartOpts struct {
 // and restored by [unmarshalContainer] when listing containers.
 type Container struct {
 	*Client
-	// GitRoot is the absolute path to the git repository root on the host.
-	// Label: md.git_root
-	GitRoot string
-	// RepoName is the basename of the repository directory.
-	// Label: md.repo_name
-	RepoName string
-	// Branch is the git branch checked out in the container.
-	// Label: md.branch
-	Branch string
+	// Repos are the git repositories in this container. Repos[0] is the
+	// primary; the rest are pushed alongside it at /home/user/src/<basename>.
+	// Label: md.repos (base64-encoded JSON)
+	Repos []Repo
 	// Name is the Docker container name (e.g. "md-myrepo-main").
 	Name string
 	// State is the Docker container state (e.g. "running", "exited").
@@ -117,6 +122,14 @@ type Container struct {
 	DefaultRemote string
 	// DefaultBranch is the default branch for DefaultRemote (resolved lazily).
 	DefaultBranch string
+}
+
+func (c *Container) primary() Repo {
+	return c.Repos[0]
+}
+
+func (c *Container) repoName() string {
+	return strings.TrimSuffix(filepath.Base(c.Repos[0].GitRoot), ".git")
 }
 
 // StartResult contains information about the started container.
@@ -237,12 +250,18 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 func (c *Container) Run(ctx context.Context, baseImage string, command []string, caches []CacheMount) (_ int, retErr error) {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
+	var tmpRepos []Repo
+	var tmpName string
+	if len(c.Repos) > 0 {
+		tmpRepos = c.Repos[:1]
+		tmpName = fmt.Sprintf("md-%s-run-%x", sanitizeDockerName(c.repoName()), buf)
+	} else {
+		tmpName = fmt.Sprintf("md-run-%x", buf)
+	}
 	tmp := &Container{
-		Client:   c.Client,
-		GitRoot:  c.GitRoot,
-		RepoName: c.RepoName,
-		Branch:   c.Branch,
-		Name:     fmt.Sprintf("md-%s-run-%x", sanitizeDockerName(c.RepoName), buf),
+		Client: c.Client,
+		Repos:  tmpRepos,
+		Name:   tmpName,
 	}
 
 	if baseImage == "" {
@@ -265,7 +284,13 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	}
 
 	cmdStr := strings.Join(command, " ")
-	_, err := runCmd(ctx, "", c.SSHCommand(tmp.Name, "cd ~/src/"+shellQuote(c.RepoName)+" && "+cmdStr), false)
+	var sshCmd string
+	if len(c.Repos) > 0 {
+		sshCmd = "cd ~/src/" + shellQuote(c.repoName()) + " && " + cmdStr
+	} else {
+		sshCmd = cmdStr
+	}
+	_, err := runCmd(ctx, "", c.SSHCommand(tmp.Name, sshCmd), false)
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -284,8 +309,13 @@ func (c *Container) Kill(ctx context.Context) error {
 	rt := c.Runtime
 	_, containerErr := runCmd(ctx, "", []string{rt, "inspect", c.Name}, true)
 	containerExists := containerErr == nil
-	_, remoteErr := gitutil.RunGit(ctx, c.GitRoot, "remote", "get-url", c.Name)
-	remoteExists := remoteErr == nil
+	var anyRemoteExists bool
+	for _, repo := range c.Repos {
+		if _, err := gitutil.RunGit(ctx, repo.GitRoot, "remote", "get-url", c.Name); err == nil {
+			anyRemoteExists = true
+			break
+		}
+	}
 	sshConfigDir := filepath.Join(c.Home, ".ssh", "config.d")
 	sshConf := filepath.Join(sshConfigDir, c.Name+".conf")
 	sshKnown := filepath.Join(sshConfigDir, c.Name+".known_hosts")
@@ -293,7 +323,7 @@ func (c *Container) Kill(ctx context.Context) error {
 	_, sshKnownErr := os.Stat(sshKnown)
 	sshExists := sshConfErr == nil || sshKnownErr == nil
 
-	if !containerExists && !remoteExists && !sshExists {
+	if !containerExists && !anyRemoteExists && !sshExists {
 		return fmt.Errorf("%s not found", c.Name)
 	}
 
@@ -322,9 +352,11 @@ func (c *Container) Kill(ctx context.Context) error {
 	_ = os.Remove(sshKnown)
 
 	var retErr error
-	if remoteExists {
-		if _, err := gitutil.RunGit(ctx, c.GitRoot, "remote", "remove", c.Name); err != nil {
-			retErr = err
+	for _, repo := range c.Repos {
+		if _, err := gitutil.RunGit(ctx, repo.GitRoot, "remote", "get-url", c.Name); err == nil {
+			if _, err := gitutil.RunGit(ctx, repo.GitRoot, "remote", "remove", c.Name); err != nil {
+				retErr = errors.Join(retErr, err)
+			}
 		}
 	}
 	if containerExists {
@@ -338,6 +370,9 @@ func (c *Container) Kill(ctx context.Context) error {
 
 // Push force-pushes local state into the container.
 func (c *Container) Push(ctx context.Context) error {
+	if len(c.Repos) == 0 {
+		return errors.New("container has no repos")
+	}
 	if err := c.checkContainerState(ctx); err != nil {
 		return err
 	}
@@ -345,28 +380,28 @@ func (c *Container) Push(ctx context.Context) error {
 		return err
 	}
 	// Refuse if there are pending local changes on the branch being pushed.
-	currentBranch, _ := gitutil.RunGit(ctx, c.GitRoot, "branch", "--show-current")
-	if currentBranch == c.Branch {
-		if _, err := gitutil.RunGit(ctx, c.GitRoot, "diff", "--quiet", "--exit-code"); err != nil {
+	currentBranch, _ := gitutil.RunGit(ctx, c.primary().GitRoot, "branch", "--show-current")
+	if currentBranch == c.primary().Branch {
+		if _, err := gitutil.RunGit(ctx, c.primary().GitRoot, "diff", "--quiet", "--exit-code"); err != nil {
 			return errors.New("there are pending changes locally. Please commit or stash them before pushing")
 		}
 	}
-	repo := shellQuote(c.RepoName)
-	branch := shellQuote(c.Branch)
+	repo := shellQuote(c.repoName())
+	branch := shellQuote(c.primary().Branch)
 	// Commit any pending changes in the container.
 	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"), true)
 	containerCommit, _ := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git rev-parse HEAD"), true)
 	backupBranch := "backup-" + time.Now().Format("20060102-150405")
 	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git branch -f "+backupBranch+" "+containerCommit), true)
 	_, _ = fmt.Fprintf(c.W, "- Previous state saved as git branch: %s\n", backupBranch)
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, c.Branch + ":base"}, false); err != nil {
+	if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, c.primary().Branch + ":base"}, false); err != nil {
 		return err
 	}
 	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git switch -q -C "+branch+" base"), false); err != nil {
 		return err
 	}
 	// Update the local remote-tracking ref so it reflects the pushed state.
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "update-ref", "refs/remotes/" + c.Name + "/" + c.Branch, c.Branch}, false); err != nil {
+	if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "update-ref", "refs/remotes/" + c.Name + "/" + c.primary().Branch, c.primary().Branch}, false); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(c.W, "- Container updated.")
@@ -379,13 +414,16 @@ func (c *Container) Push(ctx context.Context) error {
 // provider and model control AI commit message generation. See https://github.com/maruel/genai for valid
 // names. If provider is empty, a default message is used.
 func (c *Container) Fetch(ctx context.Context, provider, model string) error {
+	if len(c.Repos) == 0 {
+		return errors.New("container has no repos")
+	}
 	if err := c.checkContainerState(ctx); err != nil {
 		return err
 	}
 	if err := c.SyncDefaultBranch(ctx); err != nil {
 		return err
 	}
-	repo := shellQuote(c.RepoName)
+	repo := shellQuote(c.repoName())
 	// Check if there are uncommitted changes in the container.
 	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git add . && git diff --quiet HEAD -- ."), true); err != nil {
 		commitMsg := "Pull from md"
@@ -402,16 +440,28 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 				}
 			}
 		}
-		gitUserName, _ := gitutil.RunGit(ctx, c.GitRoot, "config", "user.name")
-		gitUserEmail, _ := gitutil.RunGit(ctx, c.GitRoot, "config", "user.email")
+		gitUserName, _ := gitutil.RunGit(ctx, c.primary().GitRoot, "config", "user.name")
+		gitUserEmail, _ := gitutil.RunGit(ctx, c.primary().GitRoot, "config", "user.email")
 		gitAuthor := shellQuote(gitUserName + " <" + gitUserEmail + ">")
 		commitCmd := "cd ~/src/" + repo + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
 		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, commitCmd), false); err != nil {
 			return fmt.Errorf("committing in container: %w", err)
 		}
 	}
-	_, err := runCmd(ctx, c.GitRoot, []string{"git", "fetch", "-q", c.Name, c.Branch}, false)
-	return err
+	if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "fetch", "-q", c.Name, c.primary().Branch}, false); err != nil {
+		return err
+	}
+	for _, repo := range c.Repos[1:] {
+		repoName := shellQuote(filepath.Base(repo.GitRoot))
+		// Commit any pending changes in the container for this repo (best-effort).
+		commitCmd := "cd ~/src/" + repoName + " && git add . && git diff --quiet HEAD -- . || git commit -q -m 'Pull from md'"
+		_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, commitCmd), true)
+		// Fetch from container to host.
+		if _, err := runCmd(ctx, repo.GitRoot, []string{"git", "fetch", "-q", c.Name, repo.Branch}, false); err != nil {
+			return fmt.Errorf("fetch extra repo %s: %w", filepath.Base(repo.GitRoot), err)
+		}
+	}
+	return nil
 }
 
 // Pull fetches changes from the container and integrates them into the local branch.
@@ -422,42 +472,48 @@ func (c *Container) Pull(ctx context.Context, provider, model string) error {
 	if err := c.Fetch(ctx, provider, model); err != nil {
 		return err
 	}
-	remoteRef := c.Name + "/" + c.Branch
-	currentBranch, _ := gitutil.RunGit(ctx, c.GitRoot, "branch", "--show-current")
-	if currentBranch == c.Branch {
+	remoteRef := c.Name + "/" + c.primary().Branch
+	currentBranch, _ := gitutil.RunGit(ctx, c.primary().GitRoot, "branch", "--show-current")
+	if currentBranch == c.primary().Branch {
 		// Already on the branch, rebase locally.
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
+		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
 			return err
 		}
-	} else if _, err := gitutil.RunGit(ctx, c.GitRoot, "merge-base", "--is-ancestor", c.Branch, remoteRef); err == nil {
+	} else if _, err := gitutil.RunGit(ctx, c.primary().GitRoot, "merge-base", "--is-ancestor", c.primary().Branch, remoteRef); err == nil {
 		// Fast-forward: update ref without checkout.
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "update-ref", "refs/heads/" + c.Branch, remoteRef}, false); err != nil {
+		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "update-ref", "refs/heads/" + c.primary().Branch, remoteRef}, false); err != nil {
 			return err
 		}
 	} else {
 		// Not a fast-forward. Checkout the branch, rebase, then checkout back.
 		origRef := currentBranch
 		if origRef == "" {
-			origRef, _ = gitutil.RunGit(ctx, c.GitRoot, "rev-parse", "HEAD")
+			origRef, _ = gitutil.RunGit(ctx, c.primary().GitRoot, "rev-parse", "HEAD")
 		}
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", c.Branch}, false); err != nil {
+		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "checkout", "-q", c.primary().Branch}, false); err != nil {
 			return err
 		}
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
-			_, _ = runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", origRef}, false)
+		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
+			_, _ = runCmd(ctx, c.primary().GitRoot, []string{"git", "checkout", "-q", origRef}, false)
 			return err
 		}
-		if _, err := runCmd(ctx, c.GitRoot, []string{"git", "checkout", "-q", origRef}, false); err != nil {
+		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "checkout", "-q", origRef}, false); err != nil {
 			return err
 		}
 	}
-	_, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "-f", c.Name, c.Branch + ":base"}, false)
+	_, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "push", "-q", "-f", c.Name, c.primary().Branch + ":base"}, false)
 	return err
 }
 
-// Diff writes the diff between base and current in the container.
+// Diff writes the diff between base and current for Repos[repoIdx] to stdout/stderr.
 // When stdout is a terminal, a TTY is allocated so git's pager and colors work.
-func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, extraArgs []string) error {
+func (c *Container) Diff(ctx context.Context, repoIdx int, stdout, stderr io.Writer, extraArgs []string) error {
+	if len(c.Repos) == 0 {
+		return errors.New("container has no repos")
+	}
+	if repoIdx < 0 || repoIdx >= len(c.Repos) {
+		return fmt.Errorf("repo index %d out of range [0, %d)", repoIdx, len(c.Repos))
+	}
 	if err := c.checkContainerState(ctx); err != nil {
 		return err
 	}
@@ -468,13 +524,15 @@ func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, extraArg
 	for i, a := range extraArgs {
 		quotedArgs[i] = shellQuote(a)
 	}
+	repo := c.Repos[repoIdx]
+	repoName := shellQuote(strings.TrimSuffix(filepath.Base(repo.GitRoot), ".git"))
 	sshArgs := c.SSHCommand("-q")
 	cmd := exec.CommandContext(ctx, sshArgs[0])
 	if f, ok := stdout.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		sshArgs = append(sshArgs, "-t")
 		cmd.Stdin = os.Stdin
 	}
-	sshArgs = append(sshArgs, c.Name, "cd ~/src/"+shellQuote(c.RepoName)+" && git add . && git diff base "+strings.Join(quotedArgs, " ")+" -- .")
+	sshArgs = append(sshArgs, c.Name, "cd ~/src/"+repoName+" && git add . && git diff base "+strings.Join(quotedArgs, " ")+" -- .")
 	cmd.Path, _ = exec.LookPath(sshArgs[0])
 	cmd.Args = sshArgs
 	cmd.Stdout = stdout
@@ -699,12 +757,10 @@ func unmarshalContainer(data []byte) (Container, error) {
 			continue
 		}
 		switch k {
-		case "md.git_root":
-			ct.GitRoot = v
-		case "md.repo_name":
-			ct.RepoName = v
-		case "md.branch":
-			ct.Branch = v
+		case "md.repos":
+			if data, err := base64.StdEncoding.DecodeString(v); err == nil {
+				_ = json.Unmarshal(data, &ct.Repos)
+			}
 		case "md.display":
 			ct.Display = v == "1"
 		case "md.tailscale":
@@ -718,15 +774,18 @@ func unmarshalContainer(data []byte) (Container, error) {
 
 // resolveDefaults populates DefaultRemote and DefaultBranch if not already set.
 func (c *Container) resolveDefaults(ctx context.Context) error {
+	if len(c.Repos) == 0 {
+		return errors.New("container has no repos")
+	}
 	if c.DefaultRemote == "" {
-		remote, err := gitutil.DefaultRemote(ctx, c.GitRoot)
+		remote, err := gitutil.DefaultRemote(ctx, c.primary().GitRoot)
 		if err != nil {
 			return err
 		}
 		c.DefaultRemote = remote
 	}
 	if c.DefaultBranch == "" {
-		branch, err := gitutil.DefaultBranch(ctx, c.GitRoot, c.DefaultRemote)
+		branch, err := gitutil.DefaultBranch(ctx, c.primary().GitRoot, c.DefaultRemote)
 		if err != nil {
 			return err
 		}
@@ -738,15 +797,18 @@ func (c *Container) resolveDefaults(ctx context.Context) error {
 // SyncDefaultBranch force-pushes the host's default branch (e.g. origin/main)
 // into the container so agents can diff against it.
 func (c *Container) SyncDefaultBranch(ctx context.Context) error {
+	if len(c.Repos) == 0 {
+		return errors.New("container has no repos")
+	}
 	if err := c.resolveDefaults(ctx); err != nil {
 		return fmt.Errorf("sync default branch: %w", err)
 	}
 	// If the container's working branch is the default branch, it's already
 	// synced as "base".
-	if c.DefaultBranch == c.Branch {
+	if c.DefaultBranch == c.primary().Branch {
 		return nil
 	}
-	if _, err := gitutil.RunGit(ctx, c.GitRoot, "push", "-q", "-f", c.Name, "refs/remotes/"+c.DefaultRemote+"/"+c.DefaultBranch+":refs/heads/"+c.DefaultBranch); err != nil {
+	if _, err := gitutil.RunGit(ctx, c.primary().GitRoot, "push", "-q", "-f", c.Name, "refs/remotes/"+c.DefaultRemote+"/"+c.DefaultBranch+":refs/heads/"+c.DefaultBranch); err != nil {
 		return fmt.Errorf("sync default branch %q: %w", c.DefaultBranch, err)
 	}
 	return nil
@@ -755,26 +817,32 @@ func (c *Container) SyncDefaultBranch(ctx context.Context) error {
 func (c *Container) checkContainerState(ctx context.Context) error {
 	_, containerErr := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name}, true)
 	containerExists := containerErr == nil
-	_, remoteErr := gitutil.RunGit(ctx, c.GitRoot, "remote", "get-url", c.Name)
-	remoteExists := remoteErr == nil
+	var remoteExists bool
+	if len(c.Repos) > 0 {
+		_, remoteErr := gitutil.RunGit(ctx, c.primary().GitRoot, "remote", "get-url", c.Name)
+		remoteExists = remoteErr == nil
+	}
 	sshConfigDir := filepath.Join(c.Home, ".ssh", "config.d")
 	_, sshErr := os.Stat(filepath.Join(sshConfigDir, c.Name+".conf"))
 	sshExists := sshErr == nil
 
 	if !containerExists && !remoteExists && !sshExists {
-		return fmt.Errorf("no container running for branch '%s'.\nStart a container with: md start", c.Branch)
+		if len(c.Repos) > 0 {
+			return fmt.Errorf("no container running for branch '%s'.\nStart a container with: md start", c.primary().Branch)
+		}
+		return fmt.Errorf("container %s not found.\nStart a container with: md start", c.Name)
 	}
-	if !containerExists || !remoteExists || !sshExists {
-		var issues []string
-		if !containerExists {
-			issues = append(issues, "Docker container is not running")
-		}
-		if !remoteExists {
-			issues = append(issues, "Git remote is missing")
-		}
-		if !sshExists {
-			issues = append(issues, "SSH config is missing")
-		}
+	var issues []string
+	if !containerExists {
+		issues = append(issues, "Docker container is not running")
+	}
+	if len(c.Repos) > 0 && !remoteExists {
+		issues = append(issues, "Git remote is missing")
+	}
+	if !sshExists {
+		issues = append(issues, "SSH config is missing")
+	}
+	if len(issues) > 0 {
 		return fmt.Errorf("inconsistent state detected for %s:\n  - %s\nConsider running 'md kill' to clean up, then 'md start' to restart",
 			c.Name, strings.Join(issues, "\n  - "))
 	}
@@ -783,7 +851,12 @@ func (c *Container) checkContainerState(ctx context.Context) error {
 
 func (c *Container) cleanup(ctx context.Context) {
 	removeSSHConfig(filepath.Join(c.Home, ".ssh", "config.d"), c.Name)
-	_, _ = gitutil.RunGit(ctx, c.GitRoot, "remote", "remove", c.Name)
+	if len(c.Repos) > 0 {
+		_, _ = gitutil.RunGit(ctx, c.primary().GitRoot, "remote", "remove", c.Name)
+		for _, repo := range c.Repos[1:] {
+			_, _ = gitutil.RunGit(ctx, repo.GitRoot, "remote", "remove", c.Name)
+		}
+	}
 	_, _ = runCmd(ctx, "", []string{c.Runtime, "rm", "-f", "-v", c.Name}, true)
 }
 

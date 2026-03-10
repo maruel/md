@@ -5,6 +5,8 @@
 package md
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -58,19 +60,21 @@ func TestUnmarshalContainer(t *testing.T) {
 		}
 	})
 	t.Run("with_labels", func(t *testing.T) {
-		raw := `{"Names":"md-repo-main","State":"running","CreatedAt":"2025-06-15 10:30:00 +0000 UTC","Labels":"md.git_root=/home/user/repo,md.repo_name=repo,md.branch=main,other=ignored"}`
+		reposData, _ := json.Marshal([]Repo{{GitRoot: "/home/user/repo", Branch: "main"}})
+		reposB64 := base64.StdEncoding.EncodeToString(reposData)
+		raw := `{"Names":"md-repo-main","State":"running","CreatedAt":"2025-06-15 10:30:00 +0000 UTC","Labels":"md.repos=` + reposB64 + `,other=ignored"}`
 		ct, err := unmarshalContainer([]byte(raw))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ct.GitRoot != "/home/user/repo" {
-			t.Errorf("GitRoot = %q, want %q", ct.GitRoot, "/home/user/repo")
+		if len(ct.Repos) != 1 {
+			t.Fatalf("len(Repos) = %d, want 1", len(ct.Repos))
 		}
-		if ct.RepoName != "repo" {
-			t.Errorf("RepoName = %q, want %q", ct.RepoName, "repo")
+		if ct.Repos[0].GitRoot != "/home/user/repo" {
+			t.Errorf("Repos[0].GitRoot = %q, want %q", ct.Repos[0].GitRoot, "/home/user/repo")
 		}
-		if ct.Branch != "main" {
-			t.Errorf("Branch = %q, want %q", ct.Branch, "main")
+		if ct.Repos[0].Branch != "main" {
+			t.Errorf("Repos[0].Branch = %q, want %q", ct.Repos[0].Branch, "main")
 		}
 	})
 	t.Run("no_labels", func(t *testing.T) {
@@ -79,8 +83,21 @@ func TestUnmarshalContainer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ct.GitRoot != "" || ct.RepoName != "" || ct.Branch != "" {
-			t.Errorf("expected empty label fields, got GitRoot=%q RepoName=%q Branch=%q", ct.GitRoot, ct.RepoName, ct.Branch)
+		if ct.Repos != nil {
+			t.Errorf("expected nil Repos, got %v", ct.Repos)
+		}
+	})
+	t.Run("empty_repos", func(t *testing.T) {
+		// No-repo containers encode md.repos as an empty JSON array.
+		reposData, _ := json.Marshal([]Repo{})
+		reposB64 := base64.StdEncoding.EncodeToString(reposData)
+		raw := `{"Names":"md-agent","State":"running","CreatedAt":"2025-06-15 10:30:00 +0000 UTC","Labels":"md.repos=` + reposB64 + `"}`
+		ct, err := unmarshalContainer([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ct.Repos) != 0 {
+			t.Errorf("expected empty Repos, got %v", ct.Repos)
 		}
 	})
 	t.Run("podman_rfc3339", func(t *testing.T) {

@@ -184,37 +184,63 @@ func (cf *containerFlags) baseImage() (string, error) {
 	return "", nil
 }
 
-func newContainer(ctx context.Context, cf *containerFlags) (*md.Container, error) {
+// newContainer resolves a Container from flags. extraRepoSpecs holds
+// additional "path[:branch]" strings (e.g. from -extra-repo in cmdStart).
+func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []string) (*md.Container, error) {
 	c, err := newClient()
 	if err != nil {
 		return nil, err
 	}
-	repo := ""
+	// Resolve primary repo.
+	var repos []md.Repo
+	primaryPath := ""
 	if cf.repo != nil && *cf.repo != "" {
-		repo = *cf.repo
+		primaryPath = *cf.repo
 	} else {
-		repo, err = os.Getwd()
+		primaryPath, err = os.Getwd()
 		if err != nil {
 			return nil, err
 		}
 	}
-	gitRoot, err := gitutil.RootDir(ctx, repo)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Chdir(gitRoot); err != nil {
-		return nil, err
-	}
-	var branch string
-	if cf.branch != nil && *cf.branch != "" {
-		branch = *cf.branch
-	} else {
-		branch, err = gitutil.CurrentBranch(ctx, gitRoot)
-		if err != nil {
+	gitRoot, gitErr := gitutil.RootDir(ctx, primaryPath)
+	if gitErr == nil {
+		if err := os.Chdir(gitRoot); err != nil {
 			return nil, err
 		}
+		var branch string
+		if cf.branch != nil && *cf.branch != "" {
+			branch = *cf.branch
+		} else {
+			branch, err = gitutil.CurrentBranch(ctx, gitRoot)
+			if err != nil {
+				return nil, err
+			}
+		}
+		repos = append(repos, md.Repo{GitRoot: gitRoot, Branch: branch})
+	} else if cf.repo != nil && *cf.repo != "" {
+		// Explicit -repo that isn't a git root is an error.
+		return nil, fmt.Errorf("repo %s: %w", primaryPath, gitErr)
 	}
-	return c.Container(gitRoot, branch), nil
+	// Not in a git repo and no explicit -repo: create a no-repo container.
+	// Resolve extra repos.
+	for _, spec := range extraRepoSpecs {
+		path, branch, _ := strings.Cut(spec, ":")
+		gitRoot, err := gitutil.RootDir(ctx, path)
+		if err != nil {
+			return nil, fmt.Errorf("extra repo %s: %w", path, err)
+		}
+		if branch == "" {
+			branch, err = gitutil.CurrentBranch(ctx, gitRoot)
+			if err != nil {
+				return nil, fmt.Errorf("extra repo %s: %w", path, err)
+			}
+		}
+		repos = append(repos, md.Repo{GitRoot: gitRoot, Branch: branch})
+	}
+	if len(repos) > 1000 {
+		return nil, fmt.Errorf("too many repositories: %d (max 1000)", len(repos))
+	}
+	return c.Container(repos...), nil
 }
 
 func cmdStart(ctx context.Context, args []string) error {
@@ -225,6 +251,9 @@ func cmdStart(ctx context.Context, args []string) error {
 	tailscale := fs.Bool("tailscale", false, "Enable Tailscale networking")
 	usb := fs.Bool("usb", false, "Pass through USB devices (/dev/bus/usb)")
 	cf := addContainerFlags(fs, true)
+	extraRepos := &stringSlice{}
+	fs.Var(extraRepos, "extra-repo", "Additional git repository path[:branch] to map; may be repeated")
+	fs.Var(extraRepos, "e", "Additional git repository path[:branch] to map; may be repeated")
 	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the container after starting")
 	quiet := fs.Bool("q", false, "Suppress informational messages")
 	labels := &stringSlice{}
@@ -240,7 +269,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	}
 	initLogging(*verbose)
 
-	ct, err := newContainer(ctx, cf)
+	ct, err := newContainer(ctx, cf, extraRepos.values)
 	if err != nil {
 		return err
 	}
@@ -296,9 +325,11 @@ func printStartSummary(ct *md.Container, r *md.StartResult) {
 	if r.TailscaleAuthURL != "" {
 		fmt.Printf("  >  Tailscale auth: %s\n", r.TailscaleAuthURL)
 	}
-	fmt.Printf("  > Host branch '%s' is mapped in the container as 'base'\n", ct.Branch)
-	fmt.Println("  > See changes (in container): `git diff base`")
-	fmt.Println("  > See changes    (on host)  : `md diff`")
+	if len(ct.Repos) > 0 {
+		fmt.Printf("  > Host branch '%s' is mapped in the container as 'base'\n", ct.Repos[0].Branch)
+		fmt.Println("  > See changes (in container): `git diff base`")
+		fmt.Println("  > See changes    (on host)  : `md diff`")
+	}
 	fmt.Println("  > Kill container (on host)  : `md kill`")
 }
 
@@ -319,7 +350,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	if len(extra) == 0 {
 		return errors.New("no command specified")
 	}
-	ct, err := newContainer(ctx, cf)
+	ct, err := newContainer(ctx, cf, nil)
 	if err != nil {
 		return err
 	}
@@ -431,9 +462,18 @@ func cmdKill(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf)
+	c, err := newClient()
 	if err != nil {
 		return err
+	}
+	var ct *md.Container
+	if name := fs.Arg(0); name != "" {
+		ct = c.ContainerByName(name)
+	} else {
+		ct, err = newContainer(ctx, cf, nil)
+		if err != nil {
+			return err
+		}
 	}
 	return ct.Kill(ctx)
 }
@@ -446,7 +486,7 @@ func cmdPush(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf)
+	ct, err := newContainer(ctx, cf, nil)
 	if err != nil {
 		return err
 	}
@@ -461,7 +501,7 @@ func cmdPull(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf)
+	ct, err := newContainer(ctx, cf, nil)
 	if err != nil {
 		return err
 	}
@@ -504,11 +544,19 @@ func cmdDiff(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf)
+	ct, err := newContainer(ctx, cf, nil)
 	if err != nil {
 		return err
 	}
-	return ct.Diff(ctx, os.Stdout, os.Stderr, gitArgs)
+	for i, repo := range ct.Repos {
+		if len(ct.Repos) > 1 {
+			fmt.Printf("=== %s ===\n", filepath.Base(repo.GitRoot))
+		}
+		if err := ct.Diff(ctx, i, os.Stdout, os.Stderr, gitArgs); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func cmdVNC(ctx context.Context, args []string) error {
@@ -519,7 +567,7 @@ func cmdVNC(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf)
+	ct, err := newContainer(ctx, cf, nil)
 	if err != nil {
 		return err
 	}

@@ -94,9 +94,9 @@ func TestClient(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				ct := c.Container(tt.gitRoot, "main")
-				if ct.RepoName != tt.wantRepo {
-					t.Errorf("RepoName = %q, want %q", ct.RepoName, tt.wantRepo)
+				ct := c.Container(Repo{GitRoot: tt.gitRoot, Branch: "main"})
+				if ct.repoName() != tt.wantRepo {
+					t.Errorf("repoName() = %q, want %q", ct.repoName(), tt.wantRepo)
 				}
 				if ct.Name != tt.wantName {
 					t.Errorf("Name = %q, want %q", ct.Name, tt.wantName)

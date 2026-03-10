@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/caic-xyz/md/gitutil"
 )
 
 //go:embed all:rsc
@@ -724,11 +727,11 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	}
 
 	// Set md metadata labels.
-	// TODO: This will need a bit more work when we support multiple repos.
-	dockerArgs = append(dockerArgs,
-		"--label", "md.git_root="+c.GitRoot,
-		"--label", "md.repo_name="+c.RepoName,
-		"--label", "md.branch="+c.Branch)
+	if reposJSON, err := json.Marshal(c.Repos); err == nil {
+		// Base64-encode so commas in JSON don't corrupt the comma-separated
+		// label parsing in unmarshalContainer.
+		dockerArgs = append(dockerArgs, "--label", "md.repos="+base64.StdEncoding.EncodeToString(reposJSON))
+	}
 	if opts.Display {
 		dockerArgs = append(dockerArgs, "--label", "md.display=1")
 	}
@@ -805,13 +808,15 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		return nil, err
 	}
 
-	// Set up git remote.
-	if !opts.Quiet {
-		_, _ = fmt.Fprintln(c.W, "- git clone into container ...")
-	}
-	_, _ = runCmd(ctx, c.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + c.RepoName}, false); err != nil {
-		return nil, fmt.Errorf("adding git remote: %w", err)
+	// Set up git remote before waiting for SSH, so the remote is ready to push.
+	if len(c.Repos) > 0 {
+		if !opts.Quiet {
+			_, _ = fmt.Fprintln(c.W, "- git clone into container ...")
+		}
+		_, _ = runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "rm", c.Name}, true)
+		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + c.repoName()}, false); err != nil {
+			return nil, fmt.Errorf("adding git remote: %w", err)
+		}
 	}
 
 	// Wait for SSH.
@@ -829,36 +834,77 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		}
 	}
 
-	repo := shellQuote(c.RepoName)
-	branch := shellQuote(c.Branch)
+	// Push repos into container.
+	if len(c.Repos) > 0 {
+		repo := shellQuote(c.repoName())
+		branch := shellQuote(c.primary().Branch)
 
-	// Initialize git repo in container.
-	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+repo), false); err != nil {
-		return nil, err
-	}
-	if _, err := runCmd(ctx, c.GitRoot, []string{"git", "push", "-q", "--tags", c.Name, c.Branch + ":refs/heads/" + c.Branch}, false); err != nil {
-		return nil, err
-	}
-	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git switch -q "+branch+" && git branch -f base "+branch+" && git switch -q base && git switch -q "+branch), false); err != nil {
-		return nil, err
-	}
-
-	// Set up origin remote in container using HTTPS.
-	if err := c.resolveDefaults(ctx); err != nil {
-		return nil, err
-	}
-	originURL, err := runCmd(ctx, c.GitRoot, []string{"git", "remote", "get-url", c.DefaultRemote}, true)
-	if err == nil && originURL != "" {
-		httpsURL := convertGitURLToHTTPS(originURL)
-		_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git remote add origin "+shellQuote(httpsURL)), true)
-		if !opts.Quiet {
-			_, _ = fmt.Fprintf(c.W, "- Set container origin to %s\n", httpsURL)
+		// Initialize git repo in container.
+		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+repo), false); err != nil {
+			return nil, err
 		}
-	}
+		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "push", "-q", "--tags", c.Name, c.primary().Branch + ":refs/heads/" + c.primary().Branch}, false); err != nil {
+			return nil, err
+		}
+		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git switch -q "+branch+" && git branch -f base "+branch+" && git switch -q base && git switch -q "+branch), false); err != nil {
+			return nil, err
+		}
 
-	// Push the default branch (e.g. main) so agents can diff against it.
-	if err := c.SyncDefaultBranch(ctx); err != nil {
-		return nil, err
+		// Set up origin remote in container using HTTPS.
+		if err := c.resolveDefaults(ctx); err != nil {
+			return nil, err
+		}
+		originURL, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "get-url", c.DefaultRemote}, true)
+		if err == nil && originURL != "" {
+			httpsURL := convertGitURLToHTTPS(originURL)
+			_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git remote add origin "+shellQuote(httpsURL)), true)
+			if !opts.Quiet {
+				_, _ = fmt.Fprintf(c.W, "- Set container origin to %s\n", httpsURL)
+			}
+		}
+
+		// Push the default branch (e.g. main) so agents can diff against it.
+		if err := c.SyncDefaultBranch(ctx); err != nil {
+			return nil, err
+		}
+
+		// Push extra repos into the container (flat layout under ~/src/).
+		for _, r := range c.Repos[1:] {
+			rName := filepath.Base(r.GitRoot)
+			rRepo := shellQuote(rName)
+			rBranch := shellQuote(r.Branch)
+			// Remove stale remote (idempotent).
+			_, _ = runCmd(ctx, r.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
+			// Add remote from the extra repo's host working tree to the container.
+			if _, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + rName}, false); err != nil {
+				return nil, fmt.Errorf("adding extra repo remote %s: %w", rName, err)
+			}
+			// Initialise the repo inside the container.
+			if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+rRepo), false); err != nil {
+				return nil, fmt.Errorf("init extra repo %s in container: %w", rName, err)
+			}
+			// Push the branch.
+			if _, err := runCmd(ctx, r.GitRoot, []string{"git", "push", "-q", "--tags", c.Name, r.Branch + ":refs/heads/" + r.Branch}, false); err != nil {
+				return nil, fmt.Errorf("push extra repo %s: %w", rName, err)
+			}
+			// Switch to branch and create base ref.
+			if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git switch -q "+rBranch+" && git branch -f base "+rBranch+" && git switch -q base && git switch -q "+rBranch), false); err != nil {
+				return nil, fmt.Errorf("switch extra repo %s: %w", rName, err)
+			}
+			// Set origin remote in container (best-effort).
+			rOriginURL, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "get-url", "origin"}, true)
+			if err == nil && rOriginURL != "" {
+				httpsURL := convertGitURLToHTTPS(rOriginURL)
+				_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git remote add origin "+shellQuote(httpsURL)), true)
+			}
+			// Push the default branch so agents can diff against it (best-effort).
+			rDefaultRemote, _ := gitutil.DefaultRemote(ctx, r.GitRoot)
+			rDefaultBranch, _ := gitutil.DefaultBranch(ctx, r.GitRoot, rDefaultRemote)
+			if rDefaultBranch != "" && rDefaultBranch != r.Branch {
+				_, _ = gitutil.RunGit(ctx, r.GitRoot, "push", "-q", "-f", c.Name,
+					"refs/remotes/"+rDefaultRemote+"/"+rDefaultBranch+":refs/heads/"+rDefaultBranch)
+			}
+		}
 	}
 
 	// Copy .env if present.

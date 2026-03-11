@@ -575,17 +575,17 @@ func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxD
 
 // dirStats returns the number of regular files and total byte size under dir.
 // Unreadable entries are silently skipped.
-func dirStats(dir string) (files, bytes int64) {
+func dirStats(dir string) (files, n int64) {
 	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			if info, err := d.Info(); err == nil {
 				files++
-				bytes += info.Size()
+				n += info.Size()
 			}
 		}
 		return nil
 	})
-	return files, bytes
+	return files, n
 }
 
 // formatBytes formats n bytes as a human-readable string (e.g. "1.2 GB").
@@ -868,7 +868,7 @@ func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*Star
 		}
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {

@@ -28,7 +28,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caic-xyz/md/gitutil"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -837,14 +836,18 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 		return err
 	}
 
-	// Set up git remote before waiting for SSH, so the remote is ready to push.
+	// Set up git remotes for all repos before waiting for SSH, so they are
+	// ready to push as soon as the connection is established.
 	if len(c.Repos) > 0 {
 		if !opts.Quiet {
 			_, _ = fmt.Fprintln(c.W, "- git clone into container ...")
 		}
-		_, _ = runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "rm", c.Name}, true)
-		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + c.repoName()}, false); err != nil {
-			return fmt.Errorf("adding git remote: %w", err)
+		for _, r := range c.Repos {
+			rName := r.Name()
+			_, _ = runCmd(ctx, r.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
+			if _, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + rName}, false); err != nil {
+				return fmt.Errorf("adding git remote for %s: %w", rName, err)
+			}
 		}
 	}
 	return nil
@@ -905,95 +908,57 @@ func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*Star
 	// distinct path (~/src/<name>) so there are no cross-repo conflicts.
 	if len(c.Repos) > 0 {
 		eg, egCtx := errgroup.WithContext(ctx)
-
-		// Primary repo.
-		eg.Go(func() error {
-			repo := shellQuote(c.repoName())
-			branch := shellQuote(c.primary().Branch)
-
-			if _, err := runCmd(egCtx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+repo), false); err != nil {
-				return err
-			}
-
-			// Push task branch and sync default branch in parallel — different refs.
-			inner, innerCtx := errgroup.WithContext(egCtx)
-			inner.Go(func() error {
-				if _, err := runCmd(innerCtx, c.primary().GitRoot, []string{
-					"git", "push", "-q", c.Name,
-					c.primary().Branch + ":refs/heads/base",
-				}, false); err != nil {
-					return err
-				}
-				_, err := runCmd(innerCtx, "", c.SSHCommand(c.Name,
-					"cd ~/src/"+repo+
-						" && git branch "+branch+" base"+
-						" && git switch -q "+branch), false)
-				return err
-			})
-			inner.Go(func() error {
-				if err := c.resolveDefaults(innerCtx); err != nil {
-					return err
-				}
-				return c.SyncDefaultBranch(innerCtx)
-			})
-			if err := inner.Wait(); err != nil {
-				return err
-			}
-
-			if err := c.pushSubmodules(egCtx, "/home/user/src/"+c.repoName(), c.primary().GitRoot, opts.Quiet); err != nil {
-				return err
-			}
-
-			// resolveDefaults ran above, so c.DefaultRemote is set.
-			originURL, err := runCmd(egCtx, c.primary().GitRoot, []string{"git", "remote", "get-url", c.DefaultRemote}, true)
-			if err == nil && originURL != "" {
-				httpsURL := convertGitURLToHTTPS(originURL)
-				_, _ = runCmd(egCtx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git remote add origin "+shellQuote(httpsURL)), true)
-				if !opts.Quiet {
-					_, _ = fmt.Fprintf(c.W, "- Set container origin to %s\n", httpsURL)
-				}
-			}
-			return nil
-		})
-
-		// Extra repos (flat layout under ~/src/).
-		for _, r := range c.Repos[1:] {
+		for repoIdx := range c.Repos {
 			eg.Go(func() error {
-				rName := filepath.Base(r.GitRoot)
+				rName := c.Repos[repoIdx].Name()
 				rRepo := shellQuote(rName)
-				rBranch := shellQuote(r.Branch)
+				rBranch := shellQuote(c.Repos[repoIdx].Branch)
 
-				_, _ = runCmd(egCtx, r.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
-				if _, err := runCmd(egCtx, r.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + rName}, false); err != nil {
-					return fmt.Errorf("adding extra repo remote %s: %w", rName, err)
-				}
 				if _, err := runCmd(egCtx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+rRepo), false); err != nil {
-					return fmt.Errorf("init extra repo %s in container: %w", rName, err)
+					return fmt.Errorf("init repo %s in container: %w", rName, err)
 				}
-				if _, err := runCmd(egCtx, r.GitRoot, []string{"git", "push", "-q", c.Name, r.Branch + ":refs/heads/base"}, false); err != nil {
-					return fmt.Errorf("push extra repo %s: %w", rName, err)
+
+				// Push task branch and sync default branch in parallel — different refs.
+				inner, innerCtx := errgroup.WithContext(egCtx)
+				inner.Go(func() error {
+					if _, err := runCmd(innerCtx, c.Repos[repoIdx].GitRoot, []string{
+						"git", "push", "-q", c.Name,
+						c.Repos[repoIdx].Branch + ":refs/heads/base",
+					}, false); err != nil {
+						return fmt.Errorf("push repo %s: %w", rName, err)
+					}
+					_, err := runCmd(innerCtx, "", c.SSHCommand(c.Name,
+						"cd ~/src/"+rRepo+
+							" && git branch "+rBranch+" base"+
+							" && git switch -q "+rBranch), false)
+					return err
+				})
+				inner.Go(func() error {
+					if err := c.Repos[repoIdx].resolveDefaults(innerCtx); err != nil {
+						return fmt.Errorf("resolve defaults for %s: %w", rName, err)
+					}
+					return c.SyncDefaultBranch(innerCtx, repoIdx)
+				})
+				if err := inner.Wait(); err != nil {
+					return err
 				}
-				if _, err := runCmd(egCtx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git branch "+rBranch+" base && git switch -q "+rBranch), false); err != nil {
-					return fmt.Errorf("switch extra repo %s: %w", rName, err)
-				}
-				if err := c.pushSubmodules(egCtx, "/home/user/src/"+rName, r.GitRoot, opts.Quiet); err != nil {
+
+				if err := c.pushSubmodules(egCtx, "/home/user/src/"+rName, c.Repos[repoIdx].GitRoot, opts.Quiet); err != nil {
 					return fmt.Errorf("push submodules for %s: %w", rName, err)
 				}
-				rOriginURL, err := runCmd(egCtx, r.GitRoot, []string{"git", "remote", "get-url", "origin"}, true)
-				if err == nil && rOriginURL != "" {
-					httpsURL := convertGitURLToHTTPS(rOriginURL)
+
+				// resolveDefaults ran above, so DefaultRemote is set.
+				originURL, err := runCmd(egCtx, c.Repos[repoIdx].GitRoot, []string{"git", "remote", "get-url", c.Repos[repoIdx].DefaultRemote}, true)
+				if err == nil && originURL != "" {
+					httpsURL := convertGitURLToHTTPS(originURL)
 					_, _ = runCmd(egCtx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git remote add origin "+shellQuote(httpsURL)), true)
-				}
-				rDefaultRemote, _ := gitutil.DefaultRemote(egCtx, r.GitRoot)
-				rDefaultBranch, _ := gitutil.DefaultBranch(egCtx, r.GitRoot, rDefaultRemote)
-				if rDefaultBranch != "" && rDefaultBranch != r.Branch {
-					_, _ = gitutil.RunGit(egCtx, r.GitRoot, "push", "-q", "-f", c.Name,
-						"refs/remotes/"+rDefaultRemote+"/"+rDefaultBranch+":refs/heads/"+rDefaultBranch)
+					if !opts.Quiet {
+						_, _ = fmt.Fprintf(c.W, "- Set %s origin to %s\n", rName, httpsURL)
+					}
 				}
 				return nil
 			})
 		}
-
 		if err := eg.Wait(); err != nil {
 			return nil, err
 		}

@@ -154,14 +154,6 @@ func detectRuntime() string {
 	return "docker"
 }
 
-// ContainerByName returns a Container handle for an existing container
-// identified only by name. Use this when the repos are unknown (e.g.
-// no-repo containers). Only Kill and inspect operations are meaningful
-// on the returned handle.
-func (c *Client) ContainerByName(name string) *Container {
-	return &Container{Client: c, W: c.W, Name: name}
-}
-
 // Container returns a Container handle for the given repos.
 // The first repo is the primary; the rest are pushed alongside it at
 // /home/user/src/<basename> inside the container. When called with no repos,

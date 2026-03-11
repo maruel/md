@@ -23,12 +23,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caic-xyz/md"
 	"github.com/caic-xyz/md/gitutil"
 	"github.com/maruel/genai"
 	"github.com/maruel/genai/providers"
+	"golang.org/x/sync/errgroup"
 )
 
 // runtimeOverride is set by --runtime and applied in newClient/cmdList.
@@ -184,6 +186,67 @@ func (cf *containerFlags) baseImage() (string, error) {
 		return md.DefaultBaseImage + ":" + *cf.tag, nil
 	}
 	return "", nil
+}
+
+// findContainerAndRepo searches all containers for one that contains the
+// repo identified by cf (defaults to cwd). Returns the container and the
+// index of the matched repo within it. If cf.branch is set, it is used to
+// disambiguate when multiple containers share the same git root.
+func findContainerAndRepo(ctx context.Context, cf *containerFlags) (*md.Container, int, error) {
+	c, err := newClient()
+	if err != nil {
+		return nil, 0, err
+	}
+	searchPath := ""
+	if cf.repo != nil && *cf.repo != "" {
+		searchPath = *cf.repo
+	} else {
+		searchPath, err = os.Getwd()
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	gitRoot, err := gitutil.RootDir(ctx, searchPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("not in a git repository: %w", err)
+	}
+	branch := ""
+	if cf.branch != nil {
+		branch = *cf.branch
+	}
+	// If no branch was specified, use the current local branch as the default
+	// disambiguator so that two containers on different branches of the same
+	// repo are resolved automatically.
+	if branch == "" {
+		branch, _ = gitutil.RunGit(ctx, gitRoot, "branch", "--show-current")
+	}
+	containers, err := c.List(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	var matched []*md.Container
+	var matchedIdx []int
+	for _, ct := range containers {
+		for i, repo := range ct.Repos {
+			if repo.GitRoot == gitRoot && (branch == "" || repo.Branch == branch) {
+				matched = append(matched, ct)
+				matchedIdx = append(matchedIdx, i)
+				break
+			}
+		}
+	}
+	switch len(matched) {
+	case 0:
+		return nil, 0, fmt.Errorf("no container found for %s", gitRoot)
+	case 1:
+		return matched[0], matchedIdx[0], nil
+	default:
+		names := make([]string, len(matched))
+		for i, ct := range matched {
+			names[i] = ct.Name
+		}
+		return nil, 0, fmt.Errorf("multiple containers match %s: %s; use -branch to disambiguate", gitRoot, strings.Join(names, ", "))
+	}
 }
 
 // newContainer resolves a Container from flags. extraRepoSpecs holds
@@ -467,18 +530,27 @@ func cmdKill(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	c, err := newClient()
-	if err != nil {
-		return err
-	}
-	var ct *md.Container
+	// A bare container name may be passed as a positional argument for
+	// repo-less containers, which have no git root to search by.
 	if name := fs.Arg(0); name != "" {
-		ct = c.ContainerByName(name)
-	} else {
-		ct, err = newContainer(ctx, cf, nil)
+		c, err := newClient()
 		if err != nil {
 			return err
 		}
+		containers, err := c.List(ctx)
+		if err != nil {
+			return err
+		}
+		for _, ct := range containers {
+			if ct.Name == name {
+				return ct.Kill(ctx)
+			}
+		}
+		return fmt.Errorf("no container named %s", name)
+	}
+	ct, _, err := findContainerAndRepo(ctx, cf)
+	if err != nil {
+		return err
 	}
 	return ct.Kill(ctx)
 }
@@ -487,26 +559,56 @@ func cmdPush(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("push", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
+	all := fs.Bool("all", false, "Operate on all repos, not just the current one")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf, nil)
+	ct, repoIdx, err := findContainerAndRepo(ctx, cf)
 	if err != nil {
 		return err
 	}
-	return ct.Push(ctx)
+	var mu sync.Mutex
+	printBackup := func(i int, backup string) {
+		repoName := ct.Repos[i].Name()
+		mu.Lock()
+		fmt.Printf("- %s: previous state saved as git branch: %s\n", repoName, backup)
+		mu.Unlock()
+	}
+	if !*all {
+		backup, err := ct.Push(ctx, repoIdx)
+		if err != nil {
+			return err
+		}
+		printBackup(repoIdx, backup)
+		return nil
+	}
+	eg, ctx2 := errgroup.WithContext(ctx)
+	for i := range ct.Repos {
+		eg.Go(func() error {
+			backup, err := ct.Push(ctx2, i)
+			if err != nil {
+				return err
+			}
+			if backup != "" {
+				printBackup(i, backup)
+			}
+			return nil
+		})
+	}
+	return eg.Wait()
 }
 
 func cmdPull(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("pull", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
+	all := fs.Bool("all", false, "Operate on all repos, not just the current one")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf, nil)
+	ct, repoIdx, err := findContainerAndRepo(ctx, cf)
 	if err != nil {
 		return err
 	}
@@ -518,13 +620,23 @@ func cmdPull(ctx context.Context, args []string) error {
 			slog.WarnContext(ctx, "failed to initialize provider", "err", err)
 		}
 	}
-	return ct.Pull(ctx, p)
+	if !*all {
+		return ct.Pull(ctx, repoIdx, p)
+	}
+	eg, ctx2 := errgroup.WithContext(ctx)
+	for i := range ct.Repos {
+		eg.Go(func() error {
+			return ct.Pull(ctx2, i, p)
+		})
+	}
+	return eg.Wait()
 }
 
 func cmdDiff(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
+	all := fs.Bool("all", false, "Operate on all repos, not just the current one")
 	// Separate md-own flags from git passthrough args.
 	// Flags defined on fs go to mdArgs; everything else (e.g. --stat,
 	// --name-only) is forwarded to git diff. "--" explicitly ends md flag
@@ -557,13 +669,20 @@ func cmdDiff(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	ct, err := newContainer(ctx, cf, nil)
+	ct, repoIdx, err := findContainerAndRepo(ctx, cf)
 	if err != nil {
 		return err
 	}
-	for i, repo := range ct.Repos {
-		if len(ct.Repos) > 1 {
-			fmt.Printf("=== %s ===\n", filepath.Base(repo.GitRoot))
+	indices := []int{repoIdx}
+	if *all {
+		indices = make([]int, len(ct.Repos))
+		for i := range ct.Repos {
+			indices[i] = i
+		}
+	}
+	for _, i := range indices {
+		if *all && len(ct.Repos) > 1 {
+			fmt.Printf("=== %s ===\n", filepath.Base(ct.Repos[i].GitRoot))
 		}
 		if err := ct.Diff(ctx, i, os.Stdout, os.Stderr, gitArgs); err != nil {
 			return err
@@ -788,8 +907,6 @@ func (s *stringSlice) Set(v string) error {
 	return nil
 }
 
-// newProvider creates a genai.Provider for the given provider name and model.
-// If model is empty, genai.ModelCheap is used.
 func newProvider(ctx context.Context, provider, model string) (genai.Provider, error) {
 	cfg, ok := providers.All[provider]
 	if !ok {

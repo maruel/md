@@ -143,6 +143,11 @@ func newClient() (*md.Client, error) {
 		c.Runtime = runtimeOverride
 	}
 	c.GithubToken = os.Getenv("GITHUB_TOKEN")
+	if c.GithubToken == "" {
+		if out, err2 := exec.Command("gh", "auth", "token").Output(); err2 == nil {
+			c.GithubToken = strings.TrimSpace(string(out))
+		}
+	}
 	c.TailscaleAPIKey = os.Getenv("TAILSCALE_API_KEY")
 	return c, nil
 }

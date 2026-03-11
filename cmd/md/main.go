@@ -292,7 +292,10 @@ func cmdStart(ctx context.Context, args []string) error {
 		Quiet:            *quiet,
 		AgentPaths:       slices.Collect(maps.Values(md.HarnessMounts)),
 	}
-	result, err := ct.Start(ctx, &opts)
+	if err := ct.Launch(ctx, &opts); err != nil {
+		return err
+	}
+	result, err := ct.Connect(ctx, &opts)
 	if err != nil {
 		return err
 	}
@@ -314,8 +317,8 @@ func printStartSummary(ct *md.Container, r *md.StartResult) {
 	fmt.Println("- Cool facts:")
 	fmt.Println("  > Remote access:")
 	fmt.Printf("  >  SSH: `ssh %s`\n", ct.Name)
-	if r.VNCPort != "" {
-		fmt.Printf("  >  VNC: connect to localhost:%s with a VNC client or: `md vnc`\n", r.VNCPort)
+	if ct.VNCPort != 0 {
+		fmt.Printf("  >  VNC: connect to localhost:%d with a VNC client or: `md vnc`\n", ct.VNCPort)
 	} else {
 		fmt.Println("  >  Next time pass --display to have a virtual display")
 	}
@@ -575,10 +578,10 @@ func cmdVNC(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if vncPort == "" {
+	if vncPort == 0 {
 		return fmt.Errorf("VNC port not found for %s. Did you start it with --display?\nTo enable display, run:\n  md kill\n  md start --display", ct.Name)
 	}
-	vncURL := "vnc://127.0.0.1:" + vncPort
+	vncURL := fmt.Sprintf("vnc://127.0.0.1:%d", vncPort)
 	fmt.Printf("VNC connection: %s\n", vncURL)
 
 	switch runtime.GOOS {
@@ -588,12 +591,12 @@ func cmdVNC(ctx context.Context, args []string) error {
 		if err := exec.Command("xdg-open", vncURL).Run(); err == nil {
 			return nil
 		}
-		if err := exec.Command("vncviewer", "127.0.0.1:"+vncPort).Run(); err == nil {
+		if err := exec.Command("vncviewer", fmt.Sprintf("127.0.0.1:%d", vncPort)).Run(); err == nil {
 			return nil
 		}
 		fmt.Println("\nNo VNC client found. Connect manually:")
 		fmt.Println("  Address: 127.0.0.1")
-		fmt.Printf("  Port: %s\n", vncPort)
+		fmt.Printf("  Port: %d\n", vncPort)
 		fmt.Println("\nInstall a VNC client:")
 		fmt.Println("  Ubuntu/Debian: sudo apt install tigervnc-viewer")
 		fmt.Println("  Fedora/RHEL: sudo dnf install tigervnc")

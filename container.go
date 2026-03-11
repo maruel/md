@@ -98,6 +98,9 @@ type StartOpts struct {
 // and restored by [unmarshalContainer] when listing containers.
 type Container struct {
 	*Client
+	// W is the writer for progress output. Defaults to Client.W; set directly
+	// to redirect output for a specific container without affecting others.
+	W io.Writer
 	// Repos are the git repositories in this container. Repos[0] is the
 	// primary; the rest are pushed alongside it at /home/user/src/<basename>.
 	// Label: md.repos (base64-encoded JSON)
@@ -118,10 +121,20 @@ type Container struct {
 	// Label: md.usb
 	USB bool
 
+	// SSHPort is the host port mapped to the container's SSH port.
+	// Set by Launch; available immediately after Launch returns.
+	SSHPort int32
+	// VNCPort is the host port mapped to the container's VNC port, if display is enabled.
+	// Set by Launch; available immediately after Launch returns. Zero if display is disabled.
+	VNCPort int32
+
 	// DefaultRemote is the host's default git remote (resolved lazily).
 	DefaultRemote string
 	// DefaultBranch is the default branch for DefaultRemote (resolved lazily).
 	DefaultBranch string
+
+	// tailscaleEphemeral is set by Launch and consumed by Connect.
+	tailscaleEphemeral bool
 }
 
 func (c *Container) primary() Repo {
@@ -132,12 +145,9 @@ func (c *Container) repoName() string {
 	return strings.TrimSuffix(filepath.Base(c.Repos[0].GitRoot), ".git")
 }
 
-// StartResult contains information about the started container.
+// StartResult contains Tailscale information from Connect. Port information
+// is available on Container directly (SSHPort, VNCPort) after Launch returns.
 type StartResult struct {
-	// SSHPort is the host port mapped to the container's SSH port.
-	SSHPort string
-	// VNCPort is the host port mapped to the container's VNC port, if display is enabled.
-	VNCPort string
 	// TailscaleFQDN is the Tailscale FQDN assigned to the container, if any.
 	TailscaleFQDN string
 	// TailscaleAuthURL is the Tailscale auth URL when no pre-auth key was provided.
@@ -185,19 +195,21 @@ func (c *Container) prepare(paths []AgentPaths) error {
 	return nil
 }
 
-// Start creates and starts a container.
-func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult, retErr error) {
+// Launch prepares the image and starts the Docker container. It does NOT
+// wait for SSH to become ready — call Connect to complete startup once the
+// container's repos have their branches set (e.g. after concurrent branch
+// allocation).
+func (c *Container) Launch(ctx context.Context, opts *StartOpts) (retErr error) {
 	if err := c.prepare(opts.AgentPaths); err != nil {
-		return nil, err
+		return err
 	}
 	// Check if container already exists.
 	if _, err := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name}, true); err == nil {
-		return nil, fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md kill' first",
+		return fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md kill' first",
 			c.Name, c.Name)
 	}
 
 	// Generate Tailscale auth key if needed.
-	var tailscaleEphemeral bool
 	if opts.Tailscale && opts.TailscaleAuthKey == "" {
 		key, err := generateTailscaleAuthKey(c.TailscaleAPIKey)
 		if err != nil {
@@ -206,7 +218,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 			}
 		} else {
 			opts.TailscaleAuthKey = key
-			tailscaleEphemeral = true
+			c.tailscaleEphemeral = true
 		}
 	}
 
@@ -214,7 +226,7 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if !imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, opts.Caches) {
+	if !c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, opts.Caches) {
 		if !opts.Quiet {
 			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
 		}
@@ -224,14 +236,21 @@ func (c *Container) Start(ctx context.Context, opts *StartOpts) (_ *StartResult,
 		}
 		buildCtx, err := prepareBuildContext()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
 		if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	result, err := runContainer(ctx, c, opts, tailscaleEphemeral)
+	return launchContainer(ctx, c, opts)
+}
+
+// Connect waits for SSH, pushes repos into the container, and completes
+// startup. Must be called after Launch. Container.Repos must have
+// branches set before this call.
+func (c *Container) Connect(ctx context.Context, opts *StartOpts) (*StartResult, error) {
+	result, err := connectContainer(ctx, c, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +279,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	}
 	tmp := &Container{
 		Client: c.Client,
+		W:      c.W,
 		Repos:  tmpRepos,
 		Name:   tmpName,
 	}
@@ -267,7 +287,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, caches) {
+	if c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, caches) {
 		buildCtx, err := prepareBuildContext()
 		if err != nil {
 			return 1, err
@@ -278,7 +298,11 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 		}
 	}
 	opts := StartOpts{Quiet: true}
-	if _, err := runContainer(ctx, tmp, &opts, false); err != nil {
+	if err := launchContainer(ctx, tmp, &opts); err != nil {
+		tmp.cleanup(ctx)
+		return 1, err
+	}
+	if _, err := connectContainer(ctx, tmp, &opts); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
 	}
@@ -652,11 +676,11 @@ func parseByteSize(s string) (uint64, error) {
 }
 
 // GetHostPort returns the host port mapped to a container port (e.g.
-// "5901/tcp"). Returns empty string if the port is not mapped.
-func (c *Container) GetHostPort(ctx context.Context, containerPort string) (string, error) {
+// "5901/tcp"). Returns 0 if the port is not mapped.
+func (c *Container) GetHostPort(ctx context.Context, containerPort string) (int32, error) {
 	rt := c.Runtime
 	if _, err := runCmd(ctx, "", []string{rt, "inspect", c.Name}, true); err != nil {
-		return "", fmt.Errorf("container %s is not running", c.Name)
+		return 0, fmt.Errorf("container %s is not running", c.Name)
 	}
 	return getHostPort(ctx, rt, c.Name, containerPort)
 }
@@ -664,23 +688,27 @@ func (c *Container) GetHostPort(ctx context.Context, containerPort string) (stri
 // getHostPort extracts the host port for containerPort from a running
 // container. It uses JSON output instead of Go templates to work around
 // Docker 27's "index of untyped nil" bug when port bindings are nil.
-func getHostPort(ctx context.Context, rt, container, containerPort string) (string, error) {
+func getHostPort(ctx context.Context, rt, container, containerPort string) (int32, error) {
 	raw, err := runCmd(ctx, "", []string{rt, "inspect", "--format", "{{json .NetworkSettings.Ports}}", container}, true)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 	var ports map[string][]struct {
 		HostIP   string `json:"HostIp"`
 		HostPort string `json:"HostPort"`
 	}
 	if err := json.Unmarshal([]byte(raw), &ports); err != nil {
-		return "", fmt.Errorf("parsing port map: %w", err)
+		return 0, fmt.Errorf("parsing port map: %w", err)
 	}
 	bindings := ports[containerPort]
 	if len(bindings) == 0 {
-		return "", nil
+		return 0, nil
 	}
-	return bindings[0].HostPort, nil
+	port, err := strconv.ParseInt(bindings[0].HostPort, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parsing host port %q: %w", bindings[0].HostPort, err)
+	}
+	return int32(port), nil
 }
 
 // tailscaleStatus is the subset of `tailscale status --json` we care about.

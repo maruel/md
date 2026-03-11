@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/caic-xyz/md/gitutil"
+	"golang.org/x/sync/errgroup"
 )
 
 //go:embed all:rsc
@@ -276,6 +277,33 @@ func embeddedContextSHA(keysDir string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+type remoteDigestEntry struct {
+	digest  string
+	err     error
+	expires time.Time
+}
+
+// cachedRemoteConfigDigest returns the remote image config digest. When
+// Client.DigestCacheTTL is non-zero, results are cached for that duration to
+// skip repeated registry round-trips. When zero, the registry is always queried.
+func (c *Client) cachedRemoteConfigDigest(ctx context.Context, rt, image, arch string) (string, error) {
+	if c.DigestCacheTTL == 0 {
+		return getRemoteConfigDigest(ctx, rt, image, arch)
+	}
+	key := rt + "\x00" + image + "\x00" + arch
+	c.mu.Lock()
+	if e, ok := c.digestCache[key]; ok && time.Now().Before(e.expires) {
+		c.mu.Unlock()
+		return e.digest, e.err
+	}
+	c.mu.Unlock()
+	digest, err := getRemoteConfigDigest(ctx, rt, image, arch)
+	c.mu.Lock()
+	c.digestCache[key] = remoteDigestEntry{digest: digest, err: err, expires: time.Now().Add(c.DigestCacheTTL)}
+	c.mu.Unlock()
+	return digest, err
+}
+
 // cacheSpecKey returns a short hash over the requested cache names and
 // container paths. Returns empty string when caches is nil or empty.
 // Only the spec (name + path) is hashed, not the cache contents.
@@ -299,7 +327,7 @@ func cacheSpecKey(caches []CacheMount) string {
 // home is used to resolve "~/" in cache HostPaths so only caches whose host
 // directory currently exists are compared (matching what appendCacheLayers
 // would actually inject).
-func imageBuildNeeded(ctx context.Context, rt, imageName, baseImage, keysDir, home string, caches []CacheMount) bool {
+func (c *Client) imageBuildNeeded(ctx context.Context, rt, imageName, baseImage, keysDir, home string, caches []CacheMount) bool {
 	// Quick check: does the customized image have labels at all?
 	currentDigest, err := dockerInspectFormat(ctx, rt, imageName, `{{index .Config.Labels "md.base_digest"}}`)
 	if err != nil || currentDigest == "" || currentDigest == "<no value>" {
@@ -333,7 +361,7 @@ func imageBuildNeeded(ctx context.Context, rt, imageName, baseImage, keysDir, ho
 			localFmt = "{{.Digest}}"
 		}
 		localRef, _ := dockerInspectFormat(ctx, rt, baseImage, localFmt)
-		remoteDigest, err := getRemoteConfigDigest(ctx, rt, baseImage, runtime.GOARCH)
+		remoteDigest, err := c.cachedRemoteConfigDigest(ctx, rt, baseImage, runtime.GOARCH)
 		if err != nil || remoteDigest != localRef {
 			return true
 		}
@@ -642,10 +670,11 @@ func printCacheInfo(w io.Writer, caches []CacheMount, home string) {
 	}
 }
 
-// runContainer starts the Docker container and sets up SSH access.
-// tailscaleEphemeral indicates the Tailscale node was auto-keyed and should be
-// treated as ephemeral (cleaned up on kill without API deletion).
-func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleEphemeral bool) (*StartResult, error) {
+// launchContainer starts the Docker container, queries mapped ports, writes
+// SSH config, and sets up host-side git remotes. It does NOT wait for SSH.
+// Port and creation-time results are stored directly on c (launchSSHPort,
+// launchVNCPort, CreatedAt) so that connectContainer can complete startup.
+func launchContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	rt := c.Runtime
 	var dockerArgs []string
 	dockerArgs = append(dockerArgs, rt, "run", "-d",
@@ -686,7 +715,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		if opts.TailscaleAuthKey != "" {
 			dockerArgs = append(dockerArgs, "-e", "TAILSCALE_AUTHKEY="+opts.TailscaleAuthKey)
 		}
-		if tailscaleEphemeral {
+		if c.tailscaleEphemeral {
 			dockerArgs = append(dockerArgs, "-e", "MD_TAILSCALE_EPHEMERAL=1")
 		}
 	}
@@ -696,7 +725,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	// rule so that devices plugged in after container start are visible.
 	if opts.USB {
 		if runtime.GOOS != "linux" {
-			return nil, fmt.Errorf("--usb requires Linux; Docker Desktop on %s cannot pass through host USB devices", runtime.GOOS)
+			return fmt.Errorf("--usb requires Linux; Docker Desktop on %s cannot pass through host USB devices", runtime.GOOS)
 		}
 		dockerArgs = append(dockerArgs,
 			"-v", "/dev/bus/usb:/dev/bus/usb",
@@ -737,7 +766,7 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 	}
 	if opts.Tailscale {
 		dockerArgs = append(dockerArgs, "--label", "md.tailscale=1")
-		if tailscaleEphemeral {
+		if c.tailscaleEphemeral {
 			dockerArgs = append(dockerArgs, "--label", "md.tailscale_ephemeral=1")
 		}
 	}
@@ -751,61 +780,59 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 
 	if opts.Quiet {
 		if _, err := runCmd(ctx, "", dockerArgs, true); err != nil {
-			return nil, fmt.Errorf("starting container: %w", err)
+			return fmt.Errorf("starting container: %w", err)
 		}
 	} else {
 		_, _ = fmt.Fprintf(c.W, "- Starting container %s ... ", c.Name)
 		if _, err := runCmd(ctx, "", dockerArgs, false); err != nil {
 			_, _ = fmt.Fprintln(c.W)
-			return nil, fmt.Errorf("starting container: %w", err)
+			return fmt.Errorf("starting container: %w", err)
 		}
 	}
-
-	result := &StartResult{}
 
 	// Get SSH port and creation time.
 	port, err := getHostPort(ctx, rt, c.Name, "22/tcp")
 	if err != nil {
-		return nil, fmt.Errorf("getting SSH port: %w", err)
+		return fmt.Errorf("getting SSH port: %w", err)
 	}
-	result.SSHPort = port
+	c.SSHPort = port
 	if !opts.Quiet {
-		_, _ = fmt.Fprintf(c.W, "- Found ssh port %s\n", port)
+		_, _ = fmt.Fprintf(c.W, "- Found ssh port %d\n", port)
 	}
 	createdStr, err := runCmd(ctx, "", []string{rt, "inspect", "--format", "{{.Created}}", c.Name}, true)
 	if err != nil {
-		return nil, fmt.Errorf("getting container creation time: %w", err)
+		return fmt.Errorf("getting container creation time: %w", err)
 	}
 	created, err := time.Parse(time.RFC3339Nano, createdStr)
 	if err != nil {
-		return nil, fmt.Errorf("parsing container creation time %q: %w", createdStr, err)
+		return fmt.Errorf("parsing container creation time %q: %w", createdStr, err)
 	}
 	c.CreatedAt = created
 
 	// Get VNC port if display enabled.
 	if opts.Display {
 		vncPort, _ := getHostPort(ctx, rt, c.Name, "5901/tcp")
-		result.VNCPort = vncPort
-		if vncPort != "" && !opts.Quiet {
-			_, _ = fmt.Fprintf(c.W, "- Found VNC port %s (display :1)\n", vncPort)
+		c.VNCPort = vncPort
+		if vncPort != 0 && !opts.Quiet {
+			_, _ = fmt.Fprintf(c.W, "- Found VNC port %d (display :1)\n", vncPort)
 		}
 	}
 
 	// Write SSH config.
 	sshConfigDir := filepath.Join(home, ".ssh", "config.d")
 	if err := os.MkdirAll(sshConfigDir, 0o700); err != nil {
-		return nil, err
+		return err
 	}
 	knownHostsPath := filepath.Join(sshConfigDir, c.Name+".known_hosts")
 	hostPubKey, err := os.ReadFile(c.HostKeyPath + ".pub")
 	if err != nil {
-		return nil, fmt.Errorf("reading host public key: %w", err)
+		return fmt.Errorf("reading host public key: %w", err)
 	}
 	if err := writeSSHConfig(sshConfigDir, c.Name, port, c.UserKeyPath, knownHostsPath); err != nil {
-		return nil, err
+		return err
 	}
 	if err := writeKnownHosts(knownHostsPath, port, strings.TrimSpace(string(hostPubKey))); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Set up git remote before waiting for SSH, so the remote is ready to push.
@@ -815,12 +842,21 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 		}
 		_, _ = runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "rm", c.Name}, true)
 		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + c.repoName()}, false); err != nil {
-			return nil, fmt.Errorf("adding git remote: %w", err)
+			return fmt.Errorf("adding git remote: %w", err)
 		}
 	}
+	return nil
+}
 
-	// Wait for SSH.
+// connectContainer waits for SSH, pushes repos into the container, and
+// handles .env and Tailscale auth. Must be called after launchContainer.
+// The task branch and default branch are pushed in parallel to reduce latency.
+func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*StartResult, error) {
+	result := &StartResult{}
+
+	// Wait for SSH with exponential backoff (10 ms → 100 ms cap).
 	start := time.Now()
+	sleep := 10 * time.Millisecond
 	var lastOutput string
 	for {
 		out, err := runCmd(ctx, "", c.SSHCommand("-o", "ConnectTimeout=2", c.Name, "exit"), true)
@@ -828,90 +864,110 @@ func runContainer(ctx context.Context, c *Container, opts *StartOpts, tailscaleE
 			break
 		}
 		lastOutput = out
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(sleep)
+		if sleep < 100*time.Millisecond {
+			sleep *= 2
+		}
 		if time.Since(start) > 10*time.Second {
 			return nil, fmt.Errorf("timed out waiting for container SSH: %s", lastOutput)
 		}
 	}
 
-	// Push repos into container.
+	// Push all repos into the container in parallel. Each repo pushes to a
+	// distinct path (~/src/<name>) so there are no cross-repo conflicts.
 	if len(c.Repos) > 0 {
-		repo := shellQuote(c.repoName())
-		branch := shellQuote(c.primary().Branch)
+		eg, egCtx := errgroup.WithContext(ctx)
 
-		// Initialize git repo in container.
-		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+repo), false); err != nil {
-			return nil, err
-		}
-		if _, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "push", "-q", "--tags", c.Name, c.primary().Branch + ":refs/heads/" + c.primary().Branch}, false); err != nil {
-			return nil, err
-		}
-		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git switch -q "+branch+" && git branch -f base "+branch+" && git switch -q base && git switch -q "+branch), false); err != nil {
-			return nil, err
-		}
-		// Push submodule bare repos and initialize them.
-		if err := c.pushSubmodules(ctx, "/home/user/src/"+c.repoName(), c.primary().GitRoot, opts.Quiet); err != nil {
-			return nil, err
-		}
+		// Primary repo.
+		eg.Go(func() error {
+			repo := shellQuote(c.repoName())
+			branch := shellQuote(c.primary().Branch)
 
-		// Set up origin remote in container using HTTPS.
-		if err := c.resolveDefaults(ctx); err != nil {
-			return nil, err
-		}
-		originURL, err := runCmd(ctx, c.primary().GitRoot, []string{"git", "remote", "get-url", c.DefaultRemote}, true)
-		if err == nil && originURL != "" {
-			httpsURL := convertGitURLToHTTPS(originURL)
-			_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git remote add origin "+shellQuote(httpsURL)), true)
-			if !opts.Quiet {
-				_, _ = fmt.Fprintf(c.W, "- Set container origin to %s\n", httpsURL)
+			if _, err := runCmd(egCtx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+repo), false); err != nil {
+				return err
 			}
-		}
 
-		// Push the default branch (e.g. main) so agents can diff against it.
-		if err := c.SyncDefaultBranch(ctx); err != nil {
-			return nil, err
-		}
+			// Push task branch and sync default branch in parallel — different refs.
+			inner, innerCtx := errgroup.WithContext(egCtx)
+			inner.Go(func() error {
+				if _, err := runCmd(innerCtx, c.primary().GitRoot, []string{
+					"git", "push", "-q", c.Name,
+					c.primary().Branch + ":refs/heads/base",
+				}, false); err != nil {
+					return err
+				}
+				_, err := runCmd(innerCtx, "", c.SSHCommand(c.Name,
+					"cd ~/src/"+repo+
+						" && git branch "+branch+" base"+
+						" && git switch -q "+branch), false)
+				return err
+			})
+			inner.Go(func() error {
+				if err := c.resolveDefaults(innerCtx); err != nil {
+					return err
+				}
+				return c.SyncDefaultBranch(innerCtx)
+			})
+			if err := inner.Wait(); err != nil {
+				return err
+			}
 
-		// Push extra repos into the container (flat layout under ~/src/).
+			if err := c.pushSubmodules(egCtx, "/home/user/src/"+c.repoName(), c.primary().GitRoot, opts.Quiet); err != nil {
+				return err
+			}
+
+			// resolveDefaults ran above, so c.DefaultRemote is set.
+			originURL, err := runCmd(egCtx, c.primary().GitRoot, []string{"git", "remote", "get-url", c.DefaultRemote}, true)
+			if err == nil && originURL != "" {
+				httpsURL := convertGitURLToHTTPS(originURL)
+				_, _ = runCmd(egCtx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git remote add origin "+shellQuote(httpsURL)), true)
+				if !opts.Quiet {
+					_, _ = fmt.Fprintf(c.W, "- Set container origin to %s\n", httpsURL)
+				}
+			}
+			return nil
+		})
+
+		// Extra repos (flat layout under ~/src/).
 		for _, r := range c.Repos[1:] {
-			rName := filepath.Base(r.GitRoot)
-			rRepo := shellQuote(rName)
-			rBranch := shellQuote(r.Branch)
-			// Remove stale remote (idempotent).
-			_, _ = runCmd(ctx, r.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
-			// Add remote from the extra repo's host working tree to the container.
-			if _, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + rName}, false); err != nil {
-				return nil, fmt.Errorf("adding extra repo remote %s: %w", rName, err)
-			}
-			// Initialise the repo inside the container.
-			if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+rRepo), false); err != nil {
-				return nil, fmt.Errorf("init extra repo %s in container: %w", rName, err)
-			}
-			// Push the branch.
-			if _, err := runCmd(ctx, r.GitRoot, []string{"git", "push", "-q", "--tags", c.Name, r.Branch + ":refs/heads/" + r.Branch}, false); err != nil {
-				return nil, fmt.Errorf("push extra repo %s: %w", rName, err)
-			}
-			// Switch to branch and create base ref.
-			if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git switch -q "+rBranch+" && git branch -f base "+rBranch+" && git switch -q base && git switch -q "+rBranch), false); err != nil {
-				return nil, fmt.Errorf("switch extra repo %s: %w", rName, err)
-			}
-			// Push submodule bare repos and initialize them.
-			if err := c.pushSubmodules(ctx, "/home/user/src/"+rName, r.GitRoot, opts.Quiet); err != nil {
-				return nil, fmt.Errorf("push submodules for %s: %w", rName, err)
-			}
-			// Set origin remote in container (best-effort).
-			rOriginURL, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "get-url", "origin"}, true)
-			if err == nil && rOriginURL != "" {
-				httpsURL := convertGitURLToHTTPS(rOriginURL)
-				_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git remote add origin "+shellQuote(httpsURL)), true)
-			}
-			// Push the default branch so agents can diff against it (best-effort).
-			rDefaultRemote, _ := gitutil.DefaultRemote(ctx, r.GitRoot)
-			rDefaultBranch, _ := gitutil.DefaultBranch(ctx, r.GitRoot, rDefaultRemote)
-			if rDefaultBranch != "" && rDefaultBranch != r.Branch {
-				_, _ = gitutil.RunGit(ctx, r.GitRoot, "push", "-q", "-f", c.Name,
-					"refs/remotes/"+rDefaultRemote+"/"+rDefaultBranch+":refs/heads/"+rDefaultBranch)
-			}
+			eg.Go(func() error {
+				rName := filepath.Base(r.GitRoot)
+				rRepo := shellQuote(rName)
+				rBranch := shellQuote(r.Branch)
+
+				_, _ = runCmd(egCtx, r.GitRoot, []string{"git", "remote", "rm", c.Name}, true)
+				if _, err := runCmd(egCtx, r.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":/home/user/src/" + rName}, false); err != nil {
+					return fmt.Errorf("adding extra repo remote %s: %w", rName, err)
+				}
+				if _, err := runCmd(egCtx, "", c.SSHCommand(c.Name, "git init -q ~/src/"+rRepo), false); err != nil {
+					return fmt.Errorf("init extra repo %s in container: %w", rName, err)
+				}
+				if _, err := runCmd(egCtx, r.GitRoot, []string{"git", "push", "-q", c.Name, r.Branch + ":refs/heads/base"}, false); err != nil {
+					return fmt.Errorf("push extra repo %s: %w", rName, err)
+				}
+				if _, err := runCmd(egCtx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git branch "+rBranch+" base && git switch -q "+rBranch), false); err != nil {
+					return fmt.Errorf("switch extra repo %s: %w", rName, err)
+				}
+				if err := c.pushSubmodules(egCtx, "/home/user/src/"+rName, r.GitRoot, opts.Quiet); err != nil {
+					return fmt.Errorf("push submodules for %s: %w", rName, err)
+				}
+				rOriginURL, err := runCmd(egCtx, r.GitRoot, []string{"git", "remote", "get-url", "origin"}, true)
+				if err == nil && rOriginURL != "" {
+					httpsURL := convertGitURLToHTTPS(rOriginURL)
+					_, _ = runCmd(egCtx, "", c.SSHCommand(c.Name, "cd ~/src/"+rRepo+" && git remote add origin "+shellQuote(httpsURL)), true)
+				}
+				rDefaultRemote, _ := gitutil.DefaultRemote(egCtx, r.GitRoot)
+				rDefaultBranch, _ := gitutil.DefaultBranch(egCtx, r.GitRoot, rDefaultRemote)
+				if rDefaultBranch != "" && rDefaultBranch != r.Branch {
+					_, _ = gitutil.RunGit(egCtx, r.GitRoot, "push", "-q", "-f", c.Name,
+						"refs/remotes/"+rDefaultRemote+"/"+rDefaultBranch+":refs/heads/"+rDefaultBranch)
+				}
+				return nil
+			})
+		}
+
+		if err := eg.Wait(); err != nil {
+			return nil, err
 		}
 	}
 

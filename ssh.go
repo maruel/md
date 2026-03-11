@@ -67,16 +67,16 @@ func ensurePublicKey(privPath string) error {
 }
 
 // writeSSHConfig writes the SSH config file for a container.
-func writeSSHConfig(configDir, containerName, port, identityFile, knownHostsFile string) error {
+func writeSSHConfig(configDir, containerName string, port int32, identityFile, knownHostsFile string) error {
 	confPath := filepath.Join(configDir, containerName+".conf")
-	content := fmt.Sprintf("Host %s\n  HostName 127.0.0.1\n  Port %s\n  User user\n  IdentityFile %s\n  IdentitiesOnly yes\n  UserKnownHostsFile %s\n  StrictHostKeyChecking yes\n",
+	content := fmt.Sprintf("Host %s\n  HostName 127.0.0.1\n  Port %d\n  User user\n  IdentityFile %s\n  IdentitiesOnly yes\n  UserKnownHostsFile %s\n  StrictHostKeyChecking yes\n",
 		containerName, port, identityFile, knownHostsFile)
 	return os.WriteFile(confPath, []byte(content), 0o600)
 }
 
 // writeKnownHosts writes the known hosts file for a container.
-func writeKnownHosts(knownHostsPath, port, hostPubKey string) error {
-	content := fmt.Sprintf("[127.0.0.1]:%s %s\n", port, hostPubKey)
+func writeKnownHosts(knownHostsPath string, port int32, hostPubKey string) error {
+	content := fmt.Sprintf("[127.0.0.1]:%d %s\n", port, hostPubKey)
 	return os.WriteFile(knownHostsPath, []byte(content), 0o600) //nolint:gosec // path is constructed from trusted config dir
 }
 

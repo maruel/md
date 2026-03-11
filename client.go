@@ -25,6 +25,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Client holds global MD tool state (paths, image config, SSH keys).
@@ -63,6 +65,16 @@ type Client struct {
 	// "-o Include=~/.ssh/config.d/*.conf" when the user's ~/.ssh/config
 	// lacks the Include directive.
 	sshArgs []string
+
+	// DigestCacheTTL controls how long remote image digest lookups are cached.
+	// When zero, caching is disabled and the registry is queried on every start.
+	DigestCacheTTL time.Duration
+
+	// mu protects digestCache.
+	mu sync.Mutex
+	// digestCache caches remote image digest queries to avoid repeated
+	// registry network round-trips. Entries expire after DigestCacheTTL.
+	digestCache map[string]remoteDigestEntry
 }
 
 // New creates a Client with global MD tool config and initialises SSH
@@ -74,15 +86,17 @@ func New() (*Client, error) {
 	}
 	xdgConfigHome := envOr("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	c := &Client{
-		W:             os.Stdout,
-		Home:          home,
-		XDGConfigHome: xdgConfigHome,
-		XDGDataHome:   envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
-		XDGStateHome:  envOr("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
-		HostKeyPath:   filepath.Join(xdgConfigHome, "md", "ssh_host_ed25519_key"),
-		UserKeyPath:   filepath.Join(home, ".ssh", "md"),
-		ImageName:     "md-user",
-		Runtime:       detectRuntime(),
+		W:              os.Stdout,
+		Home:           home,
+		XDGConfigHome:  xdgConfigHome,
+		XDGDataHome:    envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
+		XDGStateHome:   envOr("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
+		HostKeyPath:    filepath.Join(xdgConfigHome, "md", "ssh_host_ed25519_key"),
+		UserKeyPath:    filepath.Join(home, ".ssh", "md"),
+		ImageName:      "md-user",
+		Runtime:        detectRuntime(),
+		DigestCacheTTL: 12 * time.Hour,
+		digestCache:    make(map[string]remoteDigestEntry),
 	}
 	c.keysDir = filepath.Join(c.XDGConfigHome, "md")
 	if err := c.setupSSH(); err != nil {
@@ -145,7 +159,7 @@ func detectRuntime() string {
 // no-repo containers). Only Kill and inspect operations are meaningful
 // on the returned handle.
 func (c *Client) ContainerByName(name string) *Container {
-	return &Container{Client: c, Name: name}
+	return &Container{Client: c, W: c.W, Name: name}
 }
 
 // Container returns a Container handle for the given repos.
@@ -161,6 +175,7 @@ func (c *Client) Container(repos ...Repo) *Container {
 		_, _ = rand.Read(buf[:])
 		return &Container{
 			Client: c,
+			W:      c.W,
 			Name:   fmt.Sprintf("md-agent-%x", buf),
 		}
 	}
@@ -168,6 +183,7 @@ func (c *Client) Container(repos ...Repo) *Container {
 	repoName := strings.TrimSuffix(filepath.Base(primary.GitRoot), ".git")
 	return &Container{
 		Client: c,
+		W:      c.W,
 		Repos:  repos,
 		Name:   containerName(repoName, primary.Branch),
 	}
@@ -209,6 +225,7 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 		}
 		if strings.HasPrefix(ct.Name, "md-") {
 			ct.Client = c
+			ct.W = c.W
 			containers = append(containers, &ct)
 		}
 	}
@@ -346,7 +363,7 @@ type CacheMount struct {
 // WellKnownCaches is the set of predefined build-tool caches, keyed by short
 // name. Each name may expand to multiple [CacheMount]s (e.g. "cargo" covers
 // both the registry index and git sources). HostPath values use "~/" as a
-// prefix that [Container.Start] resolves to the user's home directory at
+// prefix that [Container.Launch] resolves to the user's home directory at
 // runtime; custom absolute paths are also accepted.
 var WellKnownCaches = map[string][]CacheMount{
 	"bun": {

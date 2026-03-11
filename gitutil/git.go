@@ -411,7 +411,7 @@ func findModuleDirs(base, dir string, paths *[]string) error {
 		if err != nil {
 			return err
 		}
-		*paths = append(*paths, rel)
+		*paths = append(*paths, filepath.ToSlash(rel))
 		// Recurse into <module>/modules/ to find nested submodule repos.
 		if hasModules {
 			_ = findModuleDirs(base, filepath.Join(dir, "modules"), paths)

@@ -22,7 +22,6 @@ import (
 
 	"github.com/caic-xyz/md/gitutil"
 	"github.com/maruel/genai"
-	"github.com/maruel/genai/providers"
 	"golang.org/x/term"
 )
 
@@ -435,9 +434,8 @@ func (c *Container) Push(ctx context.Context) error {
 // Fetch commits any uncommitted changes in the container and fetches them
 // locally, updating the remote-tracking ref without integrating.
 //
-// provider and model control AI commit message generation. See https://github.com/maruel/genai for valid
-// names. If provider is empty, a default message is used.
-func (c *Container) Fetch(ctx context.Context, provider, model string) error {
+// p controls AI commit message generation. Pass nil to use a default message.
+func (c *Container) Fetch(ctx context.Context, p genai.Provider) error {
 	if len(c.Repos) == 0 {
 		return errors.New("container has no repos")
 	}
@@ -451,17 +449,13 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 	// Check if there are uncommitted changes in the container.
 	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repo+" && git add . && git diff --quiet HEAD -- ."), true); err != nil {
 		commitMsg := "Pull from md"
-		if provider != "" {
-			if p, err := newProvider(ctx, provider, model); err != nil {
-				slog.WarnContext(ctx, "failed to initialize provider", "err", err)
-			} else {
-				metadata := c.gatherGitMetadata(ctx, c.Name, repo)
-				diff := c.gatherGitDiff(ctx, c.Name, repo)
-				if msg, err := gitutil.GenerateCommitMsg(ctx, p, metadata, diff, nil); err != nil {
-					slog.WarnContext(ctx, "failed to generate commit message", "err", err)
-				} else if msg != "" {
-					commitMsg = msg
-				}
+		if p != nil {
+			metadata := c.gatherGitMetadata(ctx, c.Name, repo)
+			diff := c.gatherGitDiff(ctx, c.Name, repo)
+			if msg, err := gitutil.GenerateCommitMsg(ctx, p, metadata, diff, nil); err != nil {
+				slog.WarnContext(ctx, "failed to generate commit message", "err", err)
+			} else if msg != "" {
+				commitMsg = msg
 			}
 		}
 		gitUserName, _ := gitutil.RunGit(ctx, c.primary().GitRoot, "config", "user.name")
@@ -490,10 +484,9 @@ func (c *Container) Fetch(ctx context.Context, provider, model string) error {
 
 // Pull fetches changes from the container and integrates them into the local branch.
 //
-// provider and model control AI commit message generation. See https://github.com/maruel/genai for valid
-// names. If provider is empty, a default message is used.
-func (c *Container) Pull(ctx context.Context, provider, model string) error {
-	if err := c.Fetch(ctx, provider, model); err != nil {
+// p controls AI commit message generation. Pass nil to use a default message.
+func (c *Container) Pull(ctx context.Context, p genai.Provider) error {
+	if err := c.Fetch(ctx, p); err != nil {
 		return err
 	}
 	remoteRef := c.Name + "/" + c.primary().Branch
@@ -886,19 +879,6 @@ func (c *Container) cleanup(ctx context.Context) {
 		}
 	}
 	_, _ = runCmd(ctx, "", []string{c.Runtime, "rm", "-f", "-v", c.Name}, true)
-}
-
-// newProvider creates a genai.Provider for the given provider name and model.
-func newProvider(ctx context.Context, provider, model string) (genai.Provider, error) {
-	cfg, ok := providers.All[provider]
-	if !ok {
-		return nil, fmt.Errorf("unknown provider %q", provider)
-	}
-	m := genai.ProviderOptionModel(model)
-	if m == "" {
-		m = genai.ModelCheap
-	}
-	return cfg.Factory(ctx, m)
 }
 
 // gatherGitMetadata runs SSH commands to collect branch, stat, and log from

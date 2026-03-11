@@ -27,6 +27,8 @@ import (
 
 	"github.com/caic-xyz/md"
 	"github.com/caic-xyz/md/gitutil"
+	"github.com/maruel/genai"
+	"github.com/maruel/genai/providers"
 )
 
 // runtimeOverride is set by --runtime and applied in newClient/cmdList.
@@ -508,7 +510,15 @@ func cmdPull(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return ct.Pull(ctx, os.Getenv("ASK_PROVIDER"), os.Getenv("ASK_MODEL"))
+	var p genai.Provider
+	if providerName := os.Getenv("ASK_PROVIDER"); providerName != "" {
+		var err error
+		p, err = newProvider(ctx, providerName, os.Getenv("ASK_MODEL"))
+		if err != nil {
+			slog.WarnContext(ctx, "failed to initialize provider", "err", err)
+		}
+	}
+	return ct.Pull(ctx, p)
 }
 
 func cmdDiff(ctx context.Context, args []string) error {
@@ -776,4 +786,18 @@ func (s *stringSlice) String() string {
 func (s *stringSlice) Set(v string) error {
 	s.values = append(s.values, v)
 	return nil
+}
+
+// newProvider creates a genai.Provider for the given provider name and model.
+// If model is empty, genai.ModelCheap is used.
+func newProvider(ctx context.Context, provider, model string) (genai.Provider, error) {
+	cfg, ok := providers.All[provider]
+	if !ok {
+		return nil, fmt.Errorf("unknown provider %q", provider)
+	}
+	m := genai.ProviderOptionModel(model)
+	if m == "" {
+		m = genai.ModelCheap
+	}
+	return cfg.Factory(ctx, m)
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -66,11 +67,30 @@ func ensurePublicKey(privPath string) error {
 	return os.WriteFile(pubPath, []byte(pubLine), 0o600) //nolint:gosec // path is constructed from trusted key dir
 }
 
+// controlSocketPath returns the ControlMaster socket path for a container.
+func controlSocketPath(containerName string) string {
+	return "/tmp/md-" + containerName + ".sock"
+}
+
 // writeSSHConfig writes the SSH config file for a container.
 func writeSSHConfig(configDir, containerName string, port int32, identityFile, knownHostsFile string) error {
 	confPath := filepath.Join(configDir, containerName+".conf")
-	content := fmt.Sprintf("Host %s\n  HostName 127.0.0.1\n  Port %d\n  User user\n  IdentityFile %s\n  IdentitiesOnly yes\n  UserKnownHostsFile %s\n  StrictHostKeyChecking yes\n",
-		containerName, port, identityFile, knownHostsFile)
+	content := fmt.Sprintf(
+		"Host %s\n"+
+			"  HostName 127.0.0.1\n"+
+			"  Port %d\n"+
+			"  User user\n"+
+			"  IdentityFile %s\n"+
+			"  IdentitiesOnly yes\n"+
+			"  UserKnownHostsFile %s\n"+
+			"  StrictHostKeyChecking yes\n"+
+			"  AddressFamily inet\n"+
+			"  GSSAPIAuthentication no\n"+
+			"  PreferredAuthentications publickey\n"+
+			"  ControlMaster auto\n"+
+			"  ControlPath %s\n"+
+			"  ControlPersist 5s\n",
+		containerName, port, identityFile, knownHostsFile, controlSocketPath(containerName))
 	return os.WriteFile(confPath, []byte(content), 0o600)
 }
 
@@ -111,7 +131,11 @@ func ensureSSHConfigInclude(w io.Writer, sshDir string) (missing bool, err error
 }
 
 // removeSSHConfig removes SSH config and known_hosts files for a container.
+// It also closes any active ControlMaster connection.
 func removeSSHConfig(configDir, containerName string) {
+	sock := controlSocketPath(containerName)
+	_ = exec.Command("ssh", "-O", "exit", "-S", sock, "x").Run()
+	_ = os.Remove(sock)
 	_ = os.Remove(filepath.Join(configDir, containerName+".conf"))
 	_ = os.Remove(filepath.Join(configDir, containerName+".known_hosts"))
 }

@@ -25,22 +25,6 @@ import (
 	"golang.org/x/term"
 )
 
-// runCmd executes a command and returns (stdout, error).
-// If capture is true, stdout/stderr are captured; otherwise they go to os.Stdout/os.Stderr.
-// If dir is non-empty, the command runs in that directory.
-func runCmd(ctx context.Context, dir string, args []string, capture bool) (string, error) {
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "LANG=C")
-	if capture {
-		out, err := cmd.Output()
-		return strings.TrimSpace(string(out)), err
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return "", cmd.Run()
-}
-
 // DefaultBaseImage is the base image used when none is specified.
 const DefaultBaseImage = "ghcr.io/caic-xyz/md"
 
@@ -89,6 +73,15 @@ type StartOpts struct {
 	// directories (~/.config/agents, ~/.config/md) are added automatically.
 	// Nil or empty mounts only those shared directories.
 	AgentPaths []AgentPaths
+}
+
+// StartResult contains Tailscale information from Connect. Port information
+// is available on Container directly (SSHPort, VNCPort) after Launch returns.
+type StartResult struct {
+	// TailscaleFQDN is the Tailscale FQDN assigned to the container, if any.
+	TailscaleFQDN string
+	// TailscaleAuthURL is the Tailscale auth URL when no pre-auth key was provided.
+	TailscaleAuthURL string
 }
 
 // Container holds state for a single container instance.
@@ -142,15 +135,6 @@ func (c *Container) primary() Repo {
 
 func (c *Container) repoName() string {
 	return strings.TrimSuffix(filepath.Base(c.Repos[0].GitRoot), ".git")
-}
-
-// StartResult contains Tailscale information from Connect. Port information
-// is available on Container directly (SSHPort, VNCPort) after Launch returns.
-type StartResult struct {
-	// TailscaleFQDN is the Tailscale FQDN assigned to the container, if any.
-	TailscaleFQDN string
-	// TailscaleAuthURL is the Tailscale auth URL when no pre-auth key was provided.
-	TailscaleAuthURL string
 }
 
 // prepare creates harness-specific config directories on the host so they can
@@ -614,60 +598,6 @@ func (c *Container) Stats(ctx context.Context) (*ContainerStats, error) {
 	}, nil
 }
 
-// parsePercent parses a percentage string like "1.23%" into 1.23.
-func parsePercent(s string) (float64, error) {
-	s = strings.TrimSpace(s)
-	s = strings.TrimSuffix(s, "%")
-	return strconv.ParseFloat(s, 64)
-}
-
-// parseMemUsage parses "150MiB / 7.5GiB" into (used, limit) in bytes.
-func parseMemUsage(s string) (uint64, uint64, error) {
-	parts := strings.SplitN(s, "/", 2)
-	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("expected 'used / limit', got %q", s)
-	}
-	used, err := parseByteSize(strings.TrimSpace(parts[0]))
-	if err != nil {
-		return 0, 0, err
-	}
-	limit, err := parseByteSize(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return 0, 0, err
-	}
-	return used, limit, nil
-}
-
-// byteUnits maps suffixes used by docker/podman stats to multipliers.
-var byteUnits = []struct {
-	suffix string
-	mult   uint64
-}{
-	{"KiB", 1 << 10},
-	{"MiB", 1 << 20},
-	{"GiB", 1 << 30},
-	{"TiB", 1 << 40},
-	{"kB", 1000},
-	{"MB", 1000 * 1000},
-	{"GB", 1000 * 1000 * 1000},
-	{"TB", 1000 * 1000 * 1000 * 1000},
-	{"B", 1},
-}
-
-// parseByteSize parses a size string like "150MiB" or "7.5GiB" into bytes.
-func parseByteSize(s string) (uint64, error) {
-	for _, u := range byteUnits {
-		if numStr, ok := strings.CutSuffix(s, u.suffix); ok {
-			f, err := strconv.ParseFloat(strings.TrimSpace(numStr), 64)
-			if err != nil {
-				return 0, fmt.Errorf("parsing %q: %w", s, err)
-			}
-			return uint64(f * float64(u.mult)), nil
-		}
-	}
-	return 0, fmt.Errorf("unknown unit in %q", s)
-}
-
 // GetHostPort returns the host port mapped to a container port (e.g.
 // "5901/tcp"). Returns 0 if the port is not mapped.
 func (c *Container) GetHostPort(ctx context.Context, containerPort string) (int32, error) {
@@ -704,14 +634,6 @@ func getHostPort(ctx context.Context, rt, container, containerPort string) (int3
 	return int32(port), nil
 }
 
-// tailscaleStatus is the subset of `tailscale status --json` we care about.
-type tailscaleStatus struct {
-	Self struct {
-		ID      string `json:"ID"`
-		DNSName string `json:"DNSName"`
-	} `json:"Self"`
-}
-
 // TailscaleFQDN returns the Tailscale FQDN for the container, or "" if unavailable.
 func (c *Container) TailscaleFQDN(ctx context.Context) string {
 	if !c.Tailscale || c.State != "running" {
@@ -726,71 +648,6 @@ func (c *Container) TailscaleFQDN(ctx context.Context) string {
 		return ""
 	}
 	return strings.TrimRight(status.Self.DNSName, ".")
-}
-
-// containerJSON is the raw Docker ps JSON structure.
-type containerJSON struct {
-	Names     string `json:"Names"`
-	State     string `json:"State"`
-	CreatedAt string `json:"CreatedAt"`
-	Labels    string `json:"Labels"`
-}
-
-// parseCreatedAt parses a container creation timestamp. Docker uses
-// "2006-01-02 15:04:05 -0700 MST"; Podman uses ISO 8601 (RFC 3339).
-func parseCreatedAt(s string) (time.Time, error) {
-	for _, layout := range []string{
-		"2006-01-02 15:04:05 -0700 MST",           // Docker
-		time.RFC3339Nano,                          // Podman
-		time.RFC3339,                              // Podman (no fractional seconds)
-		"2006-01-02 15:04:05.999999999 -0700 MST", // Docker with nanoseconds
-	} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("cannot parse CreatedAt %q", s)
-}
-
-// unmarshalContainer parses docker/podman ps JSON output, converting the
-// CreatedAt timestamp string into a time.Time and extracting md.* labels.
-// The returned Container has a nil Client; callers must set it.
-func unmarshalContainer(data []byte) (Container, error) {
-	var raw containerJSON
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return Container{}, err
-	}
-	ct := Container{
-		Name:  raw.Names,
-		State: raw.State,
-	}
-	if raw.CreatedAt != "" {
-		t, err := parseCreatedAt(raw.CreatedAt)
-		if err != nil {
-			return Container{}, err
-		}
-		ct.CreatedAt = t
-	}
-	// Docker ps outputs labels as comma-separated key=value pairs.
-	for kv := range strings.SplitSeq(raw.Labels, ",") {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok {
-			continue
-		}
-		switch k {
-		case "md.repos":
-			if data, err := base64.StdEncoding.DecodeString(v); err == nil {
-				_ = json.Unmarshal(data, &ct.Repos)
-			}
-		case "md.display":
-			ct.Display = v == "1"
-		case "md.tailscale":
-			ct.Tailscale = v == "1"
-		case "md.usb":
-			ct.USB = v == "1"
-		}
-	}
-	return ct, nil
 }
 
 // resolveDefaults populates DefaultRemote and DefaultBranch if not already set.
@@ -881,19 +738,134 @@ func (c *Container) cleanup(ctx context.Context) {
 	_, _ = runCmd(ctx, "", []string{c.Runtime, "rm", "-f", "-v", c.Name}, true)
 }
 
-// gatherGitMetadata runs SSH commands to collect branch, stat, and log from
-// the container. This data is always small.
-func (c *Client) gatherGitMetadata(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ~/src/" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
-	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd), true)
-	return out
+// pushSubmodules transfers submodule bare repos from hostGitRoot into the
+// container at containerRepoPath and initializes them at all nesting depths
+// without requiring network access. containerRepoPath is the absolute path
+// inside the container (e.g. /home/user/src/myrepo).
+//
+// Returns nil when no submodules are declared or when submodules are declared
+// but not yet cloned on the host (uninitialized).
+func (c *Container) pushSubmodules(ctx context.Context, containerRepoPath, hostGitRoot string, quiet bool) error {
+	subs, err := gitutil.ListSubmodules(ctx, hostGitRoot)
+	if err != nil {
+		return err
+	}
+	if len(subs) == 0 {
+		return nil
+	}
+	moduleDirs, err := gitutil.FindModuleDirs(hostGitRoot)
+	if err != nil {
+		return err
+	}
+	if len(moduleDirs) == 0 {
+		// Submodules declared but not yet cloned on host — skip silently.
+		return nil
+	}
+	if !quiet {
+		_, _ = fmt.Fprintf(c.W, "- pushing %d submodule(s) ...\n", len(moduleDirs))
+	}
+
+	containerModulesBase := containerRepoPath + "/.git/modules"
+	hostModulesBase := filepath.Join(hostGitRoot, ".git", "modules")
+
+	for _, relPath := range moduleDirs {
+		hostModuleDir := filepath.Join(hostModulesBase, relPath)
+		// Use forward slashes: container is always Linux.
+		containerModuleDir := containerModulesBase + "/" + filepath.ToSlash(relPath)
+
+		// Initialize as bare so git push can transfer objects, then unset
+		// core.bare (git submodule update sets core.worktree on the module
+		// gitdir, which conflicts with core.bare=true). Also set
+		// receive.denyCurrentBranch=ignore so that git push works even though
+		// the repo is no longer bare after the unset.
+		initCmd := "git init -q --bare " + shellQuote(containerModuleDir) +
+			" && git -C " + shellQuote(containerModuleDir) + " config --unset core.bare" +
+			" && git -C " + shellQuote(containerModuleDir) + " config receive.denyCurrentBranch ignore"
+		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, initCmd), false); err != nil {
+			return fmt.Errorf("init submodule %s: %w", relPath, err)
+		}
+		// Push all refs from host bare module repo to container.
+		containerURL := "user@" + c.Name + ":" + containerModuleDir
+		if _, err := gitutil.RunGit(ctx, hostModuleDir, "push", "-q", containerURL, "--all"); err != nil {
+			return fmt.Errorf("push submodule refs %s: %w", relPath, err)
+		}
+		if _, err := gitutil.RunGit(ctx, hostModuleDir, "push", "-q", containerURL, "--tags"); err != nil {
+			return fmt.Errorf("push submodule tags %s: %w", relPath, err)
+		}
+	}
+
+	// Recursive function: at each nesting level, init submodules, override
+	// URLs to local module-gitdir paths, update without network, then recurse.
+	// git rev-parse --git-dir returns the absolute module gitdir path, so
+	// "$gd/modules/$n" is always the correct local URL for submodule named $n.
+	// Iterate only what was actually pushed ($gd/modules/*/); submodules not
+	// initialized on the host were never pushed so they are absent here.
+	script := "cd " + shellQuote(containerRepoPath) + ` && __md_sm_fix() {
+  gd=$(git rev-parse --git-dir)
+  [ -d "$gd/modules" ] || return 0
+  for moddir in "$gd/modules"/*/; do
+    [ -d "$moddir" ] || continue
+    n=$(basename "$moddir")
+    val=$(git config --file .gitmodules "submodule.$n.path" 2>/dev/null) || val="$n"
+    git submodule init -q -- "$val"
+    git config "submodule.$n.url" "$moddir"
+    git -c advice.detachedHead=false submodule update --no-fetch -q -- "$val"
+    [ -d "$val" ] && (cd "$val" && __md_sm_fix)
+  done
+}
+export -f __md_sm_fix && __md_sm_fix`
+	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, script), false); err != nil {
+		return fmt.Errorf("submodule update: %w", err)
+	}
+	return nil
 }
 
-// gatherGitDiff runs SSH to get the full patience diff from the container.
-func (c *Client) gatherGitDiff(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ~/src/" + repo + " && git diff --patience -U10 --cached base -- ."
-	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd), true)
-	return out
+//
+
+// byteUnits maps suffixes used by docker/podman stats to multipliers.
+var byteUnits = []struct {
+	suffix string
+	mult   uint64
+}{
+	{"KiB", 1 << 10},
+	{"MiB", 1 << 20},
+	{"GiB", 1 << 30},
+	{"TiB", 1 << 40},
+	{"kB", 1000},
+	{"MB", 1000 * 1000},
+	{"GB", 1000 * 1000 * 1000},
+	{"TB", 1000 * 1000 * 1000 * 1000},
+	{"B", 1},
+}
+
+// parseByteSize parses a size string like "150MiB" or "7.5GiB" into bytes.
+func parseByteSize(s string) (uint64, error) {
+	for _, u := range byteUnits {
+		if numStr, ok := strings.CutSuffix(s, u.suffix); ok {
+			f, err := strconv.ParseFloat(strings.TrimSpace(numStr), 64)
+			if err != nil {
+				return 0, fmt.Errorf("parsing %q: %w", s, err)
+			}
+			return uint64(f * float64(u.mult)), nil
+		}
+	}
+	return 0, fmt.Errorf("unknown unit in %q", s)
+}
+
+// runCmd executes a command and returns (stdout, error).
+// If capture is true, stdout/stderr are captured; otherwise they go to os.Stdout/os.Stderr.
+// If dir is non-empty, the command runs in that directory.
+func runCmd(ctx context.Context, dir string, args []string, capture bool) (string, error) {
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "LANG=C")
+	if capture {
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return "", cmd.Run()
 }
 
 // shellQuote returns a shell-escaped version of s, safe for embedding in a
@@ -911,4 +883,101 @@ func shellQuote(s string) string {
 		}
 	}
 	return s
+}
+
+// containerJSON is the raw Docker ps JSON structure.
+type containerJSON struct {
+	Names     string `json:"Names"`
+	State     string `json:"State"`
+	CreatedAt string `json:"CreatedAt"`
+	Labels    string `json:"Labels"`
+}
+
+// parseCreatedAt parses a container creation timestamp. Docker uses
+// "2006-01-02 15:04:05 -0700 MST"; Podman uses ISO 8601 (RFC 3339).
+func parseCreatedAt(s string) (time.Time, error) {
+	for _, layout := range []string{
+		"2006-01-02 15:04:05 -0700 MST",           // Docker
+		time.RFC3339Nano,                          // Podman
+		time.RFC3339,                              // Podman (no fractional seconds)
+		"2006-01-02 15:04:05.999999999 -0700 MST", // Docker with nanoseconds
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("cannot parse CreatedAt %q", s)
+}
+
+// unmarshalContainer parses docker/podman ps JSON output, converting the
+// CreatedAt timestamp string into a time.Time and extracting md.* labels.
+// The returned Container has a nil Client; callers must set it.
+func unmarshalContainer(data []byte) (Container, error) {
+	var raw containerJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return Container{}, err
+	}
+	ct := Container{
+		Name:  raw.Names,
+		State: raw.State,
+	}
+	if raw.CreatedAt != "" {
+		t, err := parseCreatedAt(raw.CreatedAt)
+		if err != nil {
+			return Container{}, err
+		}
+		ct.CreatedAt = t
+	}
+	// Docker ps outputs labels as comma-separated key=value pairs.
+	for kv := range strings.SplitSeq(raw.Labels, ",") {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "md.repos":
+			if data, err := base64.StdEncoding.DecodeString(v); err == nil {
+				_ = json.Unmarshal(data, &ct.Repos)
+			}
+		case "md.display":
+			ct.Display = v == "1"
+		case "md.tailscale":
+			ct.Tailscale = v == "1"
+		case "md.usb":
+			ct.USB = v == "1"
+		}
+	}
+	return ct, nil
+}
+
+// tailscaleStatus is the subset of `tailscale status --json` we care about.
+type tailscaleStatus struct {
+	Self struct {
+		ID      string `json:"ID"`
+		DNSName string `json:"DNSName"`
+	} `json:"Self"`
+}
+
+// parsePercent parses a percentage string like "1.23%" into 1.23.
+func parsePercent(s string) (float64, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, "%")
+	return strconv.ParseFloat(s, 64)
+}
+
+// parseMemUsage parses "150MiB / 7.5GiB" into (used, limit) in bytes.
+func parseMemUsage(s string) (uint64, uint64, error) {
+	parts := strings.SplitN(s, "/", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("expected 'used / limit', got %q", s)
+	}
+	used, err := parseByteSize(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return 0, 0, err
+	}
+	limit, err := parseByteSize(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return 0, 0, err
+	}
+	return used, limit, nil
 }

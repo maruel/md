@@ -276,7 +276,20 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 	return nil
 }
 
-//
+// gatherGitMetadata runs SSH commands to collect branch, stat, and log from
+// the container. This data is always small.
+func (c *Client) gatherGitMetadata(ctx context.Context, containerName, repo string) string {
+	cmd := "cd ~/src/" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
+	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd), true)
+	return out
+}
+
+// gatherGitDiff runs SSH to get the full patience diff from the container.
+func (c *Client) gatherGitDiff(ctx context.Context, containerName, repo string) string {
+	cmd := "cd ~/src/" + repo + " && git diff --patience -U10 --cached base -- ."
+	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd), true)
+	return out
+}
 
 // Harness identifies an agent harness whose config directories are mounted
 // into a container.
@@ -308,12 +321,6 @@ type AgentPaths struct {
 	LocalStatePaths []string
 }
 
-// alwaysPaths are merged into every container's mount set automatically.
-// Callers do not need to include these; Client methods add them internally.
-var alwaysPaths = AgentPaths{
-	XDGConfigPaths: []string{"agents", "md"},
-}
-
 // HarnessMounts maps each known harness to its path configuration.
 var HarnessMounts = map[Harness]AgentPaths{
 	HarnessAmp:      {HomePaths: []string{".amp"}, XDGConfigPaths: []string{"amp"}, LocalSharePaths: []string{"amp"}},
@@ -327,18 +334,6 @@ var HarnessMounts = map[Harness]AgentPaths{
 	HarnessOpencode: {XDGConfigPaths: []string{"opencode"}, LocalSharePaths: []string{"opencode"}, LocalStatePaths: []string{"opencode"}},
 	HarnessPi:       {HomePaths: []string{".pi"}},
 	HarnessQwen:     {HomePaths: []string{".qwen"}},
-}
-
-// mergePaths concatenates a slice of AgentPaths into one, prepending alwaysPaths.
-func mergePaths(paths []AgentPaths) AgentPaths {
-	result := alwaysPaths
-	for _, p := range paths {
-		result.HomePaths = append(result.HomePaths, p.HomePaths...)
-		result.XDGConfigPaths = append(result.XDGConfigPaths, p.XDGConfigPaths...)
-		result.LocalSharePaths = append(result.LocalSharePaths, p.LocalSharePaths...)
-		result.LocalStatePaths = append(result.LocalStatePaths, p.LocalStatePaths...)
-	}
-	return result
 }
 
 // CacheMount defines a host directory to bind-mount as a build cache inside
@@ -400,6 +395,35 @@ var WellKnownCaches = map[string][]CacheMount{
 	},
 }
 
+//
+
+var (
+	reInvalid        = regexp.MustCompile(`[/@#:~]+`)
+	reStripRemaining = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+	reCollapse       = regexp.MustCompile(`[-_.]{2,}`)
+	reGitAt          = regexp.MustCompile(`^git@([^:]+):(.+)$`)
+	reSSHGit         = regexp.MustCompile(`^ssh://git@([^/]+)/(.+)$`)
+	reGitProto       = regexp.MustCompile(`^git://([^/]+)/(.+)$`)
+)
+
+// alwaysPaths are merged into every container's mount set automatically.
+// Callers do not need to include these; Client methods add them internally.
+var alwaysPaths = AgentPaths{
+	XDGConfigPaths: []string{"agents", "md"},
+}
+
+// mergePaths concatenates a slice of AgentPaths into one, prepending alwaysPaths.
+func mergePaths(paths []AgentPaths) AgentPaths {
+	result := alwaysPaths
+	for _, p := range paths {
+		result.HomePaths = append(result.HomePaths, p.HomePaths...)
+		result.XDGConfigPaths = append(result.XDGConfigPaths, p.XDGConfigPaths...)
+		result.LocalSharePaths = append(result.LocalSharePaths, p.LocalSharePaths...)
+		result.LocalStatePaths = append(result.LocalStatePaths, p.LocalStatePaths...)
+	}
+	return result
+}
+
 // agentContainerPaths returns the container-side mount target paths for all
 // agent config mounts. These are the -v targets that must be pre-created with
 // user ownership in the Docker image before docker run creates them as root.
@@ -426,15 +450,6 @@ func agentContainerPaths() []string {
 	}
 	return paths
 }
-
-var (
-	reInvalid        = regexp.MustCompile(`[/@#:~]+`)
-	reStripRemaining = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
-	reCollapse       = regexp.MustCompile(`[-_.]{2,}`)
-	reGitAt          = regexp.MustCompile(`^git@([^:]+):(.+)$`)
-	reSSHGit         = regexp.MustCompile(`^ssh://git@([^/]+)/(.+)$`)
-	reGitProto       = regexp.MustCompile(`^git://([^/]+)/(.+)$`)
-)
 
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {

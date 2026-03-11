@@ -5,6 +5,7 @@
 package md
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"embed"
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -854,22 +856,48 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*StartResult, error) {
 	result := &StartResult{}
 
-	// Wait for SSH with exponential backoff (10 ms → 100 ms cap).
-	start := time.Now()
-	sleep := 10 * time.Millisecond
-	var lastOutput string
+	// Phase 1: wait for TCP port to accept connections. ECONNREFUSED returns
+	// immediately from the kernel so no sleep is needed — this detects
+	// readiness within microseconds of sshd binding.
+	addr := fmt.Sprintf("localhost:%d", c.SSHPort)
+	deadline := time.Now().Add(30 * time.Second)
+	dialer := net.Dialer{Timeout: 500 * time.Millisecond}
 	for {
-		out, err := runCmd(ctx, "", c.SSHCommand("-o", "ConnectTimeout=2", c.Name, "exit"), true)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for container SSH port %s", addr)
+		}
+	}
+
+	// Send .env into the container via ssh+stdin — this is the first SSH
+	// operation and doubles as the handshake readiness check. Using ssh
+	// instead of scp gives reliable exit code 255 on connection errors.
+	// If no .env exists locally the container still gets an empty file.
+	var envContent []byte
+	if data, err := os.ReadFile(".env"); err == nil {
+		envContent = data
+		if !opts.Quiet {
+			_, _ = fmt.Fprintln(c.W, "- sending .env into container ...")
+		}
+	}
+	sshEnvArgs := c.SSHCommand(c.Name, "cat > /home/user/.env")
+	for {
+		cmd := exec.CommandContext(ctx, sshEnvArgs[0], sshEnvArgs[1:]...)
+		cmd.Stdin = bytes.NewReader(envContent)
+		out, err := cmd.CombinedOutput()
 		if err == nil {
 			break
 		}
-		lastOutput = out
-		time.Sleep(sleep)
-		if sleep < 100*time.Millisecond {
-			sleep *= 2
-		}
-		if time.Since(start) > 10*time.Second {
-			return nil, fmt.Errorf("timed out waiting for container SSH: %s", lastOutput)
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 255 || time.Now().After(deadline) {
+			return nil, fmt.Errorf("copying .env: %w\n%s", err, out)
 		}
 	}
 
@@ -971,14 +999,6 @@ func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*Star
 		}
 	}
 
-	// Copy .env if present.
-	if _, err := os.Stat(".env"); err == nil {
-		if !opts.Quiet {
-			_, _ = fmt.Fprintln(c.W, "- sending .env into container ...")
-		}
-		_, _ = runCmd(ctx, "", c.SCPCommand(".env", c.Name+":/home/user/.env"), false)
-	}
-
 	// Wait for Tailscale auth URL if needed.
 	if opts.Tailscale && opts.TailscaleAuthKey == "" {
 		tailArgs := c.SSHCommand(c.Name, "tail -f /tmp/tailscale_auth_url")
@@ -1061,17 +1081,19 @@ func (c *Container) pushSubmodules(ctx context.Context, containerRepoPath, hostG
 	// URLs to local module-gitdir paths, update without network, then recurse.
 	// git rev-parse --git-dir returns the absolute module gitdir path, so
 	// "$gd/modules/$n" is always the correct local URL for submodule named $n.
+	// Iterate only what was actually pushed ($gd/modules/*/); submodules not
+	// initialized on the host were never pushed so they are absent here.
 	script := "cd " + shellQuote(containerRepoPath) + ` && __md_sm_fix() {
-  git submodule init -q
   gd=$(git rev-parse --git-dir)
-  git config --list --local 2>/dev/null | grep '^submodule\..*\.url=' | while IFS= read -r line; do
-    k=${line%%=*}
-    n=${k#submodule.}; n=${n%.url}
-    git config "submodule.$n.url" "$gd/modules/$n"
-  done
-  git submodule update --no-fetch -q
-  git submodule foreach -q 'echo "$sm_path"' | while IFS= read -r p; do
-    (cd "$p" && __md_sm_fix)
+  [ -d "$gd/modules" ] || return 0
+  for moddir in "$gd/modules"/*/; do
+    [ -d "$moddir" ] || continue
+    n=$(basename "$moddir")
+    val=$(git config --file .gitmodules "submodule.$n.path" 2>/dev/null) || val="$n"
+    git submodule init -q -- "$val"
+    git config "submodule.$n.url" "$moddir"
+    git -c advice.detachedHead=false submodule update --no-fetch -q -- "$val"
+    [ -d "$val" ] && (cd "$val" && __md_sm_fix)
   done
 }
 export -f __md_sm_fix && __md_sm_fix`

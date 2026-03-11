@@ -8,5 +8,6 @@ __pycache__/
 .coverage
 .DS_Store
 .env
+.claude/worktrees/
 .vscode/
 cover.cov

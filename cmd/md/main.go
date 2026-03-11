@@ -144,8 +144,12 @@ func newClient() (*md.Client, error) {
 	}
 	c.GithubToken = os.Getenv("GITHUB_TOKEN")
 	if c.GithubToken == "" {
-		if out, err2 := exec.Command("gh", "auth", "token").Output(); err2 == nil {
-			c.GithubToken = strings.TrimSpace(string(out))
+		if _, err2 := exec.LookPath("gh"); err2 == nil {
+			if out, err2 := exec.Command("gh", "auth", "token").Output(); err2 == nil {
+				c.GithubToken = strings.TrimSpace(string(out))
+			} else {
+				fmt.Fprintf(os.Stderr, "gh auth token: %v\n", err2)
+			}
 		}
 	}
 	c.TailscaleAPIKey = os.Getenv("TAILSCALE_API_KEY")

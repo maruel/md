@@ -224,22 +224,8 @@ func (c *Container) Launch(ctx context.Context, opts *StartOpts) (retErr error) 
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if !c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, opts.Caches) {
-		if !opts.Quiet {
-			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
-		}
-	} else {
-		if !opts.Quiet && len(opts.Caches) > 0 {
-			printCacheInfo(c.W, opts.Caches, c.Home)
-		}
-		buildCtx, err := prepareBuildContext()
-		if err != nil {
-			return err
-		}
-		defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
-		if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
-			return err
-		}
+	if err := c.ensureImage(ctx, baseImage, opts.Caches, opts.Quiet); err != nil {
+		return err
 	}
 	return launchContainer(ctx, c, opts)
 }
@@ -285,15 +271,8 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, caches) {
-		buildCtx, err := prepareBuildContext()
-		if err != nil {
-			return 1, err
-		}
-		defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
-		if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, caches, agentContainerPaths(), true); err != nil {
-			return 1, err
-		}
+	if err := c.ensureImage(ctx, baseImage, caches, true); err != nil {
+		return 1, err
 	}
 	opts := StartOpts{Quiet: true}
 	if err := launchContainer(ctx, tmp, &opts); err != nil {
@@ -718,6 +697,32 @@ func (c *Container) checkContainerState(ctx context.Context) error {
 		return fmt.Errorf("inconsistent state detected for %s:\n  - %s\nConsider running 'md kill' to clean up, then 'md start' to restart",
 			c.Name, strings.Join(issues, "\n  - "))
 	}
+	return nil
+}
+
+// ensureImage checks whether md-user needs rebuilding and, if so, builds it.
+// The build is serialized via Client.buildMu.
+func (c *Container) ensureImage(ctx context.Context, baseImage string, caches []CacheMount, quiet bool) error {
+	c.buildMu.Lock()
+	defer c.buildMu.Unlock()
+	if !c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, caches) {
+		if !quiet {
+			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
+		}
+		return nil
+	}
+	if !quiet && len(caches) > 0 {
+		printCacheInfo(c.W, caches, c.Home)
+	}
+	buildCtx, err := prepareBuildContext()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(buildCtx) }()
+	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, caches, agentContainerPaths(), quiet); err != nil {
+		return err
+	}
+	c.invalidateImageBuildCache()
 	return nil
 }
 

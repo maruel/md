@@ -70,11 +70,20 @@ type Client struct {
 	// When zero, caching is disabled and the registry is queried on every start.
 	DigestCacheTTL time.Duration
 
-	// mu protects digestCache.
+	// buildMu serializes image build operations (BuildImage, Warmup, and the
+	// build step inside Launch) so concurrent callers don't race on the same
+	// image tag.
+	buildMu sync.Mutex
+
+	// mu protects digestCache and imageBuildCache.
 	mu sync.Mutex
 	// digestCache caches remote image digest queries to avoid repeated
 	// registry network round-trips. Entries expire after DigestCacheTTL.
 	digestCache map[string]remoteDigestEntry
+	// imageBuildCache stores the last imageBuildNeeded result so that
+	// back-to-back checks (e.g. Warmup then Launch) skip redundant
+	// docker inspect calls. Protected by mu; invalidated on successful build.
+	imageBuildCache *imageBuildCacheEntry
 }
 
 // New creates a Client with global MD tool config and initialises SSH
@@ -227,6 +236,8 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 
 // BuildImage builds the base Docker image locally.
 func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error) {
+	c.buildMu.Lock()
+	defer c.buildMu.Unlock()
 	arch := runtime.GOARCH
 	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/Dockerfile.base ...")
 
@@ -259,6 +270,7 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 		return err
 	}
 	_, _ = fmt.Fprintln(c.W, "- Base image built as 'md-local'.")
+	c.invalidateImageBuildCache()
 	// Clean up BuildKit cache (--mount=type=cache volumes from Dockerfile.base).
 	// These are only useful during the build itself; pruning avoids leaving
 	// orphaned resources on disk.
@@ -266,6 +278,50 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 		_, _ = fmt.Fprintf(c.W, "- Warning: pruning build cache: %v\n", err)
 	}
 	return nil
+}
+
+// WarmupOpts configures base image warmup.
+type WarmupOpts struct {
+	// BaseImage is the full Docker image reference. When empty,
+	// DefaultBaseImage+":latest" is used.
+	BaseImage string
+	// Caches lists host directories to COPY into the image at build time.
+	Caches []CacheMount
+	// Quiet suppresses informational output.
+	Quiet bool
+}
+
+// Warmup ensures the base image is pulled and md-user is built, without
+// starting a container. Returns true if a build was performed.
+func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
+	c.buildMu.Lock()
+	defer c.buildMu.Unlock()
+	baseImage := opts.BaseImage
+	if baseImage == "" {
+		baseImage = DefaultBaseImage + ":latest"
+	}
+	if !c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, opts.Caches) {
+		if !opts.Quiet {
+			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
+		}
+		return false, nil
+	}
+	if !opts.Quiet && len(opts.Caches) > 0 {
+		printCacheInfo(c.W, opts.Caches, c.Home)
+	}
+	buildCtx, err := prepareBuildContext()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = os.RemoveAll(buildCtx) }()
+	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
+		return false, err
+	}
+	c.invalidateImageBuildCache()
+	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}, true); err != nil {
+		_, _ = fmt.Fprintf(c.W, "- Warning: pruning build cache: %v\n", err)
+	}
+	return true, nil
 }
 
 // gatherGitMetadata runs SSH commands to collect branch, stat, and log from

@@ -284,6 +284,15 @@ type remoteDigestEntry struct {
 	expires time.Time
 }
 
+// imageBuildCacheEntry caches the result of imageBuildNeeded so that
+// back-to-back calls with the same inputs skip docker inspect exec calls.
+type imageBuildCacheEntry struct {
+	baseImage  string
+	contextSHA string
+	cacheKey   string
+	needed     bool
+}
+
 // cachedRemoteConfigDigest returns the remote image config digest. When
 // Client.DigestCacheTTL is non-zero, results are cached for that duration to
 // skip repeated registry round-trips. When zero, the registry is always queried.
@@ -329,6 +338,51 @@ func cacheSpecKey(caches []CacheMount) string {
 // directory currently exists are compared (matching what appendCacheLayers
 // would actually inject).
 func (c *Client) imageBuildNeeded(ctx context.Context, rt, imageName, baseImage, keysDir, home string, caches []CacheMount) bool {
+	// Compute cheap inputs first so we can check the cache.
+	contextSHA, err := embeddedContextSHA(keysDir)
+	if err != nil {
+		return true
+	}
+	var activeCaches []CacheMount
+	for _, cm := range caches {
+		if _, err := os.Stat(resolveHostPath(cm.HostPath, home)); err == nil {
+			activeCaches = append(activeCaches, cm)
+		}
+	}
+	activeKey := cacheSpecKey(activeCaches)
+
+	// Check cached result from a previous call with the same inputs.
+	c.mu.Lock()
+	if e := c.imageBuildCache; e != nil && e.baseImage == baseImage && e.contextSHA == contextSHA && e.cacheKey == activeKey {
+		needed := e.needed
+		c.mu.Unlock()
+		return needed
+	}
+	c.mu.Unlock()
+
+	needed := c.imageBuildNeededSlow(ctx, rt, imageName, baseImage, contextSHA, activeKey)
+
+	c.mu.Lock()
+	c.imageBuildCache = &imageBuildCacheEntry{
+		baseImage:  baseImage,
+		contextSHA: contextSHA,
+		cacheKey:   activeKey,
+		needed:     needed,
+	}
+	c.mu.Unlock()
+	return needed
+}
+
+// invalidateImageBuildCache clears the cached imageBuildNeeded result.
+// Must be called after a successful image build so the next check re-evaluates.
+func (c *Client) invalidateImageBuildCache() {
+	c.mu.Lock()
+	c.imageBuildCache = nil
+	c.mu.Unlock()
+}
+
+// imageBuildNeededSlow performs the full check with docker inspect calls.
+func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseImage, contextSHA, activeKey string) bool {
 	// Quick check: does the customized image have labels at all?
 	currentDigest, err := dockerInspectFormat(ctx, rt, imageName, `{{index .Config.Labels "md.base_digest"}}`)
 	if err != nil || currentDigest == "" || currentDigest == "<no value>" {
@@ -368,29 +422,15 @@ func (c *Client) imageBuildNeeded(ctx context.Context, rt, imageName, baseImage,
 		}
 	}
 
-	// Compute context SHA from embedded FS without disk extraction.
-	contextSHA, err := embeddedContextSHA(keysDir)
-	if err != nil {
-		return true
-	}
 	if currentContext != contextSHA {
 		return true
 	}
 
-	// Compare what appendCacheLayers would actually inject (active caches whose
-	// host dirs exist) against what's currently baked in. Using the active key
-	// avoids perpetual rebuilds when some requested cache dirs don't exist yet.
-	var activeCaches []CacheMount
-	for _, c := range caches {
-		if _, err := os.Stat(resolveHostPath(c.HostPath, home)); err == nil {
-			activeCaches = append(activeCaches, c)
-		}
-	}
 	currentKey, err := dockerInspectFormat(ctx, rt, imageName, `{{index .Config.Labels "md.cache_key"}}`)
 	if err != nil || currentKey == "<no value>" {
 		currentKey = ""
 	}
-	if cacheSpecKey(activeCaches) != currentKey {
+	if activeKey != currentKey {
 		return true
 	}
 

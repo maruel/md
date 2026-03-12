@@ -896,27 +896,34 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 // connectContainer waits for SSH, pushes repos into the container, and
 // handles .env and Tailscale auth. Must be called after launchContainer.
 // The task branch and default branch are pushed in parallel to reduce latency.
-func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*StartResult, error) {
-	result := &StartResult{}
-
-	// Phase 1: wait for TCP port to accept connections. ECONNREFUSED returns
-	// immediately from the kernel so no sleep is needed — this detects
-	// readiness within microseconds of sshd binding.
-	addr := fmt.Sprintf("localhost:%d", c.SSHPort)
-	deadline := time.Now().Add(30 * time.Second)
+// waitForTCP polls until a TCP connection to addr succeeds or the deadline is
+// exceeded. ECONNREFUSED returns immediately from the kernel so no sleep is
+// needed — this detects readiness within microseconds of the service binding.
+func waitForTCP(ctx context.Context, addr string, deadline time.Time) error {
 	dialer := net.Dialer{Timeout: 500 * time.Millisecond}
 	for {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			_ = conn.Close()
-			break
+			return nil
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("timed out waiting for container SSH port %s", addr)
+			return fmt.Errorf("timed out waiting for TCP %s", addr)
 		}
+	}
+}
+
+func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*StartResult, error) {
+	result := &StartResult{}
+
+	// Phase 1: wait for TCP port to accept connections.
+	addr := fmt.Sprintf("localhost:%d", c.SSHPort)
+	deadline := time.Now().Add(30 * time.Second)
+	if err := waitForTCP(ctx, addr, deadline); err != nil {
+		return nil, err
 	}
 
 	// Send .env into the container via ssh+stdin — this is the first SSH

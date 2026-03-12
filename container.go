@@ -305,6 +305,109 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	return exitCode, nil
 }
 
+// Revive restarts a stopped (exited) container. It validates git remotes,
+// runs `docker start`, re-queries the SSH port (which changes on restart),
+// rewrites the SSH config, and waits for SSH to become ready. It does NOT
+// push repos or send .env — the container's filesystem is preserved across
+// stop/start.
+func (c *Container) Revive(ctx context.Context) error {
+	// Validate git remotes before starting. Each remote must either be
+	// absent (will be added) or point to the expected URL. A remote
+	// pointing elsewhere indicates a name collision — fail early.
+	for _, r := range c.Repos {
+		rName := r.Name()
+		wantURL := "user@" + c.Name + ":/home/user/src/" + rName
+		got, err := gitutil.RunGit(ctx, r.GitRoot, "remote", "get-url", c.Name)
+		if err == nil {
+			if got != wantURL {
+				return fmt.Errorf("git remote %s in %s points to %q, expected %q", c.Name, r.GitRoot, got, wantURL)
+			}
+			// Remote exists and is correct — nothing to do.
+			continue
+		}
+		// Remote doesn't exist, add it.
+		if _, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "add", c.Name, wantURL}, false); err != nil {
+			return fmt.Errorf("adding git remote for %s: %w", rName, err)
+		}
+	}
+
+	// Start the stopped container.
+	rt := c.Runtime
+	if _, err := runCmd(ctx, "", []string{rt, "start", c.Name}, true); err != nil {
+		return fmt.Errorf("docker start %s: %w", c.Name, err)
+	}
+
+	// Query the new SSH port (port mapping changes on restart).
+	port, err := getHostPort(ctx, rt, c.Name, "22/tcp")
+	if err != nil {
+		return fmt.Errorf("getting SSH port after revive: %w", err)
+	}
+	c.SSHPort = port
+
+	if c.Display {
+		vncPort, _ := getHostPort(ctx, rt, c.Name, "5901/tcp")
+		c.VNCPort = vncPort
+	}
+
+	// Rewrite SSH config with the new port. The known_hosts file also
+	// needs rewriting because entries are keyed by [127.0.0.1]:port.
+	sshConfigDir := filepath.Join(c.Home, ".ssh", "config.d")
+	removeSSHConfig(sshConfigDir, c.Name)
+	knownHostsPath := filepath.Join(sshConfigDir, c.Name+".known_hosts")
+	hostPubKey, err := os.ReadFile(c.HostKeyPath + ".pub")
+	if err != nil {
+		return fmt.Errorf("reading host public key: %w", err)
+	}
+	if err := writeSSHConfig(sshConfigDir, c.Name, port, c.UserKeyPath, knownHostsPath); err != nil {
+		return fmt.Errorf("writing SSH config: %w", err)
+	}
+	if err := writeKnownHosts(knownHostsPath, port, strings.TrimSpace(string(hostPubKey))); err != nil {
+		return fmt.Errorf("writing known_hosts: %w", err)
+	}
+
+	// Wait for TCP, then confirm SSH is fully ready.
+	addr := fmt.Sprintf("localhost:%d", port)
+	deadline := time.Now().Add(30 * time.Second)
+	if err := waitForTCP(ctx, addr, deadline); err != nil {
+		return fmt.Errorf("waiting for SSH port on %s: %w", c.Name, err)
+	}
+	if err := waitForSSH(ctx, c, deadline); err != nil {
+		return fmt.Errorf("SSH handshake on %s: %w", c.Name, err)
+	}
+
+	c.State = "running"
+	return nil
+}
+
+// waitForSSH runs a trivial SSH command in a retry loop until it succeeds or
+// the deadline is exceeded. This confirms SSH is fully operational after the
+// TCP socket opens (sshd may need a few more milliseconds to accept auth).
+func waitForSSH(ctx context.Context, c *Container, deadline time.Time) error {
+	args := c.SSHCommand(c.Name, "true")
+	for {
+		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for SSH on %s", c.Name)
+		}
+	}
+}
+
+// Stop stops the container without removing it. The container can be
+// restarted later with Revive.
+func (c *Container) Stop(ctx context.Context) error {
+	if _, err := runCmd(ctx, "", []string{c.Runtime, "stop", c.Name}, true); err != nil {
+		return fmt.Errorf("docker stop %s: %w", c.Name, err)
+	}
+	c.State = "exited"
+	return nil
+}
+
 // Kill stops and removes the container.
 func (c *Container) Kill(ctx context.Context) error {
 	rt := c.Runtime

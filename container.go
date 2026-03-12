@@ -399,11 +399,19 @@ func waitForSSH(ctx context.Context, c *Container, deadline time.Time) error {
 }
 
 // Stop stops the container without removing it. The container can be
-// restarted later with Revive.
+// restarted later with Revive. SSH config is preserved (Revive rewrites
+// it with the new port), but the ControlMaster socket is removed to
+// prevent stale connections from interfering with subsequent SSH commands.
 func (c *Container) Stop(ctx context.Context) error {
 	if _, err := runCmd(ctx, "", []string{c.Runtime, "stop", c.Name}, true); err != nil {
 		return fmt.Errorf("docker stop %s: %w", c.Name, err)
 	}
+	// Clean up stale ControlMaster socket. The SSH connection is dead now
+	// that the container is stopped; the socket file would cause subsequent
+	// SSH commands (from other processes) to fail or time out.
+	sock := controlSocketPath(c.Name)
+	_ = exec.Command("ssh", "-O", "exit", "-S", sock, "x").Run()
+	_ = os.Remove(sock)
 	c.State = "exited"
 	return nil
 }

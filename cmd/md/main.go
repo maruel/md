@@ -36,6 +36,9 @@ import (
 // runtimeOverride is set by --runtime and applied in newClient/cmdList.
 var runtimeOverride string
 
+// controlMasterEnabled is set by --control-master and applied in newClient.
+var controlMasterEnabled bool
+
 func main() {
 	if err := mainImpl(); err != nil {
 		var ec *exitCodeError
@@ -68,10 +71,12 @@ func mainImpl() error {
 	pre := flag.NewFlagSet("md", flag.ContinueOnError)
 	preVerbose := addVerboseFlag(pre)
 	preRuntime := pre.String("runtime", "", "Container runtime: docker or podman (default: auto-detect)")
+	preControlMaster := pre.Bool("control-master", false, "Enable SSH ControlMaster connection multiplexing")
 	// Ignore errors: unknown flags here are subcommand flags, parsed later.
 	_ = pre.Parse(os.Args[1:])
 	initLogging(*preVerbose)
 	runtimeOverride = *preRuntime
+	controlMasterEnabled = *preControlMaster
 	remaining := pre.Args()
 
 	if len(remaining) == 0 {
@@ -145,6 +150,7 @@ func newClient() (*md.Client, error) {
 	if runtimeOverride != "" {
 		c.Runtime = runtimeOverride
 	}
+	c.ControlMaster = controlMasterEnabled
 	c.GithubToken = os.Getenv("GITHUB_TOKEN")
 	if c.GithubToken == "" {
 		if _, err2 := exec.LookPath("gh"); err2 == nil {

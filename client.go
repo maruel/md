@@ -48,6 +48,12 @@ type Client struct {
 	ImageName string
 	Runtime   string // "docker" or "podman"; auto-detected by New().
 
+	// ControlMaster enables SSH ControlMaster connection multiplexing.
+	// When true, SSH connections are shared via a persistent socket,
+	// reducing connection overhead. Disabled by default because stale
+	// sockets can cause connectivity issues that are hard to diagnose.
+	ControlMaster bool
+
 	// Tokens.
 	GithubToken string // GitHub API token for Docker build secrets.
 	// TailscaleAPIKey is the Tailscale API key for auth key generation and device deletion.

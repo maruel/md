@@ -358,7 +358,7 @@ func (c *Container) Revive(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reading host public key: %w", err)
 	}
-	if err := writeSSHConfig(sshConfigDir, c.Name, port, c.UserKeyPath, knownHostsPath); err != nil {
+	if err := writeSSHConfig(sshConfigDir, c.Name, port, c.UserKeyPath, knownHostsPath, c.ControlMaster); err != nil {
 		return fmt.Errorf("writing SSH config: %w", err)
 	}
 	if err := writeKnownHosts(knownHostsPath, port, strings.TrimSpace(string(hostPubKey))); err != nil {
@@ -406,12 +406,9 @@ func (c *Container) Stop(ctx context.Context) error {
 	if _, err := runCmd(ctx, "", []string{c.Runtime, "stop", c.Name}, true); err != nil {
 		return fmt.Errorf("docker stop %s: %w", c.Name, err)
 	}
-	// Clean up stale ControlMaster socket. The SSH connection is dead now
-	// that the container is stopped; the socket file would cause subsequent
-	// SSH commands (from other processes) to fail or time out.
-	sock := controlSocketPath(c.Name)
-	_ = exec.Command("ssh", "-O", "exit", "-S", sock, "x").Run()
-	_ = os.Remove(sock)
+	// Clean up stale ControlMaster socket (if any). The SSH connection is
+	// dead now that the container is stopped.
+	cleanupControlSocket(c.Name)
 	c.State = "exited"
 	return nil
 }

@@ -869,7 +869,7 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	if err != nil {
 		return fmt.Errorf("reading host public key: %w", err)
 	}
-	if err := writeSSHConfig(sshConfigDir, c.Name, port, c.UserKeyPath, knownHostsPath); err != nil {
+	if err := writeSSHConfig(sshConfigDir, c.Name, port, c.UserKeyPath, knownHostsPath, c.ControlMaster); err != nil {
 		return err
 	}
 	if err := writeKnownHosts(knownHostsPath, port, strings.TrimSpace(string(hostPubKey))); err != nil {

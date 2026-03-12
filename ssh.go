@@ -73,7 +73,9 @@ func controlSocketPath(containerName string) string {
 }
 
 // writeSSHConfig writes the SSH config file for a container.
-func writeSSHConfig(configDir, containerName string, port int32, identityFile, knownHostsFile string) error {
+// When controlMaster is true, ControlMaster/ControlPath/ControlPersist
+// directives are included for connection multiplexing.
+func writeSSHConfig(configDir, containerName string, port int32, identityFile, knownHostsFile string, controlMaster bool) error {
 	confPath := filepath.Join(configDir, containerName+".conf")
 	content := fmt.Sprintf(
 		"Host %s\n"+
@@ -86,11 +88,15 @@ func writeSSHConfig(configDir, containerName string, port int32, identityFile, k
 			"  StrictHostKeyChecking yes\n"+
 			"  AddressFamily inet\n"+
 			"  GSSAPIAuthentication no\n"+
-			"  PreferredAuthentications publickey\n"+
+			"  PreferredAuthentications publickey\n",
+		containerName, port, identityFile, knownHostsFile)
+	if controlMaster {
+		content += fmt.Sprintf(
 			"  ControlMaster auto\n"+
-			"  ControlPath %s\n"+
-			"  ControlPersist 5s\n",
-		containerName, port, identityFile, knownHostsFile, controlSocketPath(containerName))
+				"  ControlPath %s\n"+
+				"  ControlPersist 5s\n",
+			controlSocketPath(containerName))
+	}
 	return os.WriteFile(confPath, []byte(content), 0o600)
 }
 
@@ -131,11 +137,20 @@ func ensureSSHConfigInclude(w io.Writer, sshDir string) (missing bool, err error
 }
 
 // removeSSHConfig removes SSH config and known_hosts files for a container.
-// It also closes any active ControlMaster connection.
+// It also closes any active ControlMaster connection and removes the socket.
 func removeSSHConfig(configDir, containerName string) {
-	sock := controlSocketPath(containerName)
-	_ = exec.Command("ssh", "-O", "exit", "-S", sock, "x").Run()
-	_ = os.Remove(sock)
+	cleanupControlSocket(containerName)
 	_ = os.Remove(filepath.Join(configDir, containerName+".conf"))
 	_ = os.Remove(filepath.Join(configDir, containerName+".known_hosts"))
+}
+
+// cleanupControlSocket closes an active ControlMaster connection and removes
+// the socket file. Safe to call even when ControlMaster is not in use.
+func cleanupControlSocket(containerName string) {
+	sock := controlSocketPath(containerName)
+	if _, err := os.Stat(sock); err != nil {
+		return
+	}
+	_ = exec.Command("ssh", "-O", "exit", "-S", sock, "x").Run()
+	_ = os.Remove(sock)
 }

@@ -627,8 +627,8 @@ func dirStats(dir string) (files, n int64) {
 	return files, n
 }
 
-// formatBytes formats n bytes as a human-readable string (e.g. "1.2 GB").
-func formatBytes(n int64) string {
+// FormatBytes formats n bytes as a human-readable string (e.g. "1.2 GB").
+func FormatBytes(n int64) string {
 	const (
 		kb = 1024
 		mb = 1024 * kb
@@ -707,7 +707,7 @@ func printCacheInfo(w io.Writer, caches []CacheMount, home string) {
 			continue
 		}
 		_, _ = fmt.Fprintf(w, "- Cache %s (%s): %s files, %s\n",
-			s.name, s.hostPath, formatCount(s.files), formatBytes(s.bytes))
+			s.name, s.hostPath, formatCount(s.files), FormatBytes(s.bytes))
 	}
 }
 

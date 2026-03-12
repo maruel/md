@@ -461,19 +461,21 @@ func cmdRun(ctx context.Context, args []string) error {
 
 // containerListEntry is the JSON representation of a container in `md list --json`.
 type containerListEntry struct {
-	Name      string `json:"name"`
-	State     string `json:"state"`
-	Uptime    string `json:"uptime"`
-	Display   bool   `json:"display,omitempty"`
-	Tailscale bool   `json:"tailscale,omitempty"`
-	FQDN      string `json:"fqdn,omitempty"`
-	USB       bool   `json:"usb,omitempty"`
+	Name      string             `json:"name"`
+	State     string             `json:"state"`
+	Uptime    string             `json:"uptime"`
+	Display   bool               `json:"display,omitempty"`
+	Tailscale bool               `json:"tailscale,omitempty"`
+	FQDN      string             `json:"fqdn,omitempty"`
+	USB       bool               `json:"usb,omitempty"`
+	Stats     *md.ContainerStats `json:"stats,omitempty"`
 }
 
 func cmdList(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
+	showStats := fs.Bool("stats", false, "Include resource usage stats (CPU, mem, net, disk) for running containers")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -489,6 +491,17 @@ func cmdList(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Batch-fetch stats for all containers in 2 docker calls.
+	var allStats map[string]*md.ContainerStats
+	if *showStats && len(containers) > 0 {
+		var statsErr error
+		allStats, statsErr = md.StatsAll(ctx, c.Runtime, containers)
+		if statsErr != nil {
+			slog.Warn("fetching container stats", "err", statsErr)
+		}
+	}
+
 	if *jsonOut {
 		entries := make([]containerListEntry, len(containers))
 		for i, ct := range containers {
@@ -499,6 +512,7 @@ func cmdList(ctx context.Context, args []string) error {
 				Display:   ct.Display,
 				Tailscale: ct.Tailscale,
 				USB:       ct.USB,
+				Stats:     allStats[ct.Name],
 			}
 			if ct.Tailscale {
 				entries[i].FQDN = ct.TailscaleFQDN(ctx)
@@ -530,6 +544,24 @@ func cmdList(ctx context.Context, args []string) error {
 			features = append(features, "usb")
 		}
 		fmt.Printf("%-30s %-10s %-12s %s\n", ct.Name, ct.State, time.Since(ct.CreatedAt).Truncate(time.Second), strings.Join(features, ","))
+		if s := allStats[ct.Name]; s != nil {
+			if ct.State == "running" {
+				fmt.Printf("  CPU: %.1f%%  Mem: %s/%s (%.1f%%)  PIDs: %d\n",
+					s.CPUPerc,
+					md.FormatBytes(int64(s.MemUsed)), md.FormatBytes(int64(s.MemLimit)),
+					s.MemPerc, s.PIDs)
+				diskStr := "n/a"
+				if s.DiskUsed >= 0 {
+					diskStr = md.FormatBytes(s.DiskUsed)
+				}
+				fmt.Printf("  Net: rx=%s tx=%s  Block: r=%s w=%s  Disk: %s\n",
+					md.FormatBytes(int64(s.NetRx)), md.FormatBytes(int64(s.NetTx)),
+					md.FormatBytes(int64(s.BlockRead)), md.FormatBytes(int64(s.BlockWrite)),
+					diskStr)
+			} else if s.DiskUsed >= 0 {
+				fmt.Printf("  Disk: %s\n", md.FormatBytes(s.DiskUsed))
+			}
+		}
 	}
 	return nil
 }

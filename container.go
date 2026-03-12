@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caic-xyz/md/gitutil"
@@ -655,9 +656,20 @@ type ContainerStats struct {
 	MemPerc float64 `json:"mem_perc"`
 	// PIDs is the number of running processes.
 	PIDs int `json:"pids"`
+	// NetRx is the total network bytes received.
+	NetRx uint64 `json:"net_rx"`
+	// NetTx is the total network bytes transmitted.
+	NetTx uint64 `json:"net_tx"`
+	// BlockRead is the total bytes read from block devices.
+	BlockRead uint64 `json:"block_read"`
+	// BlockWrite is the total bytes written to block devices.
+	BlockWrite uint64 `json:"block_write"`
+	// DiskUsed is the writable container layer size in bytes (-1 if unavailable).
+	DiskUsed int64 `json:"disk_used"`
 }
 
-// Stats returns the current CPU and memory usage for the container.
+// Stats returns the current resource usage for the container, including CPU,
+// memory, network I/O, block I/O, and writable-layer disk usage.
 func (c *Container) Stats(ctx context.Context) (*ContainerStats, error) {
 	out, err := runCmd(ctx, "", []string{
 		c.Runtime, "stats", "--no-stream", "--no-trunc",
@@ -666,38 +678,169 @@ func (c *Container) Stats(ctx context.Context) (*ContainerStats, error) {
 	if err != nil {
 		return nil, fmt.Errorf("container %s is not running", c.Name)
 	}
+	s, _, err := parseStatsLine(out)
+	if err != nil {
+		return nil, fmt.Errorf("parsing stats for %s: %w", c.Name, err)
+	}
+	s.DiskUsed, _ = c.DiskUsage(ctx)
+	return s, nil
+}
+
+// DiskUsage returns the writable container layer size in bytes via
+// docker inspect --size. Works for both running and stopped containers.
+func (c *Container) DiskUsage(ctx context.Context) (int64, error) {
+	out, err := runCmd(ctx, "", []string{
+		c.Runtime, "inspect", "--size", "--format", "{{json .SizeRw}}", c.Name,
+	}, true)
+	if err != nil {
+		return -1, fmt.Errorf("inspecting container %s: %w", c.Name, err)
+	}
+	var sz int64
+	if err := json.Unmarshal([]byte(out), &sz); err != nil {
+		return -1, fmt.Errorf("parsing SizeRw: %w", err)
+	}
+	return sz, nil
+}
+
+// StatsAll fetches resource usage for multiple containers in batch (2 docker
+// calls instead of 2N). Returns a map keyed by container name.
+func StatsAll(ctx context.Context, runtime string, containers []*Container) (map[string]*ContainerStats, error) {
+	result := make(map[string]*ContainerStats, len(containers))
+	if len(containers) == 0 {
+		return result, nil
+	}
+	var mu sync.Mutex
+	var statsErr, inspectErr error
+
+	// Collect running container names for docker stats.
+	var running []string
+	allNames := make([]string, 0, len(containers))
+	for _, ct := range containers {
+		allNames = append(allNames, ct.Name)
+		if ct.State == "running" {
+			running = append(running, ct.Name)
+		}
+	}
+
+	var wg sync.WaitGroup
+
+	// Batch docker stats for all running containers (one call).
+	if len(running) > 0 {
+		wg.Go(func() {
+			args := make([]string, 0, 6+len(running))
+			args = append(args, runtime, "stats", "--no-stream", "--no-trunc", "--format", "{{json .}}")
+			args = append(args, running...)
+			out, err := runCmd(ctx, "", args, true)
+			if err != nil {
+				statsErr = fmt.Errorf("docker stats: %w", err)
+				return
+			}
+			for line := range strings.SplitSeq(out, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				s, name, err := parseStatsLine(line)
+				if err != nil {
+					statsErr = fmt.Errorf("docker stats: %w", err)
+					return
+				}
+				mu.Lock()
+				result[name] = s
+				mu.Unlock()
+			}
+		})
+	}
+
+	// Batch docker inspect --size for all containers (one call).
+	wg.Go(func() {
+		args := make([]string, 0, 5+len(allNames))
+		args = append(args, runtime, "inspect", "--size", "--format", "{{.Name}}\t{{json .SizeRw}}")
+		args = append(args, allNames...)
+		out, err := runCmd(ctx, "", args, true)
+		if err != nil {
+			inspectErr = fmt.Errorf("docker inspect --size: %w", err)
+			return
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.SplitN(line, "\t", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			name := strings.TrimPrefix(parts[0], "/")
+			var sz int64
+			if err := json.Unmarshal([]byte(parts[1]), &sz); err != nil {
+				continue
+			}
+			mu.Lock()
+			if s, ok := result[name]; ok {
+				s.DiskUsed = sz
+			} else {
+				result[name] = &ContainerStats{DiskUsed: sz}
+			}
+			mu.Unlock()
+		}
+	})
+
+	wg.Wait()
+	return result, errors.Join(statsErr, inspectErr)
+}
+
+// parseStatsLine parses one JSON line from docker stats output into a
+// ContainerStats and returns the container name.
+func parseStatsLine(line string) (*ContainerStats, string, error) {
 	var raw struct {
+		Name     string `json:"Name"`
 		CPUPerc  string `json:"CPUPerc"`
 		MemUsage string `json:"MemUsage"`
 		MemPerc  string `json:"MemPerc"`
 		PIDs     string `json:"PIDs"`
+		NetIO    string `json:"NetIO"`
+		BlockIO  string `json:"BlockIO"`
 	}
-	if err := json.Unmarshal([]byte(out), &raw); err != nil {
-		return nil, fmt.Errorf("parsing stats: %w", err)
+	if err := json.Unmarshal([]byte(line), &raw); err != nil {
+		return nil, "", fmt.Errorf("parsing stats JSON: %w", err)
 	}
 	cpuPerc, err := parsePercent(raw.CPUPerc)
 	if err != nil {
-		return nil, fmt.Errorf("parsing CPU%%: %w", err)
+		return nil, "", fmt.Errorf("parsing CPU%%: %w", err)
 	}
 	memPerc, err := parsePercent(raw.MemPerc)
 	if err != nil {
-		return nil, fmt.Errorf("parsing mem%%: %w", err)
+		return nil, "", fmt.Errorf("parsing mem%%: %w", err)
 	}
 	memUsed, memLimit, err := parseMemUsage(raw.MemUsage)
 	if err != nil {
-		return nil, fmt.Errorf("parsing mem usage: %w", err)
+		return nil, "", fmt.Errorf("parsing mem usage: %w", err)
 	}
 	pids, err := strconv.Atoi(raw.PIDs)
 	if err != nil {
-		return nil, fmt.Errorf("parsing PIDs: %w", err)
+		return nil, "", fmt.Errorf("parsing PIDs: %w", err)
+	}
+	netRx, netTx, err := parseIOPair(raw.NetIO)
+	if err != nil {
+		return nil, "", fmt.Errorf("parsing net I/O: %w", err)
+	}
+	blockRead, blockWrite, err := parseIOPair(raw.BlockIO)
+	if err != nil {
+		return nil, "", fmt.Errorf("parsing block I/O: %w", err)
 	}
 	return &ContainerStats{
-		CPUPerc:  cpuPerc,
-		MemUsed:  memUsed,
-		MemLimit: memLimit,
-		MemPerc:  memPerc,
-		PIDs:     pids,
-	}, nil
+		CPUPerc:    cpuPerc,
+		MemUsed:    memUsed,
+		MemLimit:   memLimit,
+		MemPerc:    memPerc,
+		PIDs:       pids,
+		NetRx:      netRx,
+		NetTx:      netTx,
+		BlockRead:  blockRead,
+		BlockWrite: blockWrite,
+		DiskUsed:   -1,
+	}, raw.Name, nil
 }
 
 // GetHostPort returns the host port mapped to a container port (e.g.
@@ -1103,4 +1246,21 @@ func parseMemUsage(s string) (uint64, uint64, error) {
 		return 0, 0, err
 	}
 	return used, limit, nil
+}
+
+// parseIOPair parses "1.23kB / 456B" (docker NetIO / BlockIO) into two byte counts.
+func parseIOPair(s string) (uint64, uint64, error) {
+	parts := strings.SplitN(s, "/", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("expected 'a / b', got %q", s)
+	}
+	a, err := parseByteSize(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return 0, 0, err
+	}
+	b, err := parseByteSize(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return 0, 0, err
+	}
+	return a, b, nil
 }

@@ -91,8 +91,10 @@ func mainImpl() error {
 		return cmdList(ctx, args)
 	case "ssh":
 		return cmdSSH(args)
-	case "kill":
-		return cmdKill(ctx, args)
+	case "purge", "kill":
+		return cmdPurge(ctx, args)
+	case "stop":
+		return cmdStop(ctx, args)
 	case "push":
 		return cmdPush(ctx, args)
 	case "pull":
@@ -125,7 +127,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  start       Pull base image, rebuild if needed, start container, open shell")
 	fmt.Fprintln(os.Stderr, "  run <cmd>   Start a temporary container, run a command, then clean up")
 	fmt.Fprintln(os.Stderr, "  list        List running md containers")
-	fmt.Fprintln(os.Stderr, "  kill        Stop and remove the container")
+	fmt.Fprintln(os.Stderr, "  stop        Stop the container (preserves filesystem for later revival)")
+	fmt.Fprintln(os.Stderr, "  purge       Stop and remove the container permanently")
 	fmt.Fprintln(os.Stderr, "  push        Force-push current repo state into the running container")
 	fmt.Fprintln(os.Stderr, "  pull        Pull changes from container back to local branch")
 	fmt.Fprintln(os.Stderr, "  diff        Show differences between base and current changes")
@@ -407,7 +410,8 @@ func printStartSummary(ct *md.Container, r *md.StartResult) {
 		fmt.Println("  > See changes (in container): `git diff base`")
 		fmt.Println("  > See changes    (on host)  : `md diff`")
 	}
-	fmt.Println("  > Kill container (on host)  : `md kill`")
+	fmt.Println("  > Stop container (on host)  : `md stop`")
+	fmt.Println("  > Purge container (on host) : `md purge`")
 }
 
 func cmdRun(ctx context.Context, args []string) error {
@@ -531,8 +535,39 @@ func cmdSSH(args []string) error {
 	return errors.New("use 'ssh md-<repo>-<branch>' directly")
 }
 
-func cmdKill(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("kill", flag.ExitOnError)
+func cmdStop(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("stop", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
+	cf := addContainerFlags(fs, false)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	initLogging(*verbose)
+	if name := fs.Arg(0); name != "" {
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		containers, err := c.List(ctx)
+		if err != nil {
+			return err
+		}
+		for _, ct := range containers {
+			if ct.Name == name {
+				return ct.Stop(ctx)
+			}
+		}
+		return fmt.Errorf("no container named %s", name)
+	}
+	ct, _, err := findContainerAndRepo(ctx, cf)
+	if err != nil {
+		return err
+	}
+	return ct.Stop(ctx)
+}
+
+func cmdPurge(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("purge", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
 	if err := fs.Parse(args); err != nil {
@@ -552,7 +587,7 @@ func cmdKill(ctx context.Context, args []string) error {
 		}
 		for _, ct := range containers {
 			if ct.Name == name {
-				return ct.Kill(ctx)
+				return ct.Purge(ctx)
 			}
 		}
 		return fmt.Errorf("no container named %s", name)
@@ -561,7 +596,7 @@ func cmdKill(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return ct.Kill(ctx)
+	return ct.Purge(ctx)
 }
 
 func cmdPush(ctx context.Context, args []string) error {
@@ -717,7 +752,7 @@ func cmdVNC(ctx context.Context, args []string) error {
 		return err
 	}
 	if vncPort == 0 {
-		return fmt.Errorf("VNC port not found for %s. Did you start it with --display?\nTo enable display, run:\n  md kill\n  md start --display", ct.Name)
+		return fmt.Errorf("VNC port not found for %s. Did you start it with --display?\nTo enable display, run:\n  md purge\n  md start --display", ct.Name)
 	}
 	vncURL := fmt.Sprintf("vnc://127.0.0.1:%d", vncPort)
 	fmt.Printf("VNC connection: %s\n", vncURL)

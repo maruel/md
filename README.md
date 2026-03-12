@@ -48,8 +48,11 @@ md diff
 # Pull changes back when done
 md pull
 
-# Clean up the container
-md kill
+# Stop the container (preserves filesystem)
+md stop
+
+# Remove the container permanently
+md purge
 ```
 
 ## Installation
@@ -173,7 +176,8 @@ gh auth login
 | `md diff` | Show changes (runs `git diff base`). Arguments are passed through, e.g. `md diff --stat` |
 | `md pull` | Pull changes from container back to local branch |
 | `md push` | Push local changes to the container |
-| `md kill` | Stop and remove the container |
+| `md stop` | Stop the container (preserves filesystem for later revival) |
+| `md purge` | Stop and remove the container permanently |
 | `md build-image` | Build the base Docker image locally as `md-local` |
 | `md start -image md-local` | Start a container using the locally built base image |
 

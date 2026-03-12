@@ -203,7 +203,7 @@ func (c *Container) Launch(ctx context.Context, opts *StartOpts) (retErr error) 
 	}
 	// Check if container already exists.
 	if _, err := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name}, true); err == nil {
-		return fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md kill' first",
+		return fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md purge' first",
 			c.Name, c.Name)
 	}
 
@@ -408,8 +408,8 @@ func (c *Container) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Kill stops and removes the container.
-func (c *Container) Kill(ctx context.Context) error {
+// Purge stops and removes the container, cleaning up SSH config and git remotes.
+func (c *Container) Purge(ctx context.Context) error {
 	rt := c.Runtime
 	_, containerErr := runCmd(ctx, "", []string{rt, "inspect", c.Name}, true)
 	containerExists := containerErr == nil
@@ -797,7 +797,7 @@ func (c *Container) checkContainerState(ctx context.Context) error {
 		issues = append(issues, "SSH config is missing")
 	}
 	if len(issues) > 0 {
-		return fmt.Errorf("inconsistent state detected for %s:\n  - %s\nConsider running 'md kill' to clean up, then 'md start' to restart",
+		return fmt.Errorf("inconsistent state detected for %s:\n  - %s\nConsider running 'md purge' to clean up, then 'md start' to restart",
 			c.Name, strings.Join(issues, "\n  - "))
 	}
 	return nil

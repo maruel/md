@@ -45,8 +45,7 @@ type Client struct {
 	UserKeyPath string // ~/.ssh/md
 
 	// Container runtime.
-	ImageName string
-	Runtime   string // "docker" or "podman"; auto-detected by New().
+	Runtime string // "docker" or "podman"; auto-detected by New().
 
 	// ControlMaster enables SSH ControlMaster connection multiplexing.
 	// When true, SSH connections are shared via a persistent socket,
@@ -108,7 +107,6 @@ func New() (*Client, error) {
 		XDGStateHome:   envOr("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
 		HostKeyPath:    filepath.Join(xdgConfigHome, "md", "ssh_host_ed25519_key"),
 		UserKeyPath:    filepath.Join(home, ".ssh", "md"),
-		ImageName:      "md-user",
 		Runtime:        detectRuntime(),
 		DigestCacheTTL: 12 * time.Hour,
 		digestCache:    make(map[string]remoteDigestEntry),
@@ -297,8 +295,8 @@ type WarmupOpts struct {
 	Quiet bool
 }
 
-// Warmup ensures the base image is pulled and md-user is built, without
-// starting a container. Returns true if a build was performed.
+// Warmup ensures the base image is pulled and the user image is built,
+// without starting a container. Returns true if a build was performed.
 func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
@@ -306,9 +304,10 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if !c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, opts.Caches) {
+	imageName := userImageName(baseImage, activeCacheKey(opts.Caches, c.Home))
+	if !c.imageBuildNeeded(ctx, c.Runtime, imageName, baseImage, c.keysDir, c.Home, opts.Caches) {
 		if !opts.Quiet {
-			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
+			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", imageName)
 		}
 		return false, nil
 	}
@@ -320,7 +319,7 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = os.RemoveAll(buildCtx) }()
-	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
+	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, imageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
 		return false, err
 	}
 	c.invalidateImageBuildCache()
@@ -328,6 +327,63 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 		_, _ = fmt.Fprintf(c.W, "- Warning: pruning build cache: %v\n", err)
 	}
 	return true, nil
+}
+
+// PruneImages removes md-user-* images that are not used by any container.
+// Returns the list of removed image names.
+func (c *Client) PruneImages(ctx context.Context) ([]string, error) {
+	// List all md-user-* images.
+	out, err := runCmd(ctx, "", []string{
+		c.Runtime, "images", "--format", "{{.Repository}}", "--filter", "reference=md-user-*",
+	}, true)
+	if err != nil {
+		return nil, fmt.Errorf("listing images: %w", err)
+	}
+	if out == "" {
+		return nil, nil
+	}
+	allImages := make(map[string]struct{})
+	for name := range strings.SplitSeq(out, "\n") {
+		if name != "" {
+			allImages[name] = struct{}{}
+		}
+	}
+
+	// Find images used by running md containers.
+	containerOut, err := runCmd(ctx, "", []string{
+		c.Runtime, "ps", "-a", "--filter", "name=^md-", "--format", "{{.Image}}",
+	}, true)
+	if err != nil {
+		return nil, fmt.Errorf("listing containers: %w", err)
+	}
+	inUse := make(map[string]struct{})
+	if containerOut != "" {
+		for img := range strings.SplitSeq(containerOut, "\n") {
+			if img != "" {
+				inUse[img] = struct{}{}
+			}
+		}
+	}
+
+	// Remove unused images.
+	var removed []string
+	for img := range allImages {
+		if _, used := inUse[img]; used {
+			continue
+		}
+		if _, err := runCmd(ctx, "", []string{c.Runtime, "rmi", img}, true); err != nil {
+			_, _ = fmt.Fprintf(c.W, "- Warning: failed to remove %s: %v\n", img, err)
+			continue
+		}
+		removed = append(removed, img)
+	}
+	sort.Strings(removed)
+
+	// Clean up BuildKit build cache.
+	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}, true); err != nil {
+		_, _ = fmt.Fprintf(c.W, "- Warning: pruning build cache: %v\n", err)
+	}
+	return removed, nil
 }
 
 // gatherGitMetadata runs SSH commands to collect branch, stat, and log from

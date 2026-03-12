@@ -110,6 +110,8 @@ func mainImpl() error {
 		return cmdVNC(ctx, args)
 	case "build-image":
 		return cmdBuildImage(ctx, args)
+	case "prune":
+		return cmdPrune(ctx, args)
 	case "version":
 		return cmdVersion(args)
 	case "help", "-h", "-help", "--help":
@@ -139,6 +141,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  diff        Show differences between base and current changes")
 	fmt.Fprintln(os.Stderr, "  vnc         Open VNC connection to the container")
 	fmt.Fprintln(os.Stderr, "  build-image Build the base Docker image locally")
+	fmt.Fprintln(os.Stderr, "  prune       Remove unused md-user-* images")
 	fmt.Fprintln(os.Stderr, "  version     Print version information")
 }
 
@@ -833,6 +836,31 @@ func cmdBuildImage(ctx context.Context, args []string) error {
 		return err
 	}
 	return c.BuildImage(ctx, *serialSetup)
+}
+
+func cmdPrune(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("prune", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	initLogging(*verbose)
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
+	removed, err := c.PruneImages(ctx)
+	if err != nil {
+		return err
+	}
+	if len(removed) == 0 {
+		fmt.Println("No unused md-user images to remove")
+		return nil
+	}
+	for _, name := range removed {
+		fmt.Printf("Removed %s\n", name)
+	}
+	return nil
 }
 
 func cmdVersion(args []string) error {

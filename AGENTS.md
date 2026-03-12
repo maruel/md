@@ -20,9 +20,9 @@ A file to [guide coding agents](https://agents.md/).
 
 - **`md-local`** — base image built locally from `rsc/Dockerfile.base` via `md build-image`. Tagged as `md-local`. Used as base when no `--image`/`--tag` flag is given and the user prefers a local build.
 - **`ghcr.io/maruel/md:latest`** (default) or any `--image`/`--tag` variant — remote base image.
-- **`md-user`** — customized per-user image always built from `rsc/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. Always named `md-user` regardless of the base tag.
+- **`md-user-<hash>`** — customized per-user image built from `rsc/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
 
-### When md-user is rebuilt
+### When the user image is rebuilt
 
 `imageBuildNeeded` (`docker.go`) returns `true` (triggering a rebuild) when any of the following change:
 1. `md.base_digest` label missing/empty, or differs from the current base image digest.
@@ -32,7 +32,7 @@ A file to [guide coding agents](https://agents.md/).
 
 ### Cache injection
 
-`md start` and `md run` bake host cache directories into `md-user` at build time via `COPY --from=<name>` in the Dockerfile. This avoids slow cold-start downloads inside the container.
+`md start` and `md run` bake host cache directories into the user image at build time via `COPY --from=<name>` in the Dockerfile. This avoids slow cold-start downloads inside the container.
 
 **Default behaviour**: all `WellKnownCaches` entries are included. Caches whose host directory does not exist are silently skipped (no rebuild triggered for missing dirs).
 
@@ -45,7 +45,7 @@ A file to [guide coding agents](https://agents.md/).
 
 **Adding a new well-known cache**: add an entry to `WellKnownCaches` in `client.go`. No other changes needed — it is automatically picked up by `resolveCaches`, `appendCacheLayers`, and the flag help text.
 
-### Key labels on md-user
+### Key labels on user image
 
 | Label | Value |
 |---|---|

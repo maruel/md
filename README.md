@@ -100,7 +100,7 @@ Agent configurations and credentials are automatically mounted:
 
 ### Build Cache Injection
 
-`md start` and `md run` automatically bake your local build-tool caches into the `md-user` Docker image at
+`md start` and `md run` automatically bake your local build-tool caches into the user Docker image at
 build time. This means the container starts with warm caches, skipping the slow cold downloads that would
 otherwise happen on every fresh container.
 
@@ -118,8 +118,9 @@ otherwise happen on every fresh container.
 | `pnpm` | `~/.local/share/pnpm/store` | `/home/user/.local/share/pnpm/store` |
 | `uv` | `~/.cache/uv` | `/home/user/.cache/uv` |
 
-The `md-user` image is only rebuilt when the set of available caches changes, the base image updates, or
-the build context changes. Cache contents are snapshotted at build time; they are not kept in sync after
+The user image is only rebuilt when the set of available caches changes, the base image updates, or
+the build context changes. Different base images and cache sets produce distinct image names (keyed by
+a content hash), so switching between configurations no longer triggers unnecessary rebuilds. Cache contents are snapshotted at build time; they are not kept in sync after
 that.
 
 **Opt out** of specific caches:

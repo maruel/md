@@ -225,10 +225,11 @@ func (c *Container) Launch(ctx context.Context, opts *StartOpts) (retErr error) 
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if err := c.ensureImage(ctx, baseImage, opts.Caches, opts.Quiet); err != nil {
+	imageName, err := c.ensureImage(ctx, baseImage, opts.Caches, opts.Quiet)
+	if err != nil {
 		return err
 	}
-	return launchContainer(ctx, c, opts)
+	return launchContainer(ctx, c, opts, imageName)
 }
 
 // Connect waits for SSH, pushes repos into the container, and completes
@@ -272,11 +273,12 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	if err := c.ensureImage(ctx, baseImage, caches, true); err != nil {
+	imageName, err := c.ensureImage(ctx, baseImage, caches, true)
+	if err != nil {
 		return 1, err
 	}
 	opts := StartOpts{Quiet: true}
-	if err := launchContainer(ctx, tmp, &opts); err != nil {
+	if err := launchContainer(ctx, tmp, &opts, imageName); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
 	}
@@ -292,7 +294,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	} else {
 		sshCmd = cmdStr
 	}
-	_, err := runCmd(ctx, "", c.SSHCommand(tmp.Name, sshCmd), false)
+	_, err = runCmd(ctx, "", c.SSHCommand(tmp.Name, sshCmd), false)
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -951,30 +953,32 @@ func (c *Container) checkContainerState(ctx context.Context) error {
 	return nil
 }
 
-// ensureImage checks whether md-user needs rebuilding and, if so, builds it.
-// The build is serialized via Client.buildMu.
-func (c *Container) ensureImage(ctx context.Context, baseImage string, caches []CacheMount, quiet bool) error {
+// ensureImage checks whether the user image needs rebuilding and, if so,
+// builds it. Returns the computed image name (keyed by base image and active
+// caches). The build is serialized via Client.buildMu.
+func (c *Container) ensureImage(ctx context.Context, baseImage string, caches []CacheMount, quiet bool) (string, error) {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
-	if !c.imageBuildNeeded(ctx, c.Runtime, c.ImageName, baseImage, c.keysDir, c.Home, caches) {
+	imageName := userImageName(baseImage, activeCacheKey(caches, c.Home))
+	if !c.imageBuildNeeded(ctx, c.Runtime, imageName, baseImage, c.keysDir, c.Home, caches) {
 		if !quiet {
-			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", c.ImageName)
+			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", imageName)
 		}
-		return nil
+		return imageName, nil
 	}
 	if !quiet && len(caches) > 0 {
 		printCacheInfo(c.W, caches, c.Home)
 	}
 	buildCtx, err := prepareBuildContext()
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = os.RemoveAll(buildCtx) }()
-	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, c.ImageName, baseImage, c.Home, caches, agentContainerPaths(), quiet); err != nil {
-		return err
+	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, imageName, baseImage, c.Home, caches, agentContainerPaths(), quiet); err != nil {
+		return "", err
 	}
 	c.invalidateImageBuildCache()
-	return nil
+	return imageName, nil
 }
 
 func (c *Container) cleanup(ctx context.Context) {

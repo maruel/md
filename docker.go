@@ -314,6 +314,27 @@ func (c *Client) cachedRemoteConfigDigest(ctx context.Context, rt, image, arch s
 	return digest, err
 }
 
+// activeCacheKey filters caches to those whose host directories exist and
+// returns the cache spec key for the active set.
+func activeCacheKey(caches []CacheMount, home string) string {
+	var active []CacheMount
+	for _, cm := range caches {
+		if _, err := os.Stat(resolveHostPath(cm.HostPath, home)); err == nil {
+			active = append(active, cm)
+		}
+	}
+	return cacheSpecKey(active)
+}
+
+// userImageName returns the Docker image name for a given base image and
+// active cache configuration. The name includes a content hash so that
+// different base images or cache sets produce distinct images without
+// clobbering each other.
+func userImageName(baseImage, cacheKey string) string {
+	h := sha256.Sum256([]byte(baseImage + "\x00" + cacheKey))
+	return "md-user-" + hex.EncodeToString(h[:16])
+}
+
 // cacheSpecKey returns a short hash over the requested cache names and
 // container paths. Returns empty string when caches is nil or empty.
 // Only the spec (name + path) is hashed, not the cache contents.
@@ -715,7 +736,7 @@ func printCacheInfo(w io.Writer, caches []CacheMount, home string) {
 // SSH config, and sets up host-side git remotes. It does NOT wait for SSH.
 // Port and creation-time results are stored directly on c (launchSSHPort,
 // launchVNCPort, CreatedAt) so that connectContainer can complete startup.
-func launchContainer(ctx context.Context, c *Container, opts *StartOpts) error {
+func launchContainer(ctx context.Context, c *Container, opts *StartOpts, imageName string) error {
 	rt := c.Runtime
 	var dockerArgs []string
 	dockerArgs = append(dockerArgs, rt, "run", "-d",
@@ -817,7 +838,7 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts) error {
 	for _, l := range opts.Labels {
 		dockerArgs = append(dockerArgs, "--label", l)
 	}
-	dockerArgs = append(dockerArgs, c.ImageName)
+	dockerArgs = append(dockerArgs, imageName)
 
 	if opts.Quiet {
 		if _, err := runCmd(ctx, "", dockerArgs, true); err != nil {

@@ -34,7 +34,7 @@ __md_ps1() {
 		status="\[\e[31m\]${exit_code}\[\e[0m\]"
 	fi
 	local before="\[\e]0;\W\a\]\[\e[0m\]${status}"
-	local after="\[\e[33m\]\w\[\e[0m\]🐳"
+	local after="\[\e[36m\]\h\[\e[0m\] \[\e[33m\]\w\[\e[0m\]🐳"
 
 	if declare -F __git_ps1 >/dev/null 2>&1; then
 		__git_ps1 "${before}" "${after}"

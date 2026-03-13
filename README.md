@@ -6,6 +6,8 @@ Each container is locked to a repository-branch pair. No confusion. Safe paralle
 Amp CLI, Gemini CLI, Kilo CLI, Pi, and other tools in isolated containers
 without branch conflicts, file interference, or environmental headaches.
 
+[![codecov](https://codecov.io/gh/caic-xyz/md/graph/badge.svg?token=Q2ZK312LNF)](https://codecov.io/gh/caic-xyz/md)
+
 ## The Problem
 
 AI coding agents work best when given full command execution (YOLO mode). But running them locally is risky:

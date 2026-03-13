@@ -102,13 +102,8 @@ jobs:
       - name: Smoke test
         run: |
           go build -o /tmp/md-test ./cmd/md/
-          tmp=$(mktemp -d)
-          git clone --depth=1 -b "$GITHUB_REF_NAME" "file://$PWD" "$tmp/md" 2>/dev/null \
-            || git clone --depth=1 "file://$PWD" "$tmp/md"
-          cd "$tmp/md"
           git checkout -B smoke-test
           /tmp/md-test run --image md-smoke-test:latest --no-caches -- cat /home/user/src/tool_versions.md
-          rm -rf "$tmp"
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push

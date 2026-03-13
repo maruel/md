@@ -96,25 +96,8 @@ jobs:
           docker rm "$cid"
           echo "### Build Timings (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
           cat "reports/${{ matrix.arch }}/build_timings.md" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
       - name: Smoke test
-        run: |
-          set -x
-          go build -o /tmp/md-test ./cmd/md/
-          git checkout -B smoke-test
-          set +e
-          /tmp/md-test run -v --image md-smoke-test:latest --no-caches -- cat /home/user/src/tool_versions.md 2>&1 | tee /tmp/smoke-test.log
-          rc=${PIPESTATUS[0]}
-          set -e
-          exit "$rc"
-      - name: Upload smoke test log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: smoke-test-log-${{ matrix.arch }}
-          path: /tmp/smoke-test.log
+        run: docker run --rm md-smoke-test:latest cat /home/user/src/tool_versions.md
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push

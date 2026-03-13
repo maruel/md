@@ -101,9 +101,10 @@ jobs:
           go-version-file: go.mod
       - name: Smoke test
         run: |
+          set -x
           go build -o /tmp/md-test ./cmd/md/
           git checkout -B smoke-test
-          /tmp/md-test run --image md-smoke-test:latest --no-caches -- cat /home/user/src/tool_versions.md
+          /tmp/md-test run -v --image md-smoke-test:latest --no-caches -- cat /home/user/src/tool_versions.md
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push

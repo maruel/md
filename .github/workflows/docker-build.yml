@@ -92,6 +92,23 @@ jobs:
         run: |
           echo "### Build Timings (${{ matrix.arch }})" >> $GITHUB_STEP_SUMMARY
           cat reports/${{ matrix.arch }}/build_timings.md >> $GITHUB_STEP_SUMMARY
+      - name: Load image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: rsc
+          file: rsc/Dockerfile.base
+          target: final
+          load: true
+          tags: md-smoke-test:latest
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Smoke test
+        run: |
+          go build -o /tmp/md-test ./cmd/md/
+          /tmp/md-test run --image md-smoke-test:latest --no-caches -- cat /home/user/src/tool_versions.md
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push

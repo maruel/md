@@ -107,6 +107,7 @@ https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/common/p
 
 - **Chrome Sandbox**: To run Chrome/Chromium with the sandbox enabled, the container must be launched with `--security-opt seccomp=unconfined` and `--security-opt apparmor=unconfined`. The `md` script handles this automatically.
 - **Debugging Tools**: strace requires `--cap-add=SYS_PTRACE`. The `md` script handles this automatically.
+- **Podman (rootless)**: Podman is installed inside the container for container-in-container workflows (e.g. integration tests). It uses rootless mode with fuse-overlayfs. Requires `unprivileged_userns_clone=1` on the host kernel (default on most modern kernels). The `seccomp=unconfined` and `apparmor=unconfined` settings already applied by `md` are sufficient. **Limitation**: nested containers only work when the host uses a root Docker daemon. Rootless Docker or rootless Podman on the host consume the user namespace nesting level, preventing Podman inside the container from creating its own. `start.sh` emits a warning at boot when this is detected.
 - **Tailscale**: Requires `--cap-add=NET_ADMIN`, `--cap-add=NET_RAW`, and `--cap-add=MKNOD`. The TUN device is created inside the container's namespace. The `md` script handles this automatically when `--tailscale` is passed to `md start`.
 - **USB Passthrough**: Requires `--device=/dev/bus/usb` to expose host USB devices (e.g. for ADB). The `md` script handles this automatically when `--usb` is passed to `md start`.
 

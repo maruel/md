@@ -29,6 +29,7 @@ apt-get install -qq -y --no-install-recommends \
 	dfu-util \
 	extrepo \
 	ffmpeg \
+	fuse-overlayfs \
 	file \
 	flex \
 	git \
@@ -58,6 +59,7 @@ apt-get install -qq -y --no-install-recommends \
 	openjdk-21-jdk-headless \
 	openssh-server \
 	pkg-config \
+	podman \
 	python-is-python3 \
 	python3 \
 	qemu-kvm \
@@ -68,12 +70,14 @@ apt-get install -qq -y --no-install-recommends \
 	rsync \
 	shared-mime-info \
 	shellcheck \
+	slirp4netns \
 	sqlite3 \
 	strace \
 	tigervnc-standalone-server \
 	tigervnc-tools \
 	tigervnc-viewer \
 	tokei \
+	uidmap \
 	unzip \
 	wget \
 	xfce4 \

@@ -97,18 +97,14 @@ jobs:
         with:
           context: rsc
           file: rsc/Dockerfile.base
+          platforms: ${{ matrix.platform }}
           target: final
           load: true
           tags: md-smoke-test:latest
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
       - name: Smoke test
-        run: |
-          go build -o /tmp/md-test ./cmd/md/
-          /tmp/md-test run --image md-smoke-test:latest --no-caches -- cat /home/user/src/tool_versions.md
+        run: docker run --rm md-smoke-test:latest cat /home/user/src/tool_versions.md
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push

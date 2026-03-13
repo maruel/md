@@ -75,25 +75,9 @@ jobs:
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
           labels: |
             org.opencontainers.image.version=${{ inputs.version || needs.setup.outputs.build-date }}
-      - name: Prepare reports directory
-        run: mkdir -p reports/${{ matrix.arch }}
-      - name: Build platform specific image
+      - name: Build and load image
         uses: docker/build-push-action@v6
         id: build
-        with:
-          context: rsc
-          file: rsc/Dockerfile.base
-          platforms: ${{ matrix.platform }}
-          target: reports
-          outputs: type=local,dest=reports/${{ matrix.arch }}
-          secrets: |
-            github_token=${{ secrets.GITHUB_TOKEN }}
-      - name: Report Build Timings
-        run: |
-          echo "### Build Timings (${{ matrix.arch }})" >> $GITHUB_STEP_SUMMARY
-          cat reports/${{ matrix.arch }}/build_timings.md >> $GITHUB_STEP_SUMMARY
-      - name: Load image for smoke test
-        uses: docker/build-push-action@v6
         with:
           context: rsc
           file: rsc/Dockerfile.base
@@ -103,8 +87,28 @@ jobs:
           tags: md-smoke-test:latest
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
+      - name: Extract reports
+        run: |
+          mkdir -p reports/${{ matrix.arch }}
+          cid=$(docker create md-smoke-test:latest)
+          docker cp "$cid:/home/user/src/tool_versions.md" "reports/${{ matrix.arch }}/tool_versions.md"
+          docker cp "$cid:/var/log/build_timings.md" "reports/${{ matrix.arch }}/build_timings.md"
+          docker rm "$cid"
+          echo "### Build Timings (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
+          cat "reports/${{ matrix.arch }}/build_timings.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
       - name: Smoke test
-        run: docker run --rm md-smoke-test:latest cat /home/user/src/tool_versions.md
+        run: |
+          go build -o /tmp/md-test ./cmd/md/
+          tmp=$(mktemp -d)
+          git clone --depth=1 -b "$GITHUB_REF_NAME" "file://$PWD" "$tmp/md" 2>/dev/null \
+            || git clone --depth=1 "file://$PWD" "$tmp/md"
+          cd "$tmp/md"
+          git checkout -B smoke-test
+          /tmp/md-test run --image md-smoke-test:latest --no-caches -- cat /home/user/src/tool_versions.md
+          rm -rf "$tmp"
       - name: Push platform specific image
         uses: docker/build-push-action@v6
         id: push

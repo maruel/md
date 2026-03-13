@@ -425,6 +425,9 @@ const (
 // $XDG_CONFIG_HOME (~/.config), LocalSharePaths to $XDG_DATA_HOME
 // (~/.local/share), and LocalStatePaths to $XDG_STATE_HOME (~/.local/state).
 type AgentPaths struct {
+	// Description is a short human-readable label for the harness (e.g.
+	// "Claude Code"). Displayed in settings UI.
+	Description     string
 	HomePaths       []string
 	XDGConfigPaths  []string
 	LocalSharePaths []string
@@ -433,17 +436,17 @@ type AgentPaths struct {
 
 // HarnessMounts maps each known harness to its path configuration.
 var HarnessMounts = map[Harness]AgentPaths{
-	HarnessAmp:      {HomePaths: []string{".amp"}, XDGConfigPaths: []string{"amp"}, LocalSharePaths: []string{"amp"}},
-	HarnessAndroid:  {HomePaths: []string{".android"}},
-	HarnessClaude:   {HomePaths: []string{".claude"}},
-	HarnessCodex:    {HomePaths: []string{".codex"}},
-	HarnessGemini:   {HomePaths: []string{".gemini"}},
-	HarnessGoose:    {XDGConfigPaths: []string{"goose"}, LocalSharePaths: []string{"goose"}},
-	HarnessKilo:     {HomePaths: []string{".kilocode"}},
-	HarnessKimi:     {HomePaths: []string{".kimi"}},
-	HarnessOpencode: {XDGConfigPaths: []string{"opencode"}, LocalSharePaths: []string{"opencode"}, LocalStatePaths: []string{"opencode"}},
-	HarnessPi:       {HomePaths: []string{".pi"}},
-	HarnessQwen:     {HomePaths: []string{".qwen"}},
+	HarnessAmp:      {Description: "Amp", HomePaths: []string{".amp"}, XDGConfigPaths: []string{"amp"}, LocalSharePaths: []string{"amp"}},
+	HarnessAndroid:  {Description: "Android Studio", HomePaths: []string{".android"}},
+	HarnessClaude:   {Description: "Claude Code", HomePaths: []string{".claude"}},
+	HarnessCodex:    {Description: "Codex", HomePaths: []string{".codex"}},
+	HarnessGemini:   {Description: "Gemini CLI", HomePaths: []string{".gemini"}},
+	HarnessGoose:    {Description: "Goose", XDGConfigPaths: []string{"goose"}, LocalSharePaths: []string{"goose"}},
+	HarnessKilo:     {Description: "Kilo Code", HomePaths: []string{".kilocode"}},
+	HarnessKimi:     {Description: "Kimi", HomePaths: []string{".kimi"}},
+	HarnessOpencode: {Description: "OpenCode", XDGConfigPaths: []string{"opencode"}, LocalSharePaths: []string{"opencode"}, LocalStatePaths: []string{"opencode"}},
+	HarnessPi:       {Description: "Pi", HomePaths: []string{".pi"}},
+	HarnessQwen:     {Description: "Qwen Code", HomePaths: []string{".qwen"}},
 }
 
 // CacheMount defines a host directory to bind-mount as a build cache inside
@@ -452,6 +455,9 @@ var HarnessMounts = map[Harness]AgentPaths{
 type CacheMount struct {
 	// Name is a human-readable identifier shown in progress output (e.g. "go-mod").
 	Name string
+	// Description is a short human-readable label for the cache group (e.g.
+	// "Go module cache"). Displayed in settings UI.
+	Description string
 	// HostPath is the absolute path on the host. In [WellKnownCaches] entries
 	// "~/" is used as a placeholder; call [CachesForHome] to resolve it.
 	HostPath string
@@ -464,44 +470,40 @@ type CacheMount struct {
 // WellKnownCaches is the set of predefined build-tool caches, keyed by short
 // name. Each name may expand to multiple [CacheMount]s (e.g. "cargo" covers
 // both the registry index and git sources). HostPath values use "~/" as a
-// placeholder; call [CachesForHome] to get fully resolved paths.
-// WellKnownCaches is the set of predefined build-tool caches, keyed by short
-// name. Each name may expand to multiple [CacheMount]s (e.g. "cargo" covers
-// both the registry index and git sources). HostPath values use "~/" as a
 // prefix that [Container.Launch] resolves to the user's home directory at
 // runtime; custom absolute paths are also accepted.
 var WellKnownCaches = map[string][]CacheMount{
 	"bun": {
-		{Name: "bun", HostPath: "~/.bun/install/cache", ContainerPath: "/home/user/.bun/install/cache"},
+		{Name: "bun", Description: "Bun package manager", HostPath: "~/.bun/install/cache", ContainerPath: "/home/user/.bun/install/cache"},
 	},
 	"cargo": {
-		{Name: "cargo-registry", HostPath: "~/.cargo/registry", ContainerPath: "/home/user/.cargo/registry"},
-		{Name: "cargo-git", HostPath: "~/.cargo/git", ContainerPath: "/home/user/.cargo/git"},
+		{Name: "cargo-registry", Description: "Rust cargo registry and git", HostPath: "~/.cargo/registry", ContainerPath: "/home/user/.cargo/registry"},
+		{Name: "cargo-git", Description: "Rust cargo registry and git", HostPath: "~/.cargo/git", ContainerPath: "/home/user/.cargo/git"},
 	},
 	// "go-build": {
-	// 	{Name: "go-build", HostPath: "~/.cache/go-build", ContainerPath: "/home/user/.cache/go-build"},
+	// 	{Name: "go-build", Description: "Go build cache", HostPath: "~/.cache/go-build", ContainerPath: "/home/user/.cache/go-build"},
 	// },
 	"go-mod": {
-		{Name: "go-mod", HostPath: "~/go/pkg/mod", ContainerPath: "/home/user/go/pkg/mod"},
+		{Name: "go-mod", Description: "Go module cache", HostPath: "~/go/pkg/mod", ContainerPath: "/home/user/go/pkg/mod"},
 	},
 	"gradle": {
-		{Name: "gradle-caches", HostPath: "~/.gradle/caches", ContainerPath: "/home/user/.gradle/caches"},
-		{Name: "gradle-wrapper", HostPath: "~/.gradle/wrapper/dists", ContainerPath: "/home/user/.gradle/wrapper/dists"},
+		{Name: "gradle-caches", Description: "Gradle caches and wrapper", HostPath: "~/.gradle/caches", ContainerPath: "/home/user/.gradle/caches"},
+		{Name: "gradle-wrapper", Description: "Gradle caches and wrapper", HostPath: "~/.gradle/wrapper/dists", ContainerPath: "/home/user/.gradle/wrapper/dists"},
 	},
 	"maven": {
-		{Name: "maven", HostPath: "~/.m2/repository", ContainerPath: "/home/user/.m2/repository"},
+		{Name: "maven", Description: "Maven repository", HostPath: "~/.m2/repository", ContainerPath: "/home/user/.m2/repository"},
 	},
 	"npm": {
-		{Name: "npm", HostPath: "~/.npm", ContainerPath: "/home/user/.npm"},
+		{Name: "npm", Description: "npm cache", HostPath: "~/.npm", ContainerPath: "/home/user/.npm"},
 	},
 	"pip": {
-		{Name: "pip", HostPath: "~/.cache/pip", ContainerPath: "/home/user/.cache/pip"},
+		{Name: "pip", Description: "Python pip cache", HostPath: "~/.cache/pip", ContainerPath: "/home/user/.cache/pip"},
 	},
 	"pnpm": {
-		{Name: "pnpm", HostPath: "~/.local/share/pnpm/store", ContainerPath: "/home/user/.local/share/pnpm/store"},
+		{Name: "pnpm", Description: "pnpm store", HostPath: "~/.local/share/pnpm/store", ContainerPath: "/home/user/.local/share/pnpm/store"},
 	},
 	"uv": {
-		{Name: "uv", HostPath: "~/.cache/uv", ContainerPath: "/home/user/.cache/uv"},
+		{Name: "uv", Description: "UV Python package manager", HostPath: "~/.cache/uv", ContainerPath: "/home/user/.cache/uv"},
 	},
 }
 

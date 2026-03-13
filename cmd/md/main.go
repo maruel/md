@@ -124,25 +124,26 @@ func mainImpl() error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "md (my devenv): local development environment with git clone")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Global flags:")
-	fmt.Fprintln(os.Stderr, "  -v, -verbose       Enable debug logging")
-	fmt.Fprintln(os.Stderr, "  --runtime <name>   Container runtime: docker or podman (default: auto-detect)")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Commands:")
-	fmt.Fprintln(os.Stderr, "  start       Pull base image, rebuild if needed, start container, open shell")
-	fmt.Fprintln(os.Stderr, "  run <cmd>   Start a temporary container, run a command, then clean up")
-	fmt.Fprintln(os.Stderr, "  list        List running md containers")
-	fmt.Fprintln(os.Stderr, "  stop        Stop the container (preserves filesystem for later revival)")
-	fmt.Fprintln(os.Stderr, "  purge       Stop and remove the container permanently")
-	fmt.Fprintln(os.Stderr, "  push        Force-push current repo state into the running container")
-	fmt.Fprintln(os.Stderr, "  pull        Pull changes from container back to local branch")
-	fmt.Fprintln(os.Stderr, "  diff        Show differences between base and current changes")
-	fmt.Fprintln(os.Stderr, "  vnc         Open VNC connection to the container")
-	fmt.Fprintln(os.Stderr, "  build-image Build the base Docker image locally")
-	fmt.Fprintln(os.Stderr, "  prune       Remove unused md-user-* images")
-	fmt.Fprintln(os.Stderr, "  version     Print version information")
+	w := os.Stderr
+	fmt.Fprintln(w, "md (my devenv): local development environment with git clone")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Global flags:")
+	fmt.Fprintln(w, "  -v, -verbose       Enable debug logging")
+	fmt.Fprintln(w, "  --runtime <name>   Container runtime: docker or podman (default: auto-detect)")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Commands:")
+	fmt.Fprintln(w, "  start       Pull base image, rebuild if needed, start container, open shell")
+	fmt.Fprintln(w, "  run <cmd>   Start a temporary container, run a command, then clean up")
+	fmt.Fprintln(w, "  list        List running md containers")
+	fmt.Fprintln(w, "  stop        Stop the container (preserves filesystem for later revival)")
+	fmt.Fprintln(w, "  purge       Stop and remove the container permanently")
+	fmt.Fprintln(w, "  push        Force-push current repo state into the running container")
+	fmt.Fprintln(w, "  pull        Pull changes from container back to local branch")
+	fmt.Fprintln(w, "  diff        Show differences between base and current changes")
+	fmt.Fprintln(w, "  vnc         Open VNC connection to the container")
+	fmt.Fprintln(w, "  build-image Build the base Docker image locally")
+	fmt.Fprintln(w, "  prune       Remove unused md-user-* images")
+	fmt.Fprintln(w, "  version     Print version information")
 }
 
 func newClient() (*md.Client, error) {
@@ -346,10 +347,11 @@ func cmdStart(ctx context.Context, args []string) error {
 	fs.Var(labels, "label", "Set Docker container label (key=value); can be repeated")
 	fs.Var(labels, "l", "Set Docker container label (key=value); can be repeated")
 	cacheSpecs := &stringSlice{}
-	fs.Var(cacheSpecs, "cache", "Add a cache: well-known name ("+wellKnownCacheList()+") or host:container[:ro]; may be repeated")
+	fs.Var(cacheSpecs, "cache", "Add a cache: well-known name or host:container[:ro]; may be repeated")
 	noCacheSpecs := &stringSlice{}
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
+	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -428,10 +430,11 @@ func cmdRun(ctx context.Context, args []string) error {
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, true)
 	cacheSpecs := &stringSlice{}
-	fs.Var(cacheSpecs, "cache", "Add a cache: well-known name ("+wellKnownCacheList()+") or host:container[:ro]; may be repeated")
+	fs.Var(cacheSpecs, "cache", "Add a cache: well-known name or host:container[:ro]; may be repeated")
 	noCacheSpecs := &stringSlice{}
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
+	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -920,14 +923,32 @@ func (e *exitCodeError) Error() string {
 	return fmt.Sprintf("exit code %d", e.code)
 }
 
-// wellKnownCacheList returns a sorted comma-separated list of well-known cache
-// names for use in flag help text.
-func wellKnownCacheList() string {
-	names := make([]string, 0, len(md.WellKnownCaches))
-	for k := range md.WellKnownCaches {
-		names = append(names, k)
+// printSubcommandUsage prints flag defaults followed by harness and cache
+// reference tables.
+func printSubcommandUsage(fs *flag.FlagSet) {
+	w := f.Output()
+	fmt.Fprintf(w, "Usage of %s:\n", fs.Name())
+	fs.PrintDefaults()
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Harnesses:")
+	harnesses := slices.Sorted(maps.Keys(md.HarnessMounts))
+	for _, h := range harnesses {
+		ap := md.HarnessMounts[h]
+		fmt.Fprintf(w, "  %-12s %s\n", h, ap.Description)
 	}
-	sort.Strings(names)
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Well-known caches (for --cache / --no-cache):")
+	names := slices.Sorted(maps.Keys(md.WellKnownCaches))
+	for _, name := range names {
+		desc := md.WellKnownCaches[name][0].Description
+		fmt.Fprintf(w, "  %-12s %s\n", name, desc)
+	}
+}
+
+// wellKnownCacheList returns a sorted comma-separated list of well-known cache
+// names for use in error messages.
+func wellKnownCacheList() string {
+	names := slices.Sorted(maps.Keys(md.WellKnownCaches))
 	return strings.Join(names, ", ")
 }
 

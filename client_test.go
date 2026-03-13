@@ -57,6 +57,17 @@ func TestContainerName(t *testing.T) {
 	}
 }
 
+func TestHarnessMounts(t *testing.T) {
+	if len(HarnessMounts) == 0 {
+		t.Fatal("HarnessMounts must not be empty")
+	}
+	for harness, paths := range HarnessMounts {
+		if paths.Description == "" {
+			t.Errorf("HarnessMounts[%q]: Description is empty", harness)
+		}
+	}
+}
+
 func TestWellKnownCaches(t *testing.T) {
 	if len(WellKnownCaches) == 0 {
 		t.Fatal("WellKnownCaches must not be empty")
@@ -75,6 +86,9 @@ func TestWellKnownCaches(t *testing.T) {
 			if !strings.HasPrefix(m.ContainerPath, "/home/user/") {
 				t.Errorf("WellKnownCaches[%q] %q: ContainerPath should start with /home/user/; got %q", name, m.Name, m.ContainerPath)
 			}
+		}
+		if mounts[0].Description == "" {
+			t.Errorf("WellKnownCaches[%q]: first CacheMount.Description is empty", name)
 		}
 	}
 }

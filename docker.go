@@ -748,10 +748,10 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts, imageNa
 	var dockerArgs []string
 	dockerArgs = append(dockerArgs, rt, "run", "-d",
 		"--name", c.Name, "--hostname", c.Name,
-		"-p", "127.0.0.1:0:22")
+		"-p", "127.0.0.1::22")
 
 	if opts.Display {
-		dockerArgs = append(dockerArgs, "-p", "127.0.0.1:0:5901", "-e", "MD_DISPLAY=1")
+		dockerArgs = append(dockerArgs, "-p", "127.0.0.1::5901", "-e", "MD_DISPLAY=1")
 	}
 
 	if kvmAvailable() {

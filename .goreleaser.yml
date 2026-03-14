@@ -19,6 +19,11 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
+    env:
+      - CGO_ENABLED=0
+
+universal_binaries:
+  - replace: true
 
 archives:
   - formats:

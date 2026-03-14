@@ -104,6 +104,14 @@ if [ -d /dev/bus/usb ]; then
 	fi
 fi
 
+# Check if rootless Podman (nested containers) will work. It requires the
+# ability to create user namespaces, which fails when the container itself
+# already runs inside a user namespace (rootless Docker or rootless Podman on
+# the host).
+if ! unshare --user true 2>/dev/null; then
+	echo "[start.sh] WARNING: nested user namespaces unavailable — rootless Podman will not work inside this container (host is likely using rootless Docker or rootless Podman)"
+fi
+
 # Start SSH server (after VNC so DISPLAY is available)
 service ssh start
 

@@ -68,6 +68,7 @@
 	check_version "strace" "strace" "-V"
 	check_version "yq" "yq" "--version"
 	check_version "bubblewrap" "bwrap" "--version"
+	check_version "Podman" "podman" "--version"
 	check_version "jq" "jq" "--version"
 	check_version "actionlint" "actionlint" "--version"
 	check_version "curl" "curl" "--version"

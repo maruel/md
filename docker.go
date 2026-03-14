@@ -764,8 +764,13 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts, imageNa
 	// Sandbox capabilities.
 	dockerArgs = append(dockerArgs,
 		"--cap-add=SYS_PTRACE",
-		"--security-opt", "seccomp=unconfined",
-		"--security-opt", "apparmor=unconfined")
+		"--security-opt", "seccomp=unconfined")
+	// AppArmor is Docker/Linux-specific; podman uses SELinux and does not
+	// support the apparmor security option — passing it can hang on kernel
+	// security filesystem access inside a container.
+	if rt != "podman" {
+		dockerArgs = append(dockerArgs, "--security-opt", "apparmor=unconfined")
+	}
 
 	// Rootless podman: --userns=keep-id maps host UID to same UID inside the
 	// container so bind-mounted configs are writable. --user 0:0 keeps

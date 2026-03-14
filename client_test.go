@@ -6,6 +6,7 @@ package md
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -120,6 +121,11 @@ func TestClient(t *testing.T) {
 	})
 	t.Run("Runtime", func(t *testing.T) {
 		t.Run("new_defaults_to_docker", func(t *testing.T) {
+			if rt := detectRuntime(); rt == "docker" {
+				if _, err := exec.LookPath("docker"); err != nil {
+					t.Skip("no container runtime available in PATH")
+				}
+			}
 			tmp := t.TempDir()
 			t.Setenv("HOME", tmp)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, ".config"))

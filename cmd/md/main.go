@@ -926,7 +926,7 @@ func (e *exitCodeError) Error() string {
 // printSubcommandUsage prints flag defaults followed by harness and cache
 // reference tables.
 func printSubcommandUsage(fs *flag.FlagSet) {
-	w := f.Output()
+	w := fs.Output()
 	fmt.Fprintf(w, "Usage of %s:\n", fs.Name())
 	fs.PrintDefaults()
 	fmt.Fprintln(w, "")

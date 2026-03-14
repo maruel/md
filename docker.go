@@ -621,7 +621,13 @@ func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxD
 		"--build-arg", "BASE_IMAGE_DIGEST=" + baseDigest,
 		"--build-arg", "CONTEXT_SHA=" + contextSHA,
 		"--build-arg", "CACHE_KEY=" + activeKey,
+		"--build-arg", "ENV_FILE=",
 		"-t", imageName,
+	}
+	if rt == "podman" {
+		// SHELL instruction is Docker-format-only; use --format docker to avoid
+		// "SHELL is not supported for OCI image format" warnings.
+		buildCmd = append(buildCmd, "--format", "docker")
 	}
 	if quiet {
 		buildCmd = append(buildCmd[:2], append([]string{"-q"}, buildCmd[2:]...)...)

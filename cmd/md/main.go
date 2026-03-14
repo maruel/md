@@ -124,26 +124,25 @@ func mainImpl() error {
 }
 
 func usage() {
-	w := os.Stderr
-	fmt.Fprintln(w, "md (my devenv): local development environment with git clone")
-	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Global flags:")
-	fmt.Fprintln(w, "  -v, -verbose       Enable debug logging")
-	fmt.Fprintln(w, "  --runtime <name>   Container runtime: docker or podman (default: auto-detect)")
-	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Commands:")
-	fmt.Fprintln(w, "  start       Pull base image, rebuild if needed, start container, open shell")
-	fmt.Fprintln(w, "  run <cmd>   Start a temporary container, run a command, then clean up")
-	fmt.Fprintln(w, "  list        List running md containers")
-	fmt.Fprintln(w, "  stop        Stop the container (preserves filesystem for later revival)")
-	fmt.Fprintln(w, "  purge       Stop and remove the container permanently")
-	fmt.Fprintln(w, "  push        Force-push current repo state into the running container")
-	fmt.Fprintln(w, "  pull        Pull changes from container back to local branch")
-	fmt.Fprintln(w, "  diff        Show differences between base and current changes")
-	fmt.Fprintln(w, "  vnc         Open VNC connection to the container")
-	fmt.Fprintln(w, "  build-image Build the base Docker image locally")
-	fmt.Fprintln(w, "  prune       Remove unused md-user-* images")
-	fmt.Fprintln(w, "  version     Print version information")
+	_, _ = fmt.Fprint(os.Stderr, "md (my devenv): local development environment with git clone\n"+
+		"\n"+
+		"Global flags:\n"+
+		"  -v, -verbose       Enable debug logging\n"+
+		"  --runtime <name>   Container runtime: docker or podman (default: auto-detect)\n"+
+		"\n"+
+		"Commands:\n"+
+		"  start       Pull base image, rebuild if needed, start container, open shell\n"+
+		"  run <cmd>   Start a temporary container, run a command, then clean up\n"+
+		"  list        List running md containers\n"+
+		"  stop        Stop the container (preserves filesystem for later revival)\n"+
+		"  purge       Stop and remove the container permanently\n"+
+		"  push        Force-push current repo state into the running container\n"+
+		"  pull        Pull changes from container back to local branch\n"+
+		"  diff        Show differences between base and current changes\n"+
+		"  vnc         Open VNC connection to the container\n"+
+		"  build-image Build the base Docker image locally\n"+
+		"  prune       Remove unused md-user-* images\n"+
+		"  version     Print version information\n")
 }
 
 func newClient() (*md.Client, error) {
@@ -927,21 +926,21 @@ func (e *exitCodeError) Error() string {
 // reference tables.
 func printSubcommandUsage(fs *flag.FlagSet) {
 	w := fs.Output()
-	fmt.Fprintf(w, "Usage of %s:\n", fs.Name())
+	_, _ = fmt.Fprintf(w, "Usage of %s:\n", fs.Name())
 	fs.PrintDefaults()
-	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Harnesses:")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "Harnesses:")
 	harnesses := slices.Sorted(maps.Keys(md.HarnessMounts))
 	for _, h := range harnesses {
 		ap := md.HarnessMounts[h]
-		fmt.Fprintf(w, "  %-12s %s\n", h, ap.Description)
+		_, _ = fmt.Fprintf(w, "  %-12s %s\n", h, ap.Description)
 	}
-	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Well-known caches (for --cache / --no-cache):")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "Well-known caches (for --cache / --no-cache):")
 	names := slices.Sorted(maps.Keys(md.WellKnownCaches))
 	for _, name := range names {
 		desc := md.WellKnownCaches[name][0].Description
-		fmt.Fprintf(w, "  %-12s %s\n", name, desc)
+		_, _ = fmt.Fprintf(w, "  %-12s %s\n", name, desc)
 	}
 }
 

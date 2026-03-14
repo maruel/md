@@ -300,7 +300,7 @@ func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []stri
 		} else {
 			branch, err = gitutil.CurrentBranch(ctx, gitRoot)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("detached HEAD in %s: check out a named branch or use -b to specify one", gitRoot)
 			}
 		}
 		repos = append(repos, md.Repo{GitRoot: gitRoot, Branch: branch})

@@ -839,7 +839,7 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts, imageNa
 	if err != nil {
 		return fmt.Errorf("getting container creation time: %w", err)
 	}
-	created, err := time.Parse(time.RFC3339Nano, createdStr)
+	created, err := parseCreatedAt(createdStr)
 	if err != nil {
 		return fmt.Errorf("parsing container creation time %q: %w", createdStr, err)
 	}

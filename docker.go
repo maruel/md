@@ -144,99 +144,53 @@ func getImageVersionLabel(ctx context.Context, rt, imageName string) string {
 	return out
 }
 
-// getRemoteConfigDigest queries the registry for the config digest of the
-// given image for the specified architecture without downloading layers.
-// For Docker it returns the config digest; for Podman it returns the
-// per-architecture manifest digest (compare against {{.Digest}}).
-func getRemoteConfigDigest(ctx context.Context, rt, image, arch string) (string, error) {
-	if rt == "podman" {
-		return getRemoteDigestPodman(ctx, rt, image, arch)
-	}
-	out, err := runCmd(ctx, "", []string{rt, "manifest", "inspect", "-v", image}, true)
-	if err != nil {
-		return "", err
-	}
-	type configRef struct {
-		Digest string `json:"digest"`
-	}
-	type manifestContent struct {
-		Config configRef `json:"config"`
-	}
-	type manifestEntry struct {
-		Descriptor struct {
-			Platform struct {
-				Architecture string `json:"architecture"`
-				OS           string `json:"os"`
-			} `json:"platform"`
-		} `json:"Descriptor"`
-		SchemaV2Manifest *manifestContent `json:"SchemaV2Manifest,omitempty"`
-		OCIManifest      *manifestContent `json:"OCIManifest,omitempty"`
-	}
-	// Handle both v2 and OCI manifests.
-	configDigest := func(e *manifestEntry) string {
-		if e.SchemaV2Manifest != nil {
-			return e.SchemaV2Manifest.Config.Digest
-		}
-		if e.OCIManifest != nil {
-			return e.OCIManifest.Config.Digest
-		}
-		return ""
-	}
-	var entries []manifestEntry
-	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		var single manifestEntry
-		if err2 := json.Unmarshal([]byte(out), &single); err2 != nil {
-			return "", fmt.Errorf("parsing manifest inspect output: %w", err)
-		}
-		entries = []manifestEntry{single}
-	}
-	for i := range entries {
-		p := entries[i].Descriptor.Platform
-		if p.Architecture == arch && p.OS == "linux" {
-			if d := configDigest(&entries[i]); d != "" {
-				return d, nil
-			}
-		}
-	}
-	if len(entries) == 1 {
-		if d := configDigest(&entries[0]); d != "" {
-			return d, nil
-		}
-	}
-	return "", fmt.Errorf("no manifest for linux/%s in %s", arch, image)
-}
-
-// getRemoteDigestPodman queries the registry via Podman's manifest inspect
-// (which lacks Docker's -v flag) and returns the per-architecture manifest
-// digest from the OCI image index.
-func getRemoteDigestPodman(ctx context.Context, rt, image, arch string) (string, error) {
+// getRemoteManifestDigest queries the registry for the per-architecture
+// manifest digest without downloading layers.
+//
+// For a multi-arch image the digest hierarchy is:
+//
+//	Image Index (manifest list)         sha256:AAA
+//	  └── Per-platform Manifest (amd64) sha256:BBB  ← manifest digest
+//	        ├── Config                  sha256:CCC  ← docker's {{.Id}}
+//	        └── Layers ...
+//
+// We compare manifest digests (sha256:BBB): this is what "docker pull" prints,
+// what {{index .RepoDigests 0}} stores as "repo@sha256:BBB", and what
+// "manifest inspect" returns in manifests[].digest. Any change to layers,
+// config, or manifest metadata produces a different manifest digest, making it
+// a reliable staleness signal.
+//
+// Both Docker schema v2 manifest lists and OCI image indexes share the same
+// "manifests[].{digest, platform}" JSON structure, so one parser covers both
+// runtimes and both formats.
+func getRemoteManifestDigest(ctx context.Context, rt, image, arch string) (string, error) {
 	out, err := runCmd(ctx, "", []string{rt, "manifest", "inspect", image}, true)
 	if err != nil {
 		return "", err
 	}
-	var index struct {
-		Manifests []struct {
-			Digest   string `json:"digest"`
-			Platform struct {
-				Architecture string `json:"architecture"`
-				OS           string `json:"os"`
-			} `json:"platform"`
-		} `json:"manifests"`
-	}
+	var index manifestIndex
 	if err := json.Unmarshal([]byte(out), &index); err != nil {
 		return "", fmt.Errorf("parsing manifest inspect output: %w", err)
 	}
 	for _, m := range index.Manifests {
-		if m.Platform.Architecture == arch && m.Platform.OS == "linux" {
-			if m.Digest != "" {
-				return m.Digest, nil
-			}
+		if m.Platform.Architecture == arch && m.Platform.OS == "linux" && m.Digest != "" {
+			return m.Digest, nil
 		}
 	}
 	if len(index.Manifests) == 1 && index.Manifests[0].Digest != "" {
 		return index.Manifests[0].Digest, nil
 	}
 	return "", fmt.Errorf("no manifest for linux/%s in %s", arch, image)
+}
+
+// repoDigestOnly extracts the digest portion from a repo digest reference
+// (e.g. "ghcr.io/foo/bar@sha256:abc" → "sha256:abc"). Returns the input
+// unchanged if it contains no "@".
+func repoDigestOnly(repoDigest string) string {
+	if _, after, found := strings.Cut(repoDigest, "@"); found {
+		return after
+	}
+	return repoDigest
 }
 
 // embeddedContextSHA computes a deterministic SHA-256 hash over the embedded
@@ -284,6 +238,33 @@ type remoteDigestEntry struct {
 	expires time.Time
 }
 
+type manifestPlatform struct {
+	Architecture string `json:"architecture"`
+	OS           string `json:"os"`
+}
+
+type manifestEntry struct {
+	Digest   string           `json:"digest"`
+	Platform manifestPlatform `json:"platform"`
+}
+
+type manifestIndex struct {
+	Manifests []manifestEntry `json:"manifests"`
+}
+
+type activeCM struct {
+	cm       CacheMount
+	hostPath string
+}
+
+type cacheInfoStat struct {
+	name     string
+	hostPath string
+	files    int64
+	bytes    int64
+	missing  bool
+}
+
 // imageBuildCacheEntry caches the result of imageBuildNeeded so that
 // back-to-back calls with the same inputs skip docker inspect exec calls.
 type imageBuildCacheEntry struct {
@@ -293,12 +274,12 @@ type imageBuildCacheEntry struct {
 	needed     bool
 }
 
-// cachedRemoteConfigDigest returns the remote image config digest. When
-// Client.DigestCacheTTL is non-zero, results are cached for that duration to
-// skip repeated registry round-trips. When zero, the registry is always queried.
-func (c *Client) cachedRemoteConfigDigest(ctx context.Context, rt, image, arch string) (string, error) {
+// cachedRemoteManifestDigest returns the remote per-architecture manifest digest.
+// When Client.DigestCacheTTL is non-zero, results are cached for that duration
+// to skip repeated registry round-trips. When zero, the registry is always queried.
+func (c *Client) cachedRemoteManifestDigest(ctx context.Context, rt, image, arch string) (string, error) {
 	if c.DigestCacheTTL == 0 {
-		return getRemoteConfigDigest(ctx, rt, image, arch)
+		return getRemoteManifestDigest(ctx, rt, image, arch)
 	}
 	key := rt + "\x00" + image + "\x00" + arch
 	c.mu.Lock()
@@ -307,7 +288,7 @@ func (c *Client) cachedRemoteConfigDigest(ctx context.Context, rt, image, arch s
 		return e.digest, e.err
 	}
 	c.mu.Unlock()
-	digest, err := getRemoteConfigDigest(ctx, rt, image, arch)
+	digest, err := getRemoteManifestDigest(ctx, rt, image, arch)
 	c.mu.Lock()
 	c.digestCache[key] = remoteDigestEntry{digest: digest, err: err, expires: time.Now().Add(c.DigestCacheTTL)}
 	c.mu.Unlock()
@@ -428,17 +409,14 @@ func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseIm
 	}
 
 	// For remote images, verify the local base is up to date with the registry.
+	// Errors are intentionally ignored: a registry failure is not a reason to rebuild;
+	// the base digest label comparison above already catches locally-pulled updates.
 	isLocal := !strings.Contains(baseImage, "/")
 	if !isLocal {
-		// Docker: compare config digest ({{.Id}}) with remote config digest.
-		// Podman: compare manifest digest ({{.Digest}}) with remote manifest digest.
-		localFmt := "{{.Id}}"
-		if rt == "podman" {
-			localFmt = "{{.Digest}}"
-		}
-		localRef, _ := dockerInspectFormat(ctx, rt, baseImage, localFmt)
-		remoteDigest, err := c.cachedRemoteConfigDigest(ctx, rt, baseImage, runtime.GOARCH)
-		if err != nil || remoteDigest != localRef {
+		repoDigest, _ := dockerInspectFormat(ctx, rt, baseImage, "{{index .RepoDigests 0}}")
+		localRef := repoDigestOnly(repoDigest)
+		remoteDigest, err := c.cachedRemoteManifestDigest(ctx, rt, baseImage, runtime.GOARCH)
+		if err == nil && remoteDigest != localRef {
 			return true
 		}
 	}
@@ -467,10 +445,6 @@ func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseIm
 // --chown handles the leaf. Caches whose host path does not exist are silently
 // skipped. "~/" in HostPath is resolved using home.
 func appendCacheLayers(dockerfilePath string, caches []CacheMount, home string, mountPaths []string) (extraArgs []string, activeKey string, err error) {
-	type activeCM struct {
-		cm       CacheMount
-		hostPath string
-	}
 	var active []activeCM
 	for _, cm := range caches {
 		hostPath := resolveHostPath(cm.HostPath, home)
@@ -555,15 +529,10 @@ func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxD
 		}
 	} else {
 		// Check if local image is already up to date with remote.
-		// Docker: compare config digest ({{.Id}}) with remote config digest.
-		// Podman: compare manifest digest ({{.Digest}}) with remote manifest digest.
 		needsPull := true
-		localFmt := "{{.Id}}"
-		if rt == "podman" {
-			localFmt = "{{.Digest}}"
-		}
-		if localRef, err := runCmd(ctx, "", []string{rt, "image", "inspect", "--format", localFmt, baseImage}, true); err == nil && localRef != "" {
-			if remoteDigest, err := getRemoteConfigDigest(ctx, rt, baseImage, arch); err == nil && remoteDigest == localRef {
+		if repoDigest, err := runCmd(ctx, "", []string{rt, "image", "inspect", "--format", "{{index .RepoDigests 0}}", baseImage}, true); err == nil && repoDigest != "" {
+			localRef := repoDigestOnly(repoDigest)
+			if remoteDigest, err := getRemoteManifestDigest(ctx, rt, baseImage, arch); err == nil && remoteDigest == localRef {
 				needsPull = false
 			}
 		}
@@ -705,14 +674,7 @@ func resolveHostPath(p, home string) string {
 // line per cache to w. "~/" in HostPath is resolved using home. Caches whose
 // host path does not exist are reported as "not found".
 func printCacheInfo(w io.Writer, caches []CacheMount, home string) {
-	type stat struct {
-		name     string
-		hostPath string
-		files    int64
-		bytes    int64
-		missing  bool
-	}
-	stats := make([]stat, len(caches))
+	stats := make([]cacheInfoStat, len(caches))
 	var wg sync.WaitGroup
 	for i, c := range caches {
 		wg.Add(1)

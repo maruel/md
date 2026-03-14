@@ -14,11 +14,16 @@
 		local cmd=$2
 		local version_flag=${3:---version}
 		local filter=${4:-}
+		local capture=${5:-both}
 
 		if command -v "$cmd" >/dev/null 2>&1; then
 			local version output
 			# specific handling for some tools that output to stderr or have weird formats
-			output=$("$cmd" "$version_flag" 2>&1)
+			if [ "$capture" = "stdout" ]; then
+				output=$("$cmd" "$version_flag" 2>/dev/null)
+			else
+				output=$("$cmd" "$version_flag" 2>&1)
+			fi
 			if [ -n "$filter" ]; then
 				version=$(echo "$output" | grep "$filter" | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 			else
@@ -125,7 +130,7 @@
 
 	# AI Tools
 	check_version "Claude CLI" "claude" "--version"
-	NODE_OPTIONS="--no-deprecation" check_version "Gemini CLI" "gemini" "--version"
+	NODE_OPTIONS="--no-deprecation" check_version "Gemini CLI" "gemini" "--version" "" stdout
 	check_version "Codex" "codex" "--version"
 	check_version "Kilo CLI" "kilo" "--version"
 	check_version "Qwen Code" "qwen" "--version"

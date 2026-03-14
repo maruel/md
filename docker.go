@@ -428,7 +428,7 @@ func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseIm
 	}
 
 	// For remote images, verify the local base is up to date with the registry.
-	isLocal := !strings.Contains(baseImage, "/") && !strings.Contains(baseImage, ":")
+	isLocal := !strings.Contains(baseImage, "/")
 	if !isLocal {
 		// Docker: compare config digest ({{.Id}}) with remote config digest.
 		// Podman: compare manifest digest ({{.Digest}}) with remote manifest digest.
@@ -543,8 +543,9 @@ func appendCacheLayers(dockerfilePath string, caches []CacheMount, home string, 
 // targets to pre-create with user ownership.
 func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxDir, keysDir, imageName, baseImage, home string, caches []CacheMount, mountPaths []string, quiet bool) error {
 	arch := runtime.GOARCH
-	// Local-only images (no "/" or ":" in name) are never pulled from a registry.
-	isLocal := !strings.Contains(baseImage, "/") && !strings.Contains(baseImage, ":")
+	// Local-only images (no "/" in name) are never pulled from a registry.
+	// A tag (":latest") does not imply a registry; only a "/" does.
+	isLocal := !strings.Contains(baseImage, "/")
 	if isLocal {
 		if _, err := runCmd(ctx, "", []string{rt, "image", "inspect", "--format", "{{.Id}}", baseImage}, true); err != nil {
 			return fmt.Errorf("local image %s not found; build it first with 'md build-image'", baseImage)

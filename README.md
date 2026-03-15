@@ -1,4 +1,4 @@
-# md: Branch-locked Development Containers for AI Coding Agents
+# md: My Development containers - Branch-locked Development Containers for AI Coding Agents
 
 Each container is locked to a repository-branch pair. No confusion. Safe parallel work.
 
@@ -8,27 +8,19 @@ without branch conflicts, file interference, or environmental headaches.
 
 [![codecov](https://codecov.io/gh/caic-xyz/md/graph/badge.svg?token=Q2ZK312LNF)](https://codecov.io/gh/caic-xyz/md)
 
-## The Problem
+## Installation
 
-AI coding agents work best when given full command execution (YOLO mode). But running them locally is risky:
+```bash
+curl caic.xyz/install.sh | bash
+```
 
-- **Branch conflicts** - Agent changes on one branch interfere with your local checkout
-- **Test conflicts** - Running tests simultaneously causes failures and race conditions
-- **Environment pollution** - Dependencies and state accumulate, causing hidden bugs
-- **Context switching** - Switching branches while an agent is working loses progress
+### From source
 
-## The Solution
+```bash
+go install github.com/caic-xyz/md/cmd/md@latest
+```
 
-`md` gives each AI agent a **complete, isolated container** with a full git clone. You can:
-
-- Run agents on multiple branches simultaneously
-- Switch local branches without affecting running agents
-- Run tests in parallel without conflicts
-- Keep your local checkout clean
-- Delete containers cleanly when done
-- Access your frontend dev server over [Tailscale](TAILSCALE.md) with HTTPS!
-- Share your host's USB port for Android debugging
-- Let the coding agent control an Android Emulator and see it over VNC
+**Recommended:** Also install [git-maruel](https://github.com/maruel/git-maruel) for the `git squash` and `git rb` helpers.
 
 ## Quick Start
 
@@ -39,9 +31,7 @@ md start
 
 # You are now inside the container
 cd ~/src/<repo-name>
-# Run the coding harness of your choice, a bash alias will automatically start it in YOLO mode:
 claude
-# Exit from the ssh session into the container (or use a separate terminal)
 exit
 
 # Check pending changes
@@ -49,158 +39,11 @@ md diff
 
 # Pull changes back when done
 md pull
-
-# Stop the container (preserves filesystem)
-md stop
-
-# Remove the container permanently
-md purge
 ```
 
-## Installation
+## Documentation
 
-```bash
-go install github.com/caic-xyz/md/cmd/md@latest
-```
-
-**Recommended:** Also install [git-maruel](https://github.com/maruel/git-maruel) for the `git squash` and `git rb` helpers.
-
-## Harnesses
-
-See [HARNESSES.md](HARNESSES.md) for coding harness (claude code, codex, etc) specifics.
-
-
-## How It Works
-
-### Container Setup
-
-Each container is named `md-<repo-name>-<branch-name>` with:
-
-- **Isolated git clone** - `~/src/<repo-name>` inside the container is a git clone of your local repository. It tracks branch `base` which matches your local branch. This is useful for commit-happy agents like Codex to track pending changes.
-- **User-mapped permissions** - Container runs as your local user ID for proper file permissions
-- **SSH access** - Connect via `ssh md-<repo>-<branch>`
-- **Remote GUI (VNC)** - Optional full desktop environment (via `-display`) accessible via VNC on a dynamic port
-- **Remote network (Tailscale)** - Optional full access to your tailnet (via `-tailscale`)
-- **Local USB debugging** - Optional USB debugging (via `-usb`), especially for Android development
-- **Minimal overhead** - Only sshd runs by default; no unnecessary background services
-
-### Preinstalled Tools
-
-- TypeScript, Go, Rust, Node.js, Python development environments
-- Neovim editor
-- Android SDK and ADB on x64
-- And more! See [rsc/root/setup/](rsc/root/setup/) and [rsc/home/user/setup/](rsc/home/user/setup/).
-
-### Configuration
-
-Agent configurations and credentials are automatically mounted:
-
-- Agent configurations: `~/.amp`, `~/.claude`, `~/.codex`, `~/.gemini`, `~/.kilocode`, `~/.kimi`, `~/.pi`,
-  `~/.qwen`, `~/.config/agents`, `~/.config/amp`, `~/.config/goose`, `~/.config/opencode`,
-  `~/.local/share/amp`, `~/.local/share/goose`, `~/.local/share/opencode`, `~/.local/state/opencode`
-- Android ADB keys: `~/.android`
-
-### Build Cache Injection
-
-`md start` and `md run` automatically bake your local build-tool caches into the user Docker image at
-build time. This means the container starts with warm caches, skipping the slow cold downloads that would
-otherwise happen on every fresh container.
-
-**Enabled by default** (host directory must exist; silently skipped otherwise):
-
-| Name | Host path | Container path |
-|------|-----------|----------------|
-| `bun` | `~/.bun/install/cache` | `/home/user/.bun/install/cache` |
-| `cargo` | `~/.cargo/registry`, `~/.cargo/git` | `/home/user/.cargo/{registry,git}` |
-| `go-mod` | `~/go/pkg/mod` | `/home/user/go/pkg/mod` |
-| `gradle` | `~/.gradle/caches`, `~/.gradle/wrapper/dists` | `/home/user/.gradle/{caches,wrapper/dists}` |
-| `maven` | `~/.m2/repository` | `/home/user/.m2/repository` |
-| `npm` | `~/.npm` | `/home/user/.npm` |
-| `pip` | `~/.cache/pip` | `/home/user/.cache/pip` |
-| `pnpm` | `~/.local/share/pnpm/store` | `/home/user/.local/share/pnpm/store` |
-| `uv` | `~/.cache/uv` | `/home/user/.cache/uv` |
-
-The user image is only rebuilt when the set of available caches changes, the base image updates, or
-the build context changes. Different base images and cache sets produce distinct image names (keyed by
-a content hash), so switching between configurations no longer triggers unnecessary rebuilds. Cache contents are snapshotted at build time; they are not kept in sync after
-that.
-
-**Opt out** of specific caches:
-
-```bash
-md start -no-cache go-mod -no-cache cargo   # skip specific caches
-md start -no-caches                           # disable all caches
-md start -no-caches -cache go-mod            # only go-mod
-```
-
-**Custom cache directories** (any `host:container[:ro]` path pair):
-
-```bash
-md start -cache /path/to/my/cache:/home/user/.mycache
-```
-
-Environment variables can be passed via:
-
-1. `.env` file in your repository (auto-mapped)
-2. `~/.config/md/env` on your local machine (applies to all containers)
-
-For example:
-
-```bash
-# ~/.config/md/env
-ANTHROPIC_API_KEY=your_key
-OPENAI_API_KEY=your_key
-```
-
-### GitHub Authentication
-
-The container doesn't have access to your GitHub credentials. To enable git credentials and access to GitHub
-(e.g. to create PRs or issues), authenticate inside the container via:
-
-```bash
-gh auth login
-```
-
-## Commands
-
-| Command | Purpose |
-|---------|---------|
-| `md start` | Create and start a container for the current branch |
-| `md start -display` | Start container with X11/VNC desktop environment enabled |
-| `md start -tailscale` | Start container with [Tailscale](TAILSCALE.md) networking for remote SSH access |
-| `md start -usb` | Start container with USB device passthrough (for ADB, etc.) |
-| `md start -no-cache <name>` | Exclude a default cache (repeatable); e.g. `-no-cache go-mod` |
-| `md start -no-caches` | Disable all default caches |
-| `md start -cache host:container` | Add a custom cache directory |
-| `md run <cmd>` | Start a temporary container, run a command, then clean up |
-| `md list` | List all md containers |
-| `ssh md-<repo>-<branch>` | Access the container via SSH |
-| `md vnc` | Open VNC connection to the container |
-| `md diff` | Show changes (runs `git diff base`). Arguments are passed through, e.g. `md diff --stat` |
-| `md pull` | Pull changes from container back to local branch |
-| `md push` | Push local changes to the container |
-| `md stop` | Stop the container (preserves filesystem for later revival) |
-| `md purge` | Stop and remove the container permanently |
-| `md build-image` | Build the base Docker image locally as `md-local` |
-| `md start -image md-local` | Start a container using the locally built base image |
-
-## Remote GUI Access (VNC)
-
-Each container can include a full XFCE4 desktop environment. It must be enabled at startup:
-
-```bash
-md start -display
-md vnc
-```
-
-`md vnc` opens the VNC connection in your default VNC client.
-
-**Recommended VNC clients by OS:**
-- **Windows**: [RealVNC Viewer](https://www.realvnc.com/download/viewer/), [TightVNC](https://www.tightvnc.com/), or [UltraVNC](https://www.uvnc.com/)
-- **macOS**: Built-in VNC support or [RealVNC Viewer](https://www.realvnc.com/download/viewer/)
-- **Linux**: `tigervnc-viewer`, `vinagre`, or `vncviewer` command-line tools
-
-The DISPLAY environment variable is automatically set in SSH sessions, so X11 applications launched from SSH will appear on the VNC desktop.
+Full documentation is at [docs.caic.xyz](https://docs.caic.xyz/md/).
 
 ## Contributing
 

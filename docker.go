@@ -409,15 +409,20 @@ func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseIm
 	}
 
 	// For remote images, verify the local base is up to date with the registry.
+	// Compare the per-platform manifest digest stored during the last build
+	// against the current remote per-platform digest. This avoids the
+	// manifest-list-vs-platform-manifest mismatch that occurs when comparing
+	// RepoDigests[0] (manifest list digest) against the per-platform entry.
 	// Errors are intentionally ignored: a registry failure is not a reason to rebuild;
 	// the base digest label comparison above already catches locally-pulled updates.
 	isLocal := !strings.Contains(baseImage, "/")
 	if !isLocal {
-		repoDigest, _ := dockerInspectFormat(ctx, rt, baseImage, "{{index .RepoDigests 0}}")
-		localRef := repoDigestOnly(repoDigest)
-		remoteDigest, err := c.cachedRemoteManifestDigest(ctx, rt, baseImage, runtime.GOARCH)
-		if err == nil && remoteDigest != localRef {
-			return true
+		storedManifest, err := dockerInspectFormat(ctx, rt, imageName, `{{index .Config.Labels "md.base_manifest_digest"}}`)
+		if err == nil && storedManifest != "" && storedManifest != "<no value>" {
+			remoteDigest, err := c.cachedRemoteManifestDigest(ctx, rt, baseImage, runtime.GOARCH)
+			if err == nil && remoteDigest != storedManifest {
+				return true
+			}
 		}
 	}
 
@@ -529,6 +534,10 @@ func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxD
 		}
 	} else {
 		// Check if local image is already up to date with remote.
+		// Note: for multi-arch images on Docker, RepoDigests[0] is the manifest
+		// list digest while getRemoteManifestDigest returns the per-platform
+		// digest, so they won't match and we always pull. This is harmless
+		// since docker pull is fast and idempotent.
 		needsPull := true
 		if repoDigest, err := runCmd(ctx, "", []string{rt, "image", "inspect", "--format", "{{index .RepoDigests 0}}", baseImage}, true); err == nil && repoDigest != "" {
 			localRef := repoDigestOnly(repoDigest)
@@ -561,6 +570,14 @@ func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxD
 		baseDigest, _ = runCmd(ctx, "", []string{rt, "image", "inspect", "--format", "{{.Id}}", baseImage}, true)
 	}
 
+	// Get the per-platform manifest digest for remote images. This is stored
+	// as a label so imageBuildNeeded can compare it against the registry later
+	// without hitting the manifest-list-vs-platform-manifest mismatch.
+	var manifestDigest string
+	if !isLocal {
+		manifestDigest, _ = getRemoteManifestDigest(ctx, rt, baseImage, arch)
+	}
+
 	// Compute context SHA from both the build context and keys directory.
 	contextSHA, err := contextSHAHash(buildCtxDir, keysDir)
 	if err != nil {
@@ -590,6 +607,7 @@ func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxD
 		"--build-arg", "BASE_IMAGE_DIGEST=" + baseDigest,
 		"--build-arg", "CONTEXT_SHA=" + contextSHA,
 		"--build-arg", "CACHE_KEY=" + activeKey,
+		"--build-arg", "MANIFEST_DIGEST=" + manifestDigest,
 		"-t", imageName,
 	}
 	if rt == "podman" {

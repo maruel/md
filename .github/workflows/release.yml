@@ -77,8 +77,25 @@ jobs:
       id-token: write
       packages: write
 
+  validate-build:
+    needs: [setup]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --snapshot --clean
+        env:
+          GORELEASER_CURRENT_TAG: ${{ needs.setup.outputs.version }}
+
   finalize-release:
-    needs: [setup, build-container]
+    needs: [setup, build-container, validate-build]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

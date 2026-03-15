@@ -1,4 +1,4 @@
-# md: My Development containers - Branch-locked Development Containers for AI Coding Agents
+# md: My Development containers
 
 Each container is locked to a repository-branch pair. No confusion. Safe parallel work.
 
@@ -43,7 +43,7 @@ md pull
 
 ## Documentation
 
-Full documentation is at [docs.caic.xyz](https://docs.caic.xyz/md/).
+🔥 Full documentation is at [docs.caic.xyz](https://docs.caic.xyz/md/) 🔥
 
 ## Contributing
 

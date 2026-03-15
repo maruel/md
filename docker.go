@@ -741,12 +741,18 @@ func launchContainer(ctx context.Context, c *Container, opts *StartOpts, imageNa
 		dockerArgs = append(dockerArgs, "-v", "/etc/localtime:/etc/localtime:ro")
 	}
 	// Sandbox capabilities.
+	// - SYS_PTRACE: needed for strace/debuggers. Scoped to the container's
+	//   PID namespace — cannot attach to host processes.
+	// - seccomp=unconfined: disables the syscall allowlist so strace, bpf,
+	//   and Chrome's sandbox work. Does NOT grant capabilities — the
+	//   capability set still limits what the process can do.
 	dockerArgs = append(dockerArgs,
 		"--cap-add=SYS_PTRACE",
 		"--security-opt", "seccomp=unconfined")
-	// AppArmor is Docker/Linux-specific; podman uses SELinux and does not
-	// support the apparmor security option — passing it can hang on kernel
-	// security filesystem access inside a container.
+	// - apparmor=unconfined: disables AppArmor's mandatory-access-control
+	//   profile so Chrome can create namespaces and sandboxed processes can
+	//   access /proc. Docker-only; podman uses SELinux and passing this
+	//   option can hang on kernel security filesystem access.
 	if rt != "podman" {
 		dockerArgs = append(dockerArgs, "--security-opt", "apparmor=unconfined")
 	}

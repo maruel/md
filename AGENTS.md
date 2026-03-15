@@ -109,6 +109,7 @@ https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/common/p
 - **Debugging Tools**: strace requires `--cap-add=SYS_PTRACE`. The `md` script handles this automatically.
 - **Tailscale**: Requires `--cap-add=NET_ADMIN`, `--cap-add=NET_RAW`, and `--cap-add=MKNOD`. The TUN device is created inside the container's namespace. The `md` script handles this automatically when `--tailscale` is passed to `md start`.
 - **USB Passthrough**: Requires `--device=/dev/bus/usb` to expose host USB devices (e.g. for ADB). The `md` script handles this automatically when `--usb` is passed to `md start`.
+- **Nested Containers (rootless Podman inside md)**: Supported on **rootful Docker/Podman hosts** with `kernel.unprivileged_userns_clone=1` (default on most modern distros) — no extra flags needed. Rootless Docker/Podman hosts are not supported: `newuidmap` fails with EPERM because the container itself already runs inside a user namespace, and `start.sh` logs a warning at startup.
 
 ## For End Users: Remote GUI Access
 

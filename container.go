@@ -78,6 +78,10 @@ type StartOpts struct {
 	// directories (~/.config/agents, ~/.config/md) are added automatically.
 	// Nil or empty mounts only those shared directories.
 	AgentPaths []AgentPaths
+	// ExtraEnv holds additional KEY=VALUE pairs to inject into the container's
+	// ~/.env at runtime. Each entry is appended verbatim, so values may
+	// contain spaces but must not contain newlines.
+	ExtraEnv []string
 }
 
 // StartResult contains Tailscale information from Connect. Port information
@@ -251,8 +255,9 @@ func (c *Container) Connect(ctx context.Context, opts *StartOpts) (*StartResult,
 // Run starts a temporary container, runs a command, then cleans up.
 // baseImage is the full Docker image reference; if empty, DefaultBaseImage is
 // used. caches lists host directories to COPY into the image (same semantics
-// as StartOpts.Caches); nil means no caches.
-func (c *Container) Run(ctx context.Context, baseImage string, command []string, caches []CacheMount) (_ int, retErr error) {
+// as StartOpts.Caches); nil means no caches. extraEnv holds KEY=VALUE pairs
+// injected into the container's ~/.env (see StartOpts.ExtraEnv).
+func (c *Container) Run(ctx context.Context, baseImage string, command []string, caches []CacheMount, extraEnv []string) (_ int, retErr error) {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
 	var tmpRepos []Repo
@@ -277,7 +282,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	if err != nil {
 		return 1, err
 	}
-	opts := StartOpts{Quiet: true}
+	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv}
 	if err := launchContainer(ctx, tmp, &opts, imageName); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err

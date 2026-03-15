@@ -931,6 +931,17 @@ func connectContainer(ctx context.Context, c *Container, opts *StartOpts) (*Star
 			_, _ = fmt.Fprintln(c.W, "- sending .env into container ...")
 		}
 	}
+	if len(opts.ExtraEnv) > 0 {
+		if len(envContent) > 0 && envContent[len(envContent)-1] != '\n' {
+			envContent = append(envContent, '\n')
+		}
+		for _, kv := range opts.ExtraEnv {
+			envContent = append(envContent, []byte(kv+"\n")...)
+		}
+		if !opts.Quiet {
+			_, _ = fmt.Fprintln(c.W, "- injecting extra env vars into container ...")
+		}
+	}
 	sshEnvArgs := c.SSHCommand(c.Name, "cat > /home/user/.env")
 	for {
 		cmd := exec.CommandContext(ctx, sshEnvArgs[0], sshEnvArgs[1:]...)

@@ -329,6 +329,35 @@ func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []stri
 	return c.Container(repos...), nil
 }
 
+// resolveGithubToken returns the GitHub token to inject into the container
+// based on the --github flag value. Returns "" when the flag is empty.
+// "ro" attempts to create a fine-grained read-only token, falling back to the
+// host token on error. "rw" uses the host token directly.
+func resolveGithubToken(ctx context.Context, c *md.Client, github string) (string, error) {
+	switch github {
+	case "":
+		return "", nil
+	case "ro", "rw":
+	default:
+		return "", fmt.Errorf("--github: invalid value %q (want ro or rw)", github)
+	}
+	if c.GithubToken == "" {
+		return "", errors.New("--github requires a GitHub token; set GITHUB_TOKEN or authenticate with `gh auth login`")
+	}
+	if github == "rw" {
+		return c.GithubToken, nil
+	}
+	// Read-only: try to create a short-lived fine-grained token.
+	token, err := md.CreateReadOnlyGithubToken(ctx, c.GithubToken)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not create read-only GitHub token: %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: falling back to host token (may have write access)\n")
+		fmt.Fprintf(os.Stderr, "hint: grant manage:write:personal_access_tokens scope to your token to enable read-only mode\n")
+		return c.GithubToken, nil
+	}
+	return token, nil
+}
+
 func cmdStart(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
@@ -350,6 +379,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	noCacheSpecs := &stringSlice{}
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
+	github := fs.String("github", "", "Inject GitHub token: ro (read-only, tries fine-grained PAT) or rw (read-write)")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -368,6 +398,14 @@ func cmdStart(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	githubToken, err := resolveGithubToken(ctx, ct.Client, *github)
+	if err != nil {
+		return err
+	}
+	var extraEnv []string
+	if githubToken != "" {
+		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
+	}
 	opts := md.StartOpts{
 		BaseImage:        baseImage,
 		Display:          *display,
@@ -378,6 +416,7 @@ func cmdStart(ctx context.Context, args []string) error {
 		Labels:           labels.values,
 		Quiet:            *quiet,
 		AgentPaths:       slices.Collect(maps.Values(md.HarnessMounts)),
+		ExtraEnv:         extraEnv,
 	}
 	if err := ct.Launch(ctx, &opts); err != nil {
 		return err
@@ -433,6 +472,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	noCacheSpecs := &stringSlice{}
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
+	github := fs.String("github", "", "Inject GitHub token: ro (read-only, tries fine-grained PAT) or rw (read-write)")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -454,7 +494,15 @@ func cmdRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	exitCode, err := ct.Run(ctx, baseImage, extra, caches)
+	githubToken, err := resolveGithubToken(ctx, ct.Client, *github)
+	if err != nil {
+		return err
+	}
+	var extraEnv []string
+	if githubToken != "" {
+		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
+	}
+	exitCode, err := ct.Run(ctx, baseImage, extra, caches, extraEnv)
 	if err != nil {
 		return err
 	}

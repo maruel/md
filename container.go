@@ -974,7 +974,7 @@ func (c *Container) ensureImage(ctx context.Context, baseImage string, caches []
 	if !quiet && len(caches) > 0 {
 		printCacheInfo(c.W, caches, c.Home)
 	}
-	buildCtx, err := prepareBuildContext()
+	buildCtx, err := prepareSpecializedBuildContext()
 	if err != nil {
 		return "", err
 	}

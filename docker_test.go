@@ -194,7 +194,7 @@ func TestEmbeddedContextSHA(t *testing.T) {
 	}
 
 	t.Run("matches_contextSHAHash", func(t *testing.T) {
-		buildCtx, err := prepareBuildContext()
+		buildCtx, err := prepareSpecializedBuildContext()
 		if err != nil {
 			t.Fatal(err)
 		}

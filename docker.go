@@ -77,6 +77,44 @@ func prepareBuildContext() (dir string, retErr error) {
 	return tmp, nil
 }
 
+// prepareSpecializedBuildContext writes the embedded rsc/specialized/ tree to a
+// temp directory. Returns the temp dir path (caller must clean up).
+func prepareSpecializedBuildContext() (dir string, retErr error) {
+	tmp, err := os.MkdirTemp("", "md-build-*")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if retErr != nil {
+			retErr = errors.Join(retErr, os.RemoveAll(tmp))
+		}
+	}()
+	// Walk the embedded filesystem and write all files.
+	err = fs.WalkDir(rscFS, "rsc/specialized", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// Strip the leading "rsc/specialized/" prefix so we get a clean build context.
+		rel := strings.TrimPrefix(path, "rsc/specialized/")
+		if rel == "" {
+			return nil
+		}
+		target := filepath.Join(tmp, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := rscFS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		return "", fmt.Errorf("extracting specialized build context: %w", err)
+	}
+	return tmp, nil
+}
+
 // contextSHAHash computes a deterministic SHA-256 hash over the build context
 // directory and the SSH key files. It walks files in sorted order and hashes
 // each relative path and its contents.
@@ -194,17 +232,17 @@ func repoDigestOnly(repoDigest string) string {
 }
 
 // embeddedContextSHA computes a deterministic SHA-256 hash over the embedded
-// build context (rsc/user/) and SSH key files without extracting to disk. It
+// build context (rsc/specialized/) and SSH key files without extracting to disk. It
 // produces the same result as contextSHAHash on the extracted build context.
 func embeddedContextSHA(keysDir string) (string, error) {
 	h := sha256.New()
 	var paths []string
-	if err := fs.WalkDir(rscFS, "rsc/user", func(path string, d fs.DirEntry, err error) error {
+	if err := fs.WalkDir(rscFS, "rsc/specialized", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.IsDir() {
-			if rel := strings.TrimPrefix(path, "rsc/user/"); rel != "" {
+			if rel := strings.TrimPrefix(path, "rsc/specialized/"); rel != "" {
 				paths = append(paths, rel)
 			}
 		}
@@ -215,7 +253,7 @@ func embeddedContextSHA(keysDir string) (string, error) {
 	sort.Strings(paths)
 	for _, rel := range paths {
 		_, _ = io.WriteString(h, rel)
-		data, err := rscFS.ReadFile("rsc/user/" + rel)
+		data, err := rscFS.ReadFile("rsc/specialized/" + rel)
 		if err != nil {
 			return "", err
 		}

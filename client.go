@@ -314,7 +314,7 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 	if !opts.Quiet && len(opts.Caches) > 0 {
 		printCacheInfo(c.W, opts.Caches, c.Home)
 	}
-	buildCtx, err := prepareBuildContext()
+	buildCtx, err := prepareSpecializedBuildContext()
 	if err != nil {
 		return false, err
 	}

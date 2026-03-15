@@ -82,7 +82,7 @@ jobs:
         id: build
         with:
           context: rsc/user
-          file: rsc/user/Dockerfile.base
+          file: rsc/user/Dockerfile
           platforms: ${{ matrix.platform }}
           target: reports
           outputs: type=local,dest=reports/${{ matrix.arch }}
@@ -98,7 +98,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_call') }}
         with:
           context: rsc/user
-          file: rsc/user/Dockerfile.base
+          file: rsc/user/Dockerfile
           platforms: ${{ matrix.platform }}
           target: final
           push: true

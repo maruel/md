@@ -243,7 +243,7 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 	arch := runtime.GOARCH
-	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/user/Dockerfile.base ...")
+	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/user/Dockerfile ...")
 
 	// Extract the embedded rsc/ to a temp dir for building.
 	buildCtx, err := prepareBuildContext()
@@ -255,7 +255,7 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 	cmd := []string{
 		c.Runtime, "build",
 		"--platform", "linux/" + arch,
-		"-f", filepath.Join(buildCtx, "Dockerfile.base"),
+		"-f", filepath.Join(buildCtx, "Dockerfile"),
 		"-t", "md-local",
 	}
 	if serialSetup {
@@ -275,7 +275,7 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 	}
 	_, _ = fmt.Fprintln(c.W, "- Base image built as 'md-local'.")
 	c.invalidateImageBuildCache()
-	// Clean up BuildKit cache (--mount=type=cache volumes from Dockerfile.base).
+	// Clean up BuildKit cache (--mount=type=cache volumes from rsc/user/Dockerfile).
 	// These are only useful during the build itself; pruning avoids leaving
 	// orphaned resources on disk.
 	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}, true); err != nil {

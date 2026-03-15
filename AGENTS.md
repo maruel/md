@@ -7,7 +7,7 @@ A file to [guide coding agents](https://agents.md/).
 - Make sure the code passes shellcheck after every change. Then format with `shfmt -l -w $script_name`
 - Update this file (AGENTS.md) everytime you make a change that affects this project's requirements.
 - Update rsc/user/home/user/AGENTS.md everytime you make a change that affects the agent inside the container.
-- When adding a new setup script in `rsc/user/root/setup/` or `rsc/user/home/user/setup/`, add a corresponding `RUN` command to `rsc/user/Dockerfile.base` to execute it during the build.
+- When adding a new setup script in `rsc/user/root/setup/` or `rsc/user/home/user/setup/`, add a corresponding `RUN` command to `rsc/user/Dockerfile` to execute it during the build.
 - No tests should be written for Python or shell script changes.
 - **NEVER run `go build ./cmd/md/` without `-o`** — the repo root contains a Python script named `md` and `go build` will overwrite it. Always use `go build -o /tmp/md-test ./cmd/md/` or similar.
 - For Go code changes, ensure code passes `go test ./...`, `go vet ./...`, and `golangci-lint run ./...`.
@@ -18,7 +18,7 @@ A file to [guide coding agents](https://agents.md/).
 
 ### Image hierarchy
 
-- **`md-local`** — base image built locally from `rsc/user/Dockerfile.base` via `md build-image`. Tagged as `md-local`. Used as base when no `--image`/`--tag` flag is given and the user prefers a local build.
+- **`md-local`** — base image built locally from `rsc/user/Dockerfile` via `md build-image`. Tagged as `md-local`. Used as base when no `--image`/`--tag` flag is given and the user prefers a local build.
 - **`ghcr.io/maruel/md:latest`** (default) or any `--image`/`--tag` variant — remote base image.
 - **`md-user-<hash>`** — customized per-user image built from `rsc/specialized/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
 
@@ -59,7 +59,7 @@ A file to [guide coding agents](https://agents.md/).
 When installing a new tool in the container, ensure you update:
 
 1. Create setup script in `rsc/user/root/setup/` or `rsc/user/home/user/setup/` (with appropriate numbering)
-2. Add `RUN measure_exec.sh` command to `rsc/user/Dockerfile.base`
+2. Add `RUN measure_exec.sh` command to `rsc/user/Dockerfile`
 3. Add entry to "Installed Tools" section in this AGENTS.md
 4. Add version check to `rsc/user/home/user/setup/generate_version_report.sh`
 6. Update `rsc/user/home/user/src/AGENTS.md` "Preinstalled Tools" section to reflect the change
@@ -125,7 +125,7 @@ The `rsc/` directory is split into two build contexts:
 
 The `rsc/user/` directory contains the base image build context:
 
-- `rsc/user/Dockerfile.base` - Base image build file
+- `rsc/user/Dockerfile` - Base image build file
 - `rsc/user/etc/`, `rsc/user/opt/`, `rsc/user/home/` - Mirrored into the container as-is (`COPY etc/ /etc/`, etc.). Place static files here instead of generating them in setup scripts.
   - `rsc/user/etc/bash_env` - Environment bootstrap sourced by BASH_ENV (see Shell Environment below)
   - `rsc/user/etc/bash.bashrc` - System-wide bashrc, sources bash_env for interactive shells

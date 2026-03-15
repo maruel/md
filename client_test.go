@@ -198,8 +198,8 @@ func TestRscFS(t *testing.T) {
 		}
 	})
 	t.Run("Dockerfile.base", func(t *testing.T) {
-		if _, err := rscFS.ReadFile("rsc/user/Dockerfile.base"); err != nil {
-			t.Fatalf("embedded rsc/user/Dockerfile.base not found: %v", err)
+		if _, err := rscFS.ReadFile("rsc/user/Dockerfile"); err != nil {
+			t.Fatalf("embedded rsc/user/Dockerfile not found: %v", err)
 		}
 	})
 }

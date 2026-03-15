@@ -141,7 +141,7 @@ func usage() {
 		"  diff        Show differences between base and current changes\n"+
 		"  vnc         Open VNC connection to the container\n"+
 		"  build-image Build the base Docker image locally\n"+
-		"  prune       Remove unused md-user-* images\n"+
+		"  prune       Remove unused md-specialized-* images\n"+
 		"  version     Print version information\n")
 }
 
@@ -904,7 +904,7 @@ func cmdPrune(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(removed) == 0 {
-		fmt.Println("No unused md-user images to remove")
+		fmt.Println("No unused md-specialized images to remove")
 		return nil
 	}
 	for _, name := range removed {

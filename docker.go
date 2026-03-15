@@ -351,7 +351,7 @@ func activeCacheKey(caches []CacheMount, home string) string {
 // clobbering each other.
 func userImageName(baseImage, cacheKey string) string {
 	h := sha256.Sum256([]byte(baseImage + "\x00" + cacheKey))
-	return "md-user-" + hex.EncodeToString(h[:16])
+	return "md-specialized-" + hex.EncodeToString(h[:16])
 }
 
 // cacheSpecKey returns a short hash over the requested cache names and

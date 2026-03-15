@@ -20,7 +20,7 @@ A file to [guide coding agents](https://agents.md/).
 
 - **`md-local`** — base image built locally from `rsc/user/Dockerfile` via `md build-image`. Tagged as `md-local`. Used as base when no `--image`/`--tag` flag is given and the user prefers a local build.
 - **`ghcr.io/maruel/md:latest`** (default) or any `--image`/`--tag` variant — remote base image.
-- **`md-user-<hash>`** — customized per-user image built from `rsc/specialized/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
+- **`md-specialized-<hash>`** — customized per-user image built from `rsc/specialized/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
 
 ### When the user image is rebuilt
 

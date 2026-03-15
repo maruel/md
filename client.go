@@ -329,12 +329,12 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 	return true, nil
 }
 
-// PruneImages removes md-user-* images that are not used by any container.
+// PruneImages removes md-specialized-* images that are not used by any container.
 // Returns the list of removed image names.
 func (c *Client) PruneImages(ctx context.Context) ([]string, error) {
-	// List all md-user-* images.
+	// List all md-specialized-* images.
 	out, err := runCmd(ctx, "", []string{
-		c.Runtime, "images", "--format", "{{.Repository}}", "--filter", "reference=md-user-*",
+		c.Runtime, "images", "--format", "{{.Repository}}", "--filter", "reference=md-specialized-*",
 	}, true)
 	if err != nil {
 		return nil, fmt.Errorf("listing images: %w", err)

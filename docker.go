@@ -590,7 +590,6 @@ func buildCustomizedImage(ctx context.Context, rt string, w io.Writer, buildCtxD
 		"--build-arg", "BASE_IMAGE_DIGEST=" + baseDigest,
 		"--build-arg", "CONTEXT_SHA=" + contextSHA,
 		"--build-arg", "CACHE_KEY=" + activeKey,
-		"--build-arg", "ENV_FILE=",
 		"-t", imageName,
 	}
 	if rt == "podman" {

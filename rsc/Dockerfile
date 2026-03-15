@@ -12,8 +12,6 @@ ARG BASE_IMAGE_DIGEST=unknown
 ARG CONTEXT_SHA=unknown
 ARG CACHE_KEY=
 
-ARG ENV_FILE
-
 LABEL \
 	org.opencontainers.image.licenses=Apache-2.0 \
 	md.base_image="${BASE_IMAGE}" \
@@ -27,6 +25,3 @@ COPY --from=md-keys ssh_host_ed25519_key /etc/ssh/ssh_host_ed25519_key
 COPY --from=md-keys ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ed25519_key.pub
 COPY --from=md-keys --chown=user:user authorized_keys /home/user/.ssh/authorized_keys
 RUN chmod 0400 /home/user/.ssh/authorized_keys
-
-# Copy the file setting environment variables.
-COPY --chown=user:user ${ENV_FILE:+$ENV_FILE} ${ENV_FILE:+/home/user/.env}

@@ -65,7 +65,7 @@ Managed entirely on the host; no container changes required.
 
 ## 3. In-container nftables/iptables rules
 
-Run firewall rules at container startup in `rsc/root/start.sh`. Requires `--cap-add=NET_ADMIN`
+Run firewall rules at container startup in `rsc/user/root/start.sh`. Requires `--cap-add=NET_ADMIN`
 (already added when `--tailscale` is used). Keeps policy inside the container definition and
 allows per-container customization.
 

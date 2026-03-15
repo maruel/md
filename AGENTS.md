@@ -6,28 +6,28 @@ A file to [guide coding agents](https://agents.md/).
 
 - Make sure the code passes shellcheck after every change. Then format with `shfmt -l -w $script_name`
 - Update this file (AGENTS.md) everytime you make a change that affects this project's requirements.
-- Update rsc/home/user/AGENTS.md everytime you make a change that affects the agent inside the container.
-- When adding a new setup script in `rsc/root/setup/` or `rsc/home/user/setup/`, add a corresponding `RUN` command to `rsc/Dockerfile.base` to execute it during the build.
+- Update rsc/user/home/user/AGENTS.md everytime you make a change that affects the agent inside the container.
+- When adding a new setup script in `rsc/user/root/setup/` or `rsc/user/home/user/setup/`, add a corresponding `RUN` command to `rsc/user/Dockerfile.base` to execute it during the build.
 - No tests should be written for Python or shell script changes.
 - **NEVER run `go build ./cmd/md/` without `-o`** — the repo root contains a Python script named `md` and `go build` will overwrite it. Always use `go build -o /tmp/md-test ./cmd/md/` or similar.
 - For Go code changes, ensure code passes `go test ./...`, `go vet ./...`, and `golangci-lint run ./...`.
 - For Python code changes, ensure code passes `pylint` and `ruff` checks as defined in `.github/workflows/docker-build.yml`
-- When adding new tools to the system, they must also be added to `rsc/home/user/setup/generate_version_report.sh` to ensure they appear in version reports. The script generates `/home/user/src/tool_versions.md` which is used in release notes and build reports
+- When adding new tools to the system, they must also be added to `rsc/user/home/user/setup/generate_version_report.sh` to ensure they appear in version reports. The script generates `/home/user/src/tool_versions.md` which is used in release notes and build reports
 
 ## md Tool: Image Build and Cache Injection
 
 ### Image hierarchy
 
-- **`md-local`** — base image built locally from `rsc/Dockerfile.base` via `md build-image`. Tagged as `md-local`. Used as base when no `--image`/`--tag` flag is given and the user prefers a local build.
+- **`md-local`** — base image built locally from `rsc/user/Dockerfile.base` via `md build-image`. Tagged as `md-local`. Used as base when no `--image`/`--tag` flag is given and the user prefers a local build.
 - **`ghcr.io/maruel/md:latest`** (default) or any `--image`/`--tag` variant — remote base image.
-- **`md-user-<hash>`** — customized per-user image built from `rsc/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
+- **`md-user-<hash>`** — customized per-user image built from `rsc/user/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
 
 ### When the user image is rebuilt
 
 `imageBuildNeeded` (`docker.go`) returns `true` (triggering a rebuild) when any of the following change:
 1. `md.base_digest` label missing/empty, or differs from the current base image digest.
 2. For remote base images: registry has a newer version than the local copy.
-3. `md.context_sha` label differs from the SHA of the embedded `rsc/` build context + SSH keys.
+3. `md.context_sha` label differs from the SHA of the embedded `rsc/user/` build context + SSH keys.
 4. `md.cache_key` label differs from `cacheSpecKey` of the **active** caches (those whose host directories currently exist).
 
 ### Cache injection
@@ -51,18 +51,18 @@ A file to [guide coding agents](https://agents.md/).
 |---|---|
 | `md.base_image` | Base image reference used at build time |
 | `md.base_digest` | Digest (or image ID for local images) of the base |
-| `md.context_sha` | SHA-256 of `rsc/` build context + SSH keys |
+| `md.context_sha` | SHA-256 of `rsc/user/` build context + SSH keys |
 | `md.cache_key` | 8-byte hex hash of the **active** (injected) cache names+paths |
 
 ## Adding a New Tool Checklist
 
 When installing a new tool in the container, ensure you update:
 
-1. Create setup script in `rsc/root/setup/` or `rsc/home/user/setup/` (with appropriate numbering)
-2. Add `RUN measure_exec.sh` command to `rsc/Dockerfile.base`
+1. Create setup script in `rsc/user/root/setup/` or `rsc/user/home/user/setup/` (with appropriate numbering)
+2. Add `RUN measure_exec.sh` command to `rsc/user/Dockerfile.base`
 3. Add entry to "Installed Tools" section in this AGENTS.md
-4. Add version check to `rsc/home/user/setup/generate_version_report.sh`
-6. Update `rsc/home/user/src/AGENTS.md` "Preinstalled Tools" section to reflect the change
+4. Add version check to `rsc/user/home/user/setup/generate_version_report.sh`
+6. Update `rsc/user/home/user/src/AGENTS.md` "Preinstalled Tools" section to reflect the change
 7. If the tool needs PATH setup, add a `bash.d` script (see [Shell Environment](#shell-environment-bash_env))
 8. Run `shellcheck` and `shfmt` on any shell scripts
 
@@ -91,7 +91,7 @@ When installing a tool whose installer appends PATH lines to `.bashrc` (like nvm
 
 1. Create a `~/.config/bash.d/NN-toolname.sh` script that adds the tool's bin directory to PATH
 2. If the installer supports `PROFILE=/dev/null` (like nvm), use it to prevent writing to `.bashrc`
-3. Otherwise, add a cleanup pattern to `rsc/home/user/setup/bashrc_cleanup.sh` to remove the appended lines
+3. Otherwise, add a cleanup pattern to `rsc/user/home/user/setup/bashrc_cleanup.sh` to remove the appended lines
 4. Interactive-only features (completions, shell functions) should be guarded with `case $- in *i*) ... ;; esac`
 
 ## Chrome/Chromium Configuration
@@ -119,16 +119,16 @@ The container runs Xvnc (TigerVNC) + XFCE4 on port 5901 accessible via any VNC c
 
 ## Directory Layout (rsc/)
 
-The `rsc/` directory contains Docker build context and system configuration:
+The `rsc/user/` directory contains Docker build context and system configuration:
 
-- `rsc/Dockerfile` and `rsc/Dockerfile.base` - Docker build files
-- `rsc/etc/`, `rsc/opt/`, `rsc/home/` - Mirrored into the container as-is (`COPY etc/ /etc/`, etc.). Place static files here instead of generating them in setup scripts.
-  - `rsc/etc/bash_env` - Environment bootstrap sourced by BASH_ENV (see Shell Environment below)
-  - `rsc/etc/bash.bashrc` - System-wide bashrc, sources bash_env for interactive shells
-- `rsc/root/` - Root-context setup and utilities
-  - `rsc/root/setup/` - Root-level installation scripts (numbered 1+)
-  - `rsc/root/start.sh` - Container entrypoint
-- `rsc/home/user/` - User-context setup (copied as user to `/home/user/`)
-  - `rsc/home/user/.config/bash.d/` - Modular bash extensions sourced via `/etc/bash_env` (see Shell Environment below)
-  - `rsc/home/user/setup/` - User-level installation scripts (numbered 1+)
-  - `rsc/home/user/src/AGENTS.md` - Agent documentation inside container (keep in sync)
+- `rsc/user/Dockerfile` and `rsc/user/Dockerfile.base` - Docker build files
+- `rsc/user/etc/`, `rsc/user/opt/`, `rsc/user/home/` - Mirrored into the container as-is (`COPY etc/ /etc/`, etc.). Place static files here instead of generating them in setup scripts.
+  - `rsc/user/etc/bash_env` - Environment bootstrap sourced by BASH_ENV (see Shell Environment below)
+  - `rsc/user/etc/bash.bashrc` - System-wide bashrc, sources bash_env for interactive shells
+- `rsc/user/root/` - Root-context setup and utilities
+  - `rsc/user/root/setup/` - Root-level installation scripts (numbered 1+)
+  - `rsc/user/root/start.sh` - Container entrypoint
+- `rsc/user/home/user/` - User-context setup (copied as user to `/home/user/`)
+  - `rsc/user/home/user/.config/bash.d/` - Modular bash extensions sourced via `/etc/bash_env` (see Shell Environment below)
+  - `rsc/user/home/user/setup/` - User-level installation scripts (numbered 1+)
+  - `rsc/user/home/user/src/AGENTS.md` - Agent documentation inside container (keep in sync)

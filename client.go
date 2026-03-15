@@ -243,7 +243,7 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 	arch := runtime.GOARCH
-	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/Dockerfile.base ...")
+	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/user/Dockerfile.base ...")
 
 	// Extract the embedded rsc/ to a temp dir for building.
 	buildCtx, err := prepareBuildContext()

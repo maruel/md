@@ -34,7 +34,7 @@ import (
 //go:embed all:rsc
 var rscFS embed.FS
 
-// prepareBuildContext writes the embedded rsc/ tree to a temp directory.
+// prepareBuildContext writes the embedded rsc/user/ tree to a temp directory.
 // Returns the temp dir path (caller must clean up).
 func prepareBuildContext() (dir string, retErr error) {
 	tmp, err := os.MkdirTemp("", "md-build-*")
@@ -47,12 +47,12 @@ func prepareBuildContext() (dir string, retErr error) {
 		}
 	}()
 	// Walk the embedded filesystem and write all files.
-	err = fs.WalkDir(rscFS, "rsc", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(rscFS, "rsc/user", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		// Strip the leading "rsc/" prefix so we get a clean build context.
-		rel := strings.TrimPrefix(path, "rsc/")
+		// Strip the leading "rsc/user/" prefix so we get a clean build context.
+		rel := strings.TrimPrefix(path, "rsc/user/")
 		if rel == "" {
 			return nil
 		}
@@ -194,17 +194,17 @@ func repoDigestOnly(repoDigest string) string {
 }
 
 // embeddedContextSHA computes a deterministic SHA-256 hash over the embedded
-// build context (rsc/) and SSH key files without extracting to disk. It
+// build context (rsc/user/) and SSH key files without extracting to disk. It
 // produces the same result as contextSHAHash on the extracted build context.
 func embeddedContextSHA(keysDir string) (string, error) {
 	h := sha256.New()
 	var paths []string
-	if err := fs.WalkDir(rscFS, "rsc", func(path string, d fs.DirEntry, err error) error {
+	if err := fs.WalkDir(rscFS, "rsc/user", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.IsDir() {
-			if rel := strings.TrimPrefix(path, "rsc/"); rel != "" {
+			if rel := strings.TrimPrefix(path, "rsc/user/"); rel != "" {
 				paths = append(paths, rel)
 			}
 		}
@@ -215,7 +215,7 @@ func embeddedContextSHA(keysDir string) (string, error) {
 	sort.Strings(paths)
 	for _, rel := range paths {
 		_, _ = io.WriteString(h, rel)
-		data, err := rscFS.ReadFile("rsc/" + rel)
+		data, err := rscFS.ReadFile("rsc/user/" + rel)
 		if err != nil {
 			return "", err
 		}

@@ -5,8 +5,6 @@
 name: Release
 
 on:
-  schedule:
-    - cron: '0 0 * * 0' # Every Sunday at midnight
   workflow_dispatch:
     inputs:
       version:
@@ -16,8 +14,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
-  id-token: write # Required for attestation in docker-build
 
 jobs:
   setup:
@@ -64,19 +60,6 @@ jobs:
             exit 1
           fi
 
-  build-container:
-    needs: setup
-    uses: ./.github/workflows/docker-build.yml
-    with:
-      version: ${{ needs.setup.outputs.version }}
-    secrets: inherit
-    permissions:
-      actions: read
-      attestations: write
-      contents: read
-      id-token: write
-      packages: write
-
   validate-build:
     needs: [setup]
     runs-on: ubuntu-24.04
@@ -94,30 +77,8 @@ jobs:
         env:
           GORELEASER_CURRENT_TAG: ${{ needs.setup.outputs.version }}
 
-  finalize-release:
-    needs: [setup, build-container, validate-build]
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-          name: tool-versions
-      - name: Tag and Push
-        run: |
-          VERSION="${{ needs.setup.outputs.version }}"
-          git tag $VERSION
-          git push origin $VERSION
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.setup.outputs.version }}"
-          TOOL_VERSIONS_CONTENT=$(cat tool_versions.md)
-          RELEASE_NOTES="$TOOL_VERSIONS_CONTENT\n\n---\n\n$(gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name=$VERSION | jq -r '.body')"
-          gh release create "$VERSION" --title "$VERSION" --notes "$RELEASE_NOTES"
-
-  build-binaries:
-    needs: [setup, finalize-release]
+  release:
+    needs: [setup, validate-build]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -126,9 +87,15 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Tag and Push
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          git tag $VERSION
+          git push origin $VERSION
       - name: Fetch tag
         run: git fetch --tags --force
-      - uses: goreleaser/goreleaser-action@v6
+      - name: Create GitHub Release with Binaries
+        uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
           args: release --clean

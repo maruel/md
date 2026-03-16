@@ -22,9 +22,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Delete old images
+      - name: Delete old md-root images
         env:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_NAME: md-root
+        run: python3 ./.github/scripts/cleanup_docker_images.py
+      - name: Delete old md-user images
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_NAME: md-user
         run: python3 ./.github/scripts/cleanup_docker_images.py

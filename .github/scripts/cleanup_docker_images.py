@@ -113,7 +113,7 @@ def _should_keep(tags: list[str]) -> bool:
 def main():
     """Delete old untagged Docker images from GHCR."""
     owner = get_env("GITHUB_REPOSITORY_OWNER")
-    repo = get_env("GITHUB_REPOSITORY").split("/", 1)[-1]
+    repo = get_env("PACKAGE_NAME")
     token = get_env("GITHUB_TOKEN")
     print(f"Starting cleanup for image package: {owner}/{repo}")
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)

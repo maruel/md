@@ -4,53 +4,13 @@
 # source code is governed by an Apache License, Version 2.0 that can be found
 # in the LICENSE file.
 #
-# Dockerfile to create md.base
-#
-# This is the generic portion of the image which is then specialized for your SSH keys.
+# Dockerfile to create md-user: user-level tooling built on top of
+# md-root. Rebuilt weekly; the root layer is inherited from md-root.
 
-# We don't need it to be stuck on old images so just fetch whatever is current latest.
-FROM docker.io/debian:stable AS final
+ARG BASE_ROOT_IMAGE=ghcr.io/caic-xyz/md-root:latest
+FROM ${BASE_ROOT_IMAGE} AS final
 LABEL org.opencontainers.image.source=https://github.com/caic-xyz/md \
       org.opencontainers.image.licenses=Apache-2.0
-# FROM ghcr.io/linuxcontainers/debian-slim:latest
-
-## First phase, setup as root.
-
-ENV DEBIAN_FRONTEND=noninteractive
-# BASH_ENV is sourced by bash for every non-interactive shell (e.g. "ssh host command").
-# It sets up PATH for tools installed in user-specific directories (go, rust, nvm, bun, etc.).
-ENV BASH_ENV=/etc/bash_env
-
-COPY etc/ /etc/
-COPY opt/ /opt/
-COPY root/ /root/
-COPY usr/ /usr/
-
-# Make /root readable by all users (helps with diagnosing issues)
-RUN chmod 755 /root && find /root -type f -exec chmod a+r {} + && find /root -type d -exec chmod a+rx {} +
-
-# Setup measurement tool and version report file
-RUN echo "| Step | Command | Duration |" > /var/log/build_timings.md && \
-    echo "|---|---|---|" >> /var/log/build_timings.md && \
-    chmod 666 /var/log/build_timings.md
-
-# Install tools (as root)
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean && \
-    measure_exec.sh "System Packages" /root/setup/1_packages.sh
-RUN --mount=type=secret,id=github_token \
-    [ -f /run/secrets/github_token ] && export GITHUB_TOKEN=$(cat /run/secrets/github_token); \
-    measure_exec.sh "Neovim" /root/setup/2_neovim.sh
-RUN measure_exec.sh "Extrepo Packages" /root/setup/3_extrepo.sh
-RUN measure_exec.sh "Create User" /root/setup/4_create_user.sh
-RUN measure_exec.sh "KVM Setup" /root/setup/5_kvm.sh
-RUN --mount=type=secret,id=github_token \
-    [ -f /run/secrets/github_token ] && export GITHUB_TOKEN=$(cat /run/secrets/github_token); \
-    measure_exec.sh "radare2" /root/setup/6_radare2.sh
-RUN measure_exec.sh "Podman" /root/setup/7_podman.sh
-
-### Second phase, as user
 
 USER user
 WORKDIR /home/user

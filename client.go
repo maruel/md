@@ -238,44 +238,69 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 	return containers, nil
 }
 
-// BuildImage builds the base Docker image locally.
+// BuildImage builds the base Docker images locally: first md-root-local,
+// then md-user-local on top of it.
 func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error) {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 	arch := runtime.GOARCH
-	_, _ = fmt.Fprintln(c.W, "- Building base Docker image from rsc/user/Dockerfile ...")
 
-	// Extract the embedded rsc/ to a temp dir for building.
-	buildCtx, err := prepareBuildContext()
-	if err != nil {
-		return err
-	}
-	defer func() { retErr = errors.Join(retErr, os.RemoveAll(buildCtx)) }()
-
-	cmd := []string{
-		c.Runtime, "build",
-		"--platform", "linux/" + arch,
-		"-f", filepath.Join(buildCtx, "Dockerfile"),
-		"-t", "md-local",
-	}
-	if serialSetup {
-		cmd = append(cmd, "--build-arg", "MD_SERIAL_SETUP=1")
-	}
-	if c.GithubToken != "" {
-		cmd = append(cmd, "--secret", "id=github_token,env=GITHUB_TOKEN")
-	} else {
+	if c.GithubToken == "" {
 		_, _ = fmt.Fprintln(c.W, "WARNING: GITHUB_TOKEN not found. Some tools (neovim, rust-analyzer, etc) might fail to install or hit rate limits.")
 		_, _ = fmt.Fprintln(c.W, "Please set GITHUB_TOKEN to avoid issues:")
 		_, _ = fmt.Fprintln(c.W, "  https://github.com/settings/personal-access-tokens/new?name=md-build-image&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/caic-xyz/md")
 		_, _ = fmt.Fprintln(c.W, "  export GITHUB_TOKEN=...")
 	}
-	cmd = append(cmd, buildCtx)
-	if _, err := runCmd(ctx, "", cmd, false); err != nil {
+
+	// Step 1: build the root image.
+	_, _ = fmt.Fprintln(c.W, "- Building root Docker image from rsc/root/Dockerfile ...")
+	rootCtx, err := prepareRootBuildContext()
+	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintln(c.W, "- Base image built as 'md-local'.")
+	defer func() { retErr = errors.Join(retErr, os.RemoveAll(rootCtx)) }()
+	rootCmd := []string{
+		c.Runtime, "build",
+		"--platform", "linux/" + arch,
+		"-f", filepath.Join(rootCtx, "Dockerfile"),
+		"-t", "md-root-local",
+	}
+	if c.GithubToken != "" {
+		rootCmd = append(rootCmd, "--secret", "id=github_token,env=GITHUB_TOKEN")
+	}
+	rootCmd = append(rootCmd, rootCtx)
+	if _, err := runCmd(ctx, "", rootCmd, false); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(c.W, "- Root image built as 'md-root-local'.")
+
+	// Step 2: build the user image on top of the root image.
+	_, _ = fmt.Fprintln(c.W, "- Building user Docker image from rsc/user/Dockerfile ...")
+	userCtx, err := prepareBuildContext()
+	if err != nil {
+		return err
+	}
+	defer func() { retErr = errors.Join(retErr, os.RemoveAll(userCtx)) }()
+	userCmd := []string{
+		c.Runtime, "build",
+		"--platform", "linux/" + arch,
+		"-f", filepath.Join(userCtx, "Dockerfile"),
+		"--build-arg", "BASE_ROOT_IMAGE=md-root-local",
+		"-t", "md-user-local",
+	}
+	if serialSetup {
+		userCmd = append(userCmd, "--build-arg", "MD_SERIAL_SETUP=1")
+	}
+	if c.GithubToken != "" {
+		userCmd = append(userCmd, "--secret", "id=github_token,env=GITHUB_TOKEN")
+	}
+	userCmd = append(userCmd, userCtx)
+	if _, err := runCmd(ctx, "", userCmd, false); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(c.W, "- User image built as 'md-user-local'.")
 	c.invalidateImageBuildCache()
-	// Clean up BuildKit cache (--mount=type=cache volumes from rsc/user/Dockerfile).
+	// Clean up BuildKit cache (--mount=type=cache volumes from Dockerfiles).
 	// These are only useful during the build itself; pruning avoids leaving
 	// orphaned resources on disk.
 	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}, true); err != nil {

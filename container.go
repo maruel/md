@@ -27,7 +27,7 @@ import (
 )
 
 // DefaultBaseImage is the base image used when none is specified.
-const DefaultBaseImage = "ghcr.io/caic-xyz/md"
+const DefaultBaseImage = "ghcr.io/caic-xyz/md-user"
 
 // Repo describes a git repository to push into a container.
 // It is mounted at /home/user/src/<basename>.
@@ -45,7 +45,7 @@ type Repo struct {
 // StartOpts configures container startup.
 type StartOpts struct {
 	// BaseImage is the full Docker image reference (e.g.
-	// "ghcr.io/caic-xyz/md:v0.7.1" or "myregistry/custom:tag"). When empty,
+	// "ghcr.io/caic-xyz/md-user:v0.7.1" or "myregistry/custom:tag"). When empty,
 	// DefaultBaseImage is used.
 	BaseImage string
 	// Display enables X11/VNC virtual display (port 5901).

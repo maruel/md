@@ -18,7 +18,7 @@ curl -fsSL https://ampcode.com/install.sh | bash
 # Handling configuration linking for the installer
 mkdir -p "$HOME/.claude"
 if [ ! -f "$HOME/.claude/claude.json" ]; then
-	echo "{}" > "$HOME/.claude/claude.json"
+	echo "{}" >"$HOME/.claude/claude.json"
 fi
 ln -sf "$HOME/.claude/claude.json" "$HOME/.claude.json"
 curl -fsSL https://claude.ai/install.sh | bash

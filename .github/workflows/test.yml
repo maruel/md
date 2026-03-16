@@ -95,9 +95,9 @@ jobs:
 
       - run: go install mvdan.cc/sh/v3/cmd/shfmt@latest
         if: runner.os == 'Linux'
-      - run: shellcheck -x rsc/user/**/*.sh
+      - run: find rsc -name '*.sh' -print0 | xargs -0 shellcheck -x
         if: runner.os == 'Linux'
-      - run: $HOME/go/bin/shfmt -d rsc/user/**/*.sh
+      - run: find rsc -name '*.sh' -print0 | xargs -0 "$HOME/go/bin/shfmt" -d
         if: runner.os == 'Linux'
       - uses: actions/setup-python@v6
         if: runner.os == 'Linux'
@@ -127,7 +127,7 @@ jobs:
           fi
       - name: "Check: addlicense; all sources have a license header (ubuntu)"
         if: always() && matrix.os == 'ubuntu-latest'
-        run: addlicense -ignore "rsc/user/**" -check .
+        run: addlicense -ignore "rsc/root/**" -ignore "rsc/user/**" -check .
       - name: "Check: go generate doesn't modify files"
         if: always()
         run: |

@@ -19,15 +19,42 @@ SHELL ["/bin/bash", "-lc"]
 # Copy all /home/user files.
 COPY --chown=user:user home/user/ /home/user/
 
+# Set GITHUB_TOKEN for setup scripts if the secret is available.
+# Each RUN gets its own layer for better caching and smaller diffs.
 RUN mkdir -p /home/user/.ssh /home/user/.cache/go-build /home/user/go/pkg && chmod 0700 /home/user/.ssh
 
-# Install tools (as user) in parallel (set MD_SERIAL_SETUP=1 for serial execution)
-ARG MD_SERIAL_SETUP=0
-ENV MD_SERIAL_SETUP=${MD_SERIAL_SETUP}
 RUN --mount=type=cache,target=/home/user/.cache/go-build,uid=1000 \
     --mount=type=cache,target=/home/user/go/pkg/mod,uid=1000 \
     --mount=type=secret,id=github_token,uid=1000 \
-    /home/user/setup/run_all.sh
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
+    measure_exec.sh 'Go' /home/user/setup/1_go.sh
+
+RUN --mount=type=secret,id=github_token,uid=1000 \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
+    measure_exec.sh 'Node.js' /home/user/setup/2_nodejs.sh
+
+RUN --mount=type=secret,id=github_token,uid=1000 \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
+    measure_exec.sh 'Bun' /home/user/setup/3_bun.sh
+
+RUN --mount=type=secret,id=github_token,uid=1000 \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
+    measure_exec.sh 'Android SDK' /home/user/setup/4_android.sh
+
+RUN --mount=type=secret,id=github_token,uid=1000 \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
+    measure_exec.sh 'Rust' /home/user/setup/5_rust.sh
+
+RUN --mount=type=secret,id=github_token,uid=1000 \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
+    measure_exec.sh 'Python' /home/user/setup/6_python.sh
+
+RUN --mount=type=secret,id=github_token,uid=1000 \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
+    measure_exec.sh 'LLM Tools' /home/user/setup/7_llm_tools.sh
+
+# Remove lines that installers (nvm, bun, opencode) appended to .bashrc.
+RUN measure_exec.sh 'Bashrc Cleanup' /home/user/setup/bashrc_cleanup.sh
 
 # Generate tool version report
 SHELL ["/bin/bash", "-ilc"]

@@ -876,7 +876,6 @@ func cmdVNC(ctx context.Context, args []string) error {
 func cmdBuildImage(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("build-image", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
-	serialSetup := fs.Bool("serial-setup", false, "Run setup steps serially instead of in parallel")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -885,7 +884,7 @@ func cmdBuildImage(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return c.BuildImage(ctx, *serialSetup)
+	return c.BuildImage(ctx)
 }
 
 func cmdPrune(ctx context.Context, args []string) error {

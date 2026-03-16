@@ -240,7 +240,7 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 
 // BuildImage builds the base Docker images locally: first md-root-local,
 // then md-user-local on top of it.
-func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error) {
+func (c *Client) BuildImage(ctx context.Context) (retErr error) {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 	arch := runtime.GOARCH
@@ -287,9 +287,6 @@ func (c *Client) BuildImage(ctx context.Context, serialSetup bool) (retErr error
 		"-f", filepath.Join(userCtx, "Dockerfile"),
 		"--build-arg", "BASE_ROOT_IMAGE=md-root-local",
 		"-t", "md-user-local",
-	}
-	if serialSetup {
-		userCmd = append(userCmd, "--build-arg", "MD_SERIAL_SETUP=1")
 	}
 	if c.GithubToken != "" {
 		userCmd = append(userCmd, "--secret", "id=github_token,env=GITHUB_TOKEN")

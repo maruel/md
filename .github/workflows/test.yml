@@ -121,7 +121,7 @@ jobs:
       - name: "Check: no executable was committed (ubuntu)"
         if: always() && matrix.os == 'ubuntu-latest'
         run: |
-          if find . -type f -not -path './.git/*' -not -path './cache/*' -not -path './py/venv/*' -not -name '*.sh' -not -name '*.py' -perm /111 | grep -e . ; then
+          if git ls-files --stage | awk '$1 == "100755" && $4 !~ /\.(sh|py)$/ {print $4}' | while IFS= read -r f; do head -1 "$f" | grep -qE '^#!.*(sh|bash|zsh|ash|dash)' || echo "$f"; done | grep -e . ; then
             echo 'Do not commit executables beside shell scripts'
             false
           fi

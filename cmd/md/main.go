@@ -579,7 +579,7 @@ func cmdList(ctx context.Context, args []string) error {
 		fmt.Println("No running md containers")
 		return nil
 	}
-	fmt.Printf("%-30s %-10s %-12s %s\n", "Container", "Status", "Uptime", "Features")
+	fmt.Printf("%-30s %-10s %12s  %s\n", "Container", "Status", "Uptime", "Features")
 	fmt.Println(strings.Repeat("-", 80))
 	for _, ct := range containers {
 		var features []string
@@ -596,7 +596,7 @@ func cmdList(ctx context.Context, args []string) error {
 		if ct.USB {
 			features = append(features, "usb")
 		}
-		fmt.Printf("%-30s %-10s %-12s %s\n", ct.Name, ct.State, time.Since(ct.CreatedAt).Truncate(time.Second), strings.Join(features, ","))
+		fmt.Printf("%-30s %-10s %12s  %s\n", ct.Name, ct.State, time.Since(ct.CreatedAt).Truncate(time.Second), strings.Join(features, ","))
 		if s := allStats[ct.Name]; s != nil {
 			if ct.State == "running" {
 				fmt.Printf("  CPU: %.1f%%  Mem: %s/%s (%.1f%%)  PIDs: %d\n",

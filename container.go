@@ -971,15 +971,7 @@ func (c *Container) ensureImage(ctx context.Context, baseImage string, caches []
 		}
 		return imageName, nil
 	}
-	if !quiet && len(caches) > 0 {
-		printCacheInfo(c.W, caches, c.Home)
-	}
-	buildCtx, err := prepareSpecializedBuildContext()
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = os.RemoveAll(buildCtx) }()
-	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, imageName, baseImage, c.Home, caches, agentContainerPaths(), quiet); err != nil {
+	if err := buildSpecializedImage(ctx, c.Runtime, c.W, c.keysDir, imageName, baseImage, c.Home, caches, agentContainerPaths(), quiet); err != nil {
 		return "", err
 	}
 	c.invalidateImageBuildCache()

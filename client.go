@@ -333,21 +333,10 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 		}
 		return false, nil
 	}
-	if !opts.Quiet && len(opts.Caches) > 0 {
-		printCacheInfo(c.W, opts.Caches, c.Home)
-	}
-	buildCtx, err := prepareSpecializedBuildContext()
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = os.RemoveAll(buildCtx) }()
-	if err := buildCustomizedImage(ctx, c.Runtime, c.W, buildCtx, c.keysDir, imageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
+	if err := buildSpecializedImage(ctx, c.Runtime, c.W, c.keysDir, imageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
 		return false, err
 	}
 	c.invalidateImageBuildCache()
-	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}, true); err != nil {
-		_, _ = fmt.Fprintf(c.W, "- Warning: pruning build cache: %v\n", err)
-	}
 	return true, nil
 }
 

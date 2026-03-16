@@ -22,14 +22,14 @@ A file to [guide coding agents](https://agents.md/).
 - **`md-user-local`** — user image built locally from `rsc/user/Dockerfile` on top of `md-root-local` via `md build-image` (second step). Used as base when `--image md-user-local` is passed.
 - **`ghcr.io/caic-xyz/md-root:latest`** — remote root image with system packages. Rebuilt infrequently (when root setup scripts change). Built by `docker-build-root.yml`.
 - **`ghcr.io/caic-xyz/md-user:latest`** (default) or any `--image`/`--tag` variant — remote user image with Go, Node, Rust, etc. Rebuilt weekly. Built by `docker-build-user.yml` on top of `md-root`.
-- **`md-specialized-<hash>`** — customized per-user image built from `rsc/specialized/Dockerfile` on top of the chosen base. Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
+- **`md-specialized-<hash>`** — specialized per-user image built on top of the chosen base via a generated Dockerfile + `docker build`. A Dockerfile is created at runtime with `COPY --chown` for SSH keys and `COPY --from=<named-context> --chown` for cache directories, then built with `--no-cache --pull=never --build-context cache-<name>=<hostpath>`. This approach was chosen over `docker create`/`cp`/`commit` (slower: `docker cp` uses API round-trips vs COPY's storage-driver-level tar streaming, and requires starting the container for permission fixes) and over a static Dockerfile (cannot adapt to dynamic cache sets). Built automatically by `md start` and `md run` when needed. The image name includes a 32-hex-char hash of (base image, active cache key) so that different base images or cache sets get distinct images without clobbering each other. Computed by `userImageName()` in `docker.go`.
 
 ### When the user image is rebuilt
 
 `imageBuildNeeded` (`docker.go`) returns `true` (triggering a rebuild) when any of the following change:
 1. `md.base_digest` label missing/empty, or differs from the current base image digest.
 2. For remote base images: registry has a newer version than the local copy.
-3. `md.context_sha` label differs from the SHA of the embedded `rsc/user/` build context + SSH keys.
+3. `md.context_sha` label differs from the SHA of the SSH keys.
 4. `md.cache_key` label differs from `cacheSpecKey` of the **active** caches (those whose host directories currently exist).
 
 ### Cache injection
@@ -45,7 +45,7 @@ A file to [guide coding agents](https://agents.md/).
 
 **Well-known cache names** (defined in `WellKnownCaches`, `client.go`): bun, cargo, go-mod, gradle, maven, npm, pip, pnpm, uv.
 
-**Adding a new well-known cache**: add an entry to `WellKnownCaches` in `client.go`. No other changes needed — it is automatically picked up by `resolveCaches`, `appendCacheLayers`, and the flag help text.
+**Adding a new well-known cache**: add an entry to `WellKnownCaches` in `client.go`. No other changes needed — it is automatically picked up by `resolveCaches` and the flag help text.
 
 ### Key labels on user image
 
@@ -53,8 +53,9 @@ A file to [guide coding agents](https://agents.md/).
 |---|---|
 | `md.base_image` | Base image reference used at build time |
 | `md.base_digest` | Digest (or image ID for local images) of the base |
-| `md.context_sha` | SHA-256 of `rsc/user/` build context + SSH keys |
+| `md.context_sha` | SHA-256 of SSH keys |
 | `md.cache_key` | 8-byte hex hash of the **active** (injected) cache names+paths |
+| `md.base_manifest_digest` | Per-platform manifest digest from the registry (remote bases only) |
 
 ## Adding a New Tool Checklist
 
@@ -138,5 +139,3 @@ The `rsc/` directory is split into three build contexts, one per image layer:
     - `rsc/user/home/user/.config/bash.d/` - Modular bash extensions sourced via `/etc/bash_env` (see Shell Environment below)
     - `rsc/user/home/user/setup/` - User-level installation scripts (numbered 1+)
     - `rsc/user/home/user/src/AGENTS.md` - Agent documentation inside container (keep in sync)
-- `rsc/specialized/` — Build context for `md-specialized-*` (per-user SSH key specialization)
-  - `rsc/specialized/Dockerfile` - Per-user image build file (FROM md-user)

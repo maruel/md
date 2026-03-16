@@ -192,12 +192,12 @@ func TestIsRootlessPodman(t *testing.T) {
 }
 
 func TestRscFS(t *testing.T) {
-	t.Run("Dockerfile", func(t *testing.T) {
-		if _, err := rscFS.ReadFile("rsc/specialized/Dockerfile"); err != nil {
-			t.Fatalf("embedded rsc/specialized/Dockerfile not found: %v", err)
+	t.Run("root_Dockerfile", func(t *testing.T) {
+		if _, err := rscFS.ReadFile("rsc/root/Dockerfile"); err != nil {
+			t.Fatalf("embedded rsc/root/Dockerfile not found: %v", err)
 		}
 	})
-	t.Run("Dockerfile.base", func(t *testing.T) {
+	t.Run("user_Dockerfile", func(t *testing.T) {
 		if _, err := rscFS.ReadFile("rsc/user/Dockerfile"); err != nil {
 			t.Fatalf("embedded rsc/user/Dockerfile not found: %v", err)
 		}

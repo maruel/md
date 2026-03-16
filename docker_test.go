@@ -7,7 +7,7 @@ package md
 import (
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
 )
 
@@ -99,89 +99,7 @@ func TestDirStats(t *testing.T) {
 	}
 }
 
-func setupContextSHAHash(t *testing.T) (buildCtx, keysDir string) {
-	buildCtx = t.TempDir()
-	keysDir = t.TempDir()
-	if err := os.MkdirAll(filepath.Join(buildCtx, "sub"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range []struct{ name, content string }{
-		{"a.txt", "aaa"},
-		{"b.txt", "bbb"},
-		{"sub/c.txt", "ccc"},
-	} {
-		if err := os.WriteFile(filepath.Join(buildCtx, f.name), []byte(f.content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, f := range []struct{ name, content string }{
-		{"ssh_host_ed25519_key", "hostkey"},
-		{"ssh_host_ed25519_key.pub", "hostkey.pub"},
-		{"authorized_keys", "authkeys"},
-	} {
-		if err := os.WriteFile(filepath.Join(keysDir, f.name), []byte(f.content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return buildCtx, keysDir
-}
-
-func TestContextSHAHash(t *testing.T) {
-	t.Run("valid_hex", func(t *testing.T) {
-		buildCtx, keysDir := setupContextSHAHash(t)
-		got, err := contextSHAHash(buildCtx, keysDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 64 {
-			t.Fatalf("expected 64-char hex string, got %q", got)
-		}
-	})
-
-	t.Run("deterministic", func(t *testing.T) {
-		buildCtx, keysDir := setupContextSHAHash(t)
-		got1, err := contextSHAHash(buildCtx, keysDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got2, err := contextSHAHash(buildCtx, keysDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got1 != got2 {
-			t.Fatalf("expected deterministic hash, got %q then %q", got1, got2)
-		}
-	})
-
-	t.Run("sensitive_to_change", func(t *testing.T) {
-		buildCtx, keysDir := setupContextSHAHash(t)
-		before, err := contextSHAHash(buildCtx, keysDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(buildCtx, "a.txt"), []byte("modified"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		after, err := contextSHAHash(buildCtx, keysDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if before == after {
-			t.Fatal("hash should differ after modifying a file")
-		}
-	})
-
-	t.Run("missing_key_file", func(t *testing.T) {
-		buildCtx := t.TempDir()
-		keysDir := t.TempDir()
-		_, err := contextSHAHash(buildCtx, keysDir)
-		if err == nil {
-			t.Fatal("expected error for missing key files")
-		}
-	})
-}
-
-func TestEmbeddedContextSHA(t *testing.T) {
+func TestKeysSHA(t *testing.T) {
 	keysDir := t.TempDir()
 	for _, f := range []struct{ name, content string }{
 		{"ssh_host_ed25519_key", "hostkey"},
@@ -193,36 +111,34 @@ func TestEmbeddedContextSHA(t *testing.T) {
 		}
 	}
 
-	t.Run("matches_contextSHAHash", func(t *testing.T) {
-		buildCtx, err := prepareSpecializedBuildContext()
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.RemoveAll(buildCtx) }()
-		diskSHA, err := contextSHAHash(buildCtx, keysDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		embeddedSHA, err := embeddedContextSHA(keysDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if diskSHA != embeddedSHA {
-			t.Fatalf("embeddedContextSHA=%q != contextSHAHash=%q", embeddedSHA, diskSHA)
-		}
-	})
-
 	t.Run("deterministic", func(t *testing.T) {
-		got1, err := embeddedContextSHA(keysDir)
+		got1, err := keysSHA(keysDir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got2, err := embeddedContextSHA(keysDir)
+		got2, err := keysSHA(keysDir)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got1 != got2 {
 			t.Fatalf("expected deterministic hash, got %q then %q", got1, got2)
+		}
+	})
+
+	t.Run("changes_with_keys", func(t *testing.T) {
+		sha1, err := keysSHA(keysDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(keysDir, "authorized_keys"), []byte("different"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sha2, err := keysSHA(keysDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sha1 == sha2 {
+			t.Error("keysSHA should change when key content changes")
 		}
 	})
 }
@@ -267,14 +183,8 @@ func TestCacheSpecKey(t *testing.T) {
 	})
 }
 
-func TestAppendCacheLayers(t *testing.T) {
-	t.Run("existing_cache_appended", func(t *testing.T) {
-		// Create a fake Dockerfile and a fake host cache dir.
-		tmpDir := t.TempDir()
-		dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
-		if err := os.WriteFile(dockerfilePath, []byte("FROM scratch\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+func TestResolveCaches(t *testing.T) {
+	t.Run("existing_cache_resolved", func(t *testing.T) {
 		cacheDir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(cacheDir, "file.txt"), []byte("data"), 0o644); err != nil {
 			t.Fatal(err)
@@ -285,110 +195,57 @@ func TestAppendCacheLayers(t *testing.T) {
 			HostPath:      cacheDir,
 			ContainerPath: "/home/user/.cache/myapp",
 		}}
-		extraArgs, activeKey, err := appendCacheLayers(dockerfilePath, caches, "/home/user", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		active, dirs, activeKey := resolveCaches(caches, "/home/user", nil)
 
-		// Should return --build-context args.
-		if len(extraArgs) != 2 || extraArgs[0] != "--build-context" || extraArgs[1] != "mycache="+cacheDir {
-			t.Errorf("extraArgs = %v, want [--build-context mycache=%s]", extraArgs, cacheDir)
+		if len(active) != 1 || active[0].cm.Name != "mycache" {
+			t.Errorf("active = %v, want 1 entry for mycache", active)
 		}
-		// activeKey must be non-empty (cache dir exists).
 		if activeKey == "" {
 			t.Error("activeKey should be non-empty when cache dir exists")
 		}
-
-		// The Dockerfile should have the COPY instruction appended.
-		content, err := os.ReadFile(dockerfilePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := string(content)
-		if !strings.Contains(got, "COPY --chown=user:user --from=mycache / /home/user/.cache/myapp/") {
-			t.Errorf("Dockerfile missing COPY instruction:\n%s", got)
+		// Should include the cache container path and its intermediary.
+		if !slices.Contains(dirs, "/home/user/.cache/myapp") {
+			t.Errorf("dirs = %v, want to contain /home/user/.cache/myapp", dirs)
 		}
 	})
 
 	t.Run("missing_cache_skipped", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
-		if err := os.WriteFile(dockerfilePath, []byte("FROM scratch\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
 		caches := []CacheMount{{
 			Name:          "missing",
 			HostPath:      "/nonexistent/path/that/does/not/exist",
 			ContainerPath: "/home/user/.cache/missing",
 		}}
-		extraArgs, activeKey, err := appendCacheLayers(dockerfilePath, caches, "/home/user", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Missing cache produces no extra args and empty active key.
-		if len(extraArgs) != 0 {
-			t.Errorf("extraArgs = %v, want empty", extraArgs)
+		active, _, activeKey := resolveCaches(caches, "/home/user", nil)
+
+		if len(active) != 0 {
+			t.Errorf("active = %v, want empty", active)
 		}
 		if activeKey != "" {
 			t.Errorf("activeKey = %q, want \"\" for missing cache", activeKey)
 		}
-		// Dockerfile should not have a COPY instruction.
-		content, err := os.ReadFile(dockerfilePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(content), "COPY --from=missing") {
-			t.Error("Dockerfile should not contain COPY for missing cache")
-		}
 	})
 
-	t.Run("mount_paths_mkdir", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
-		if err := os.WriteFile(dockerfilePath, []byte("FROM scratch\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
+	t.Run("mount_paths_included", func(t *testing.T) {
 		mountPaths := []string{"/home/user/.amp", "/home/user/.claude"}
-		extraArgs, activeKey, err := appendCacheLayers(dockerfilePath, nil, "/home/user", mountPaths)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(extraArgs) != 0 {
-			t.Errorf("extraArgs = %v, want empty", extraArgs)
-		}
+		_, dirs, activeKey := resolveCaches(nil, "/home/user", mountPaths)
+
 		if activeKey != "" {
 			t.Errorf("activeKey = %q, want \"\" when no caches", activeKey)
 		}
-		content, err := os.ReadFile(dockerfilePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := string(content)
-		if !strings.Contains(got, "mkdir -p") {
-			t.Error("Dockerfile should contain mkdir -p for mount paths")
-		}
-		if !strings.Contains(got, "/home/user/.amp") {
-			t.Error("Dockerfile should contain /home/user/.amp")
-		}
-		if !strings.Contains(got, "/home/user/.claude") {
-			t.Error("Dockerfile should contain /home/user/.claude")
+		for _, want := range mountPaths {
+			if !slices.Contains(dirs, want) {
+				t.Errorf("dirs = %v, want to contain %s", dirs, want)
+			}
 		}
 	})
 
-	t.Run("no_caches_no_mount_paths_returns_nil", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
-		if err := os.WriteFile(dockerfilePath, []byte("FROM scratch\n"), 0o644); err != nil {
-			t.Fatal(err)
+	t.Run("no_caches_no_mount_paths", func(t *testing.T) {
+		active, dirs, activeKey := resolveCaches(nil, "/home/user", nil)
+		if len(active) != 0 {
+			t.Errorf("active = %v, want empty", active)
 		}
-		extraArgs, activeKey, err := appendCacheLayers(dockerfilePath, nil, "/home/user", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if extraArgs != nil {
-			t.Errorf("extraArgs = %v, want nil", extraArgs)
+		if len(dirs) != 0 {
+			t.Errorf("dirs = %v, want empty", dirs)
 		}
 		if activeKey != "" {
 			t.Errorf("activeKey = %q, want \"\"", activeKey)
@@ -396,25 +253,12 @@ func TestAppendCacheLayers(t *testing.T) {
 	})
 
 	t.Run("activeKey_differs_from_requested_when_dir_missing", func(t *testing.T) {
-		// This is the core correctness invariant: if a requested cache dir does
-		// not exist on the host, activeKey must differ from cacheSpecKey of the
-		// requested set. imageBuildNeeded will then trigger a rebuild the next
-		// time the dir exists, rather than falsely reporting "up to date".
-		tmpDir := t.TempDir()
-		dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
-		if err := os.WriteFile(dockerfilePath, []byte("FROM scratch\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
 		requested := []CacheMount{{
 			Name:          "missing",
 			HostPath:      "/nonexistent/path",
 			ContainerPath: "/home/user/.cache/missing",
 		}}
-		_, activeKey, err := appendCacheLayers(dockerfilePath, requested, "/home/user", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		_, _, activeKey := resolveCaches(requested, "/home/user", nil)
 		requestedKey := cacheSpecKey(requested)
 		if activeKey == requestedKey {
 			t.Errorf("activeKey %q should differ from requestedKey %q when host dir is missing", activeKey, requestedKey)

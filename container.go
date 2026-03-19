@@ -742,6 +742,10 @@ func StatsAll(ctx context.Context, runtime string, names []string) (map[string]*
 				return
 			}
 			mu.Lock()
+			if existing, ok := result[name]; ok {
+				// Inspect goroutine may have already set DiskUsed; preserve it.
+				s.DiskUsed = existing.DiskUsed
+			}
 			result[name] = s
 			mu.Unlock()
 		}

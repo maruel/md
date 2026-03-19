@@ -12,6 +12,7 @@ apt-get upgrade -qq -y >/dev/null
 echo "- apt-get install"
 apt-get install -qq -y --no-install-recommends \
 	bash-completion \
+	bind9-dnsutils \
 	binutils \
 	bison \
 	brotli \
@@ -80,6 +81,7 @@ apt-get install -qq -y --no-install-recommends \
 	uidmap \
 	unzip \
 	wget \
+	whois \
 	xfce4 \
 	xfce4-terminal \
 	xvfb \

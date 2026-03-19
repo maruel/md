@@ -711,59 +711,47 @@ func (c *Container) DiskUsage(ctx context.Context) (int64, error) {
 
 // StatsAll fetches resource usage for multiple containers in batch (2 docker
 // calls instead of 2N). Returns a map keyed by container name.
-func StatsAll(ctx context.Context, runtime string, containers []*Container) (map[string]*ContainerStats, error) {
-	result := make(map[string]*ContainerStats, len(containers))
-	if len(containers) == 0 {
+func StatsAll(ctx context.Context, runtime string, names []string) (map[string]*ContainerStats, error) {
+	result := make(map[string]*ContainerStats, len(names))
+	if len(names) == 0 {
 		return result, nil
 	}
 	var mu sync.Mutex
 	var statsErr, inspectErr error
 
-	// Collect running container names for docker stats.
-	var running []string
-	allNames := make([]string, 0, len(containers))
-	for _, ct := range containers {
-		allNames = append(allNames, ct.Name)
-		if ct.State == "running" {
-			running = append(running, ct.Name)
-		}
-	}
-
 	var wg sync.WaitGroup
 
-	// Batch docker stats for all running containers (one call).
-	if len(running) > 0 {
-		wg.Go(func() {
-			args := make([]string, 0, 6+len(running))
-			args = append(args, runtime, "stats", "--no-stream", "--no-trunc", "--format", "{{json .}}")
-			args = append(args, running...)
-			out, err := runCmd(ctx, "", args, true)
+	// Batch docker stats (one call). Stopped containers return zeros.
+	wg.Go(func() {
+		args := make([]string, 0, 6+len(names))
+		args = append(args, runtime, "stats", "--no-stream", "--no-trunc", "--format", "{{json .}}")
+		args = append(args, names...)
+		out, err := runCmd(ctx, "", args, true)
+		if err != nil {
+			statsErr = fmt.Errorf("docker stats: %w", err)
+			return
+		}
+		for line := range strings.SplitSeq(out, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			s, name, err := parseStatsLine(line)
 			if err != nil {
 				statsErr = fmt.Errorf("docker stats: %w", err)
 				return
 			}
-			for line := range strings.SplitSeq(out, "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" {
-					continue
-				}
-				s, name, err := parseStatsLine(line)
-				if err != nil {
-					statsErr = fmt.Errorf("docker stats: %w", err)
-					return
-				}
-				mu.Lock()
-				result[name] = s
-				mu.Unlock()
-			}
-		})
-	}
+			mu.Lock()
+			result[name] = s
+			mu.Unlock()
+		}
+	})
 
-	// Batch docker inspect --size for all containers (one call).
+	// Batch docker inspect --size (one call).
 	wg.Go(func() {
-		args := make([]string, 0, 5+len(allNames))
+		args := make([]string, 0, 5+len(names))
 		args = append(args, runtime, "inspect", "--size", "--format", "{{.Name}}\t{{json .SizeRw}}")
-		args = append(args, allNames...)
+		args = append(args, names...)
 		out, err := runCmd(ctx, "", args, true)
 		if err != nil {
 			inspectErr = fmt.Errorf("docker inspect --size: %w", err)

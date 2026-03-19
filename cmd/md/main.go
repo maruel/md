@@ -548,8 +548,12 @@ func cmdList(ctx context.Context, args []string) error {
 	// Batch-fetch stats for all containers in 2 docker calls.
 	var allStats map[string]*md.ContainerStats
 	if *showStats && len(containers) > 0 {
+		names := make([]string, len(containers))
+		for i, ct := range containers {
+			names[i] = ct.Name
+		}
 		var statsErr error
-		allStats, statsErr = md.StatsAll(ctx, c.Runtime, containers)
+		allStats, statsErr = md.StatsAll(ctx, c.Runtime, names)
 		if statsErr != nil {
 			slog.Warn("fetching container stats", "err", statsErr)
 		}

@@ -142,6 +142,42 @@ func TestUnmarshalContainer(t *testing.T) {
 	})
 }
 
+func TestParseStatsLine(t *testing.T) {
+	t.Run("normal", func(t *testing.T) {
+		line := `{"Name":"md-repo-main","CPUPerc":"1.23%","MemUsage":"150MiB / 7.5GiB","MemPerc":"1.95%","PIDs":"12","NetIO":"1.5kB / 500B","BlockIO":"10MB / 2MB"}`
+		s, name, err := parseStatsLine(line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != "md-repo-main" {
+			t.Errorf("name = %q, want %q", name, "md-repo-main")
+		}
+		if s.CPUPerc != 1.23 {
+			t.Errorf("CPUPerc = %v, want 1.23", s.CPUPerc)
+		}
+		if s.MemUsed != 150<<20 {
+			t.Errorf("MemUsed = %d, want %d", s.MemUsed, 150<<20)
+		}
+		if s.PIDs != 12 {
+			t.Errorf("PIDs = %d, want 12", s.PIDs)
+		}
+	})
+	t.Run("na_values", func(t *testing.T) {
+		// docker stats returns N/A when cgroup metrics are unavailable (e.g. DinD).
+		line := `{"Name":"md-repo-main","CPUPerc":"N/A","MemUsage":"N/A / N/A","MemPerc":"N/A","PIDs":"N/A","NetIO":"N/A / N/A","BlockIO":"N/A / N/A"}`
+		s, name, err := parseStatsLine(line)
+		if err != nil {
+			t.Fatalf("N/A values should not cause an error, got: %v", err)
+		}
+		if name != "md-repo-main" {
+			t.Errorf("name = %q, want %q", name, "md-repo-main")
+		}
+		if s.CPUPerc != 0 || s.MemUsed != 0 || s.MemLimit != 0 || s.NetRx != 0 || s.NetTx != 0 {
+			t.Errorf("expected all-zero stats for N/A, got %+v", s)
+		}
+	})
+}
+
 func TestParseCreatedAt(t *testing.T) {
 	tests := []struct {
 		name    string

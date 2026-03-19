@@ -824,9 +824,12 @@ func parseStatsLine(line string) (*ContainerStats, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("parsing mem usage: %w", err)
 	}
-	pids, err := strconv.Atoi(raw.PIDs)
-	if err != nil {
-		return nil, "", fmt.Errorf("parsing PIDs: %w", err)
+	var pids int
+	if raw.PIDs != "N/A" {
+		pids, err = strconv.Atoi(raw.PIDs)
+		if err != nil {
+			return nil, "", fmt.Errorf("parsing PIDs: %w", err)
+		}
 	}
 	netRx, netTx, err := parseIOPair(raw.NetIO)
 	if err != nil {
@@ -1226,14 +1229,22 @@ type tailscaleStatus struct {
 }
 
 // parsePercent parses a percentage string like "1.23%" into 1.23.
+// Returns 0 for "N/A" (unavailable cgroup metrics).
 func parsePercent(s string) (float64, error) {
 	s = strings.TrimSpace(s)
+	if s == "N/A" {
+		return 0, nil
+	}
 	s = strings.TrimSuffix(s, "%")
 	return strconv.ParseFloat(s, 64)
 }
 
 // parseMemUsage parses "150MiB / 7.5GiB" into (used, limit) in bytes.
+// Returns (0, 0) for "N/A / N/A" (unavailable cgroup metrics).
 func parseMemUsage(s string) (uint64, uint64, error) {
+	if strings.TrimSpace(s) == "N/A / N/A" {
+		return 0, 0, nil
+	}
 	parts := strings.SplitN(s, "/", 2)
 	if len(parts) != 2 {
 		return 0, 0, fmt.Errorf("expected 'used / limit', got %q", s)
@@ -1250,7 +1261,11 @@ func parseMemUsage(s string) (uint64, uint64, error) {
 }
 
 // parseIOPair parses "1.23kB / 456B" (docker NetIO / BlockIO) into two byte counts.
+// Returns (0, 0) for "N/A / N/A" (unavailable cgroup metrics).
 func parseIOPair(s string) (uint64, uint64, error) {
+	if strings.TrimSpace(s) == "N/A / N/A" {
+		return 0, 0, nil
+	}
 	parts := strings.SplitN(s, "/", 2)
 	if len(parts) != 2 {
 		return 0, 0, fmt.Errorf("expected 'a / b', got %q", s)

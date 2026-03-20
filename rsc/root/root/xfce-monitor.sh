@@ -13,12 +13,12 @@ log() {
 
 start_xfce() {
 	su - user -c "DISPLAY=$DISPLAY startxfce4" </dev/null &
-	for _ in $(seq 1 10); do
+	for _ in $(seq 1 50); do
 		pid=$(pgrep -u user -x xfce4-session) && {
 			echo "$pid"
 			return
 		}
-		sleep 1
+		sleep 0.2
 	done
 	log "xfce4-session did not start within 10s"
 	return 1

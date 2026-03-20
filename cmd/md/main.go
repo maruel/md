@@ -146,7 +146,7 @@ func usage() {
 }
 
 func newClient() (*md.Client, error) {
-	c, err := md.New()
+	c, err := md.New(os.Stdout)
 	if err != nil {
 		return nil, err
 	}
@@ -418,10 +418,10 @@ func cmdStart(ctx context.Context, args []string) error {
 		AgentPaths:       slices.Collect(maps.Values(md.HarnessMounts)),
 		ExtraEnv:         extraEnv,
 	}
-	if err := ct.Launch(ctx, &opts); err != nil {
+	if err := ct.Launch(ctx, os.Stdout, os.Stderr, &opts); err != nil {
 		return err
 	}
-	result, err := ct.Connect(ctx, &opts)
+	result, err := ct.Connect(ctx, os.Stdout, os.Stderr, &opts)
 	if err != nil {
 		return err
 	}
@@ -502,7 +502,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	if githubToken != "" {
 		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
 	}
-	exitCode, err := ct.Run(ctx, baseImage, extra, caches, extraEnv)
+	exitCode, err := ct.Run(ctx, os.Stdout, os.Stderr, baseImage, extra, caches, extraEnv)
 	if err != nil {
 		return err
 	}
@@ -533,7 +533,7 @@ func cmdList(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
-	c, err := md.New()
+	c, err := md.New(os.Stdout)
 	if err != nil {
 		return err
 	}
@@ -682,7 +682,7 @@ func cmdPurge(ctx context.Context, args []string) error {
 		}
 		for _, ct := range containers {
 			if ct.Name == name {
-				return ct.Purge(ctx)
+				return ct.Purge(ctx, os.Stdout, os.Stderr)
 			}
 		}
 		return fmt.Errorf("no container named %s", name)
@@ -691,7 +691,7 @@ func cmdPurge(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return ct.Purge(ctx)
+	return ct.Purge(ctx, os.Stdout, os.Stderr)
 }
 
 func cmdPush(ctx context.Context, args []string) error {
@@ -715,7 +715,7 @@ func cmdPush(ctx context.Context, args []string) error {
 		mu.Unlock()
 	}
 	if !*all {
-		backup, err := ct.Push(ctx, repoIdx)
+		backup, err := ct.Push(ctx, os.Stdout, os.Stderr, repoIdx)
 		if err != nil {
 			return err
 		}
@@ -725,7 +725,7 @@ func cmdPush(ctx context.Context, args []string) error {
 	eg, ctx2 := errgroup.WithContext(ctx)
 	for i := range ct.Repos {
 		eg.Go(func() error {
-			backup, err := ct.Push(ctx2, i)
+			backup, err := ct.Push(ctx2, os.Stdout, os.Stderr, i)
 			if err != nil {
 				return err
 			}
@@ -760,12 +760,12 @@ func cmdPull(ctx context.Context, args []string) error {
 		}
 	}
 	if !*all {
-		return ct.Pull(ctx, repoIdx, p)
+		return ct.Pull(ctx, os.Stdout, os.Stderr, repoIdx, p)
 	}
 	eg, ctx2 := errgroup.WithContext(ctx)
 	for i := range ct.Repos {
 		eg.Go(func() error {
-			return ct.Pull(ctx2, i, p)
+			return ct.Pull(ctx2, os.Stdout, os.Stderr, i, p)
 		})
 	}
 	return eg.Wait()
@@ -823,7 +823,7 @@ func cmdDiff(ctx context.Context, args []string) error {
 		if *all && len(ct.Repos) > 1 {
 			fmt.Printf("=== %s ===\n", filepath.Base(ct.Repos[i].GitRoot))
 		}
-		if err := ct.Diff(ctx, i, os.Stdout, os.Stderr, gitArgs); err != nil {
+		if err := ct.Diff(ctx, os.Stdout, os.Stderr, i, gitArgs); err != nil {
 			return err
 		}
 	}
@@ -888,7 +888,7 @@ func cmdBuildImage(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return c.BuildImage(ctx)
+	return c.BuildImage(ctx, os.Stdout, os.Stderr)
 }
 
 func cmdPrune(ctx context.Context, args []string) error {
@@ -902,7 +902,7 @@ func cmdPrune(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	removed, err := c.PruneImages(ctx)
+	removed, err := c.PruneImages(ctx, os.Stdout, os.Stderr)
 	if err != nil {
 		return err
 	}

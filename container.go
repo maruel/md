@@ -99,9 +99,6 @@ type StartResult struct {
 // and restored by [unmarshalContainer] when listing containers.
 type Container struct {
 	*Client
-	// W is the writer for progress output. Defaults to Client.W; set directly
-	// to redirect output for a specific container without affecting others.
-	W io.Writer
 	// Repos are the git repositories in this container. Repos[0] is the
 	// primary; the rest are pushed alongside it at /home/user/src/<basename>.
 	// Label: md.repos (base64-encoded JSON)
@@ -202,12 +199,12 @@ func (c *Container) prepare(paths []AgentPaths) error {
 // wait for SSH to become ready — call Connect to complete startup once the
 // container's repos have their branches set (e.g. after concurrent branch
 // allocation).
-func (c *Container) Launch(ctx context.Context, opts *StartOpts) (retErr error) {
+func (c *Container) Launch(ctx context.Context, stdout, stderr io.Writer, opts *StartOpts) (retErr error) {
 	if err := c.prepare(opts.AgentPaths); err != nil {
 		return err
 	}
 	// Check if container already exists.
-	if _, err := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name}, true); err == nil {
+	if _, err := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name}); err == nil {
 		return fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md purge' first",
 			c.Name, c.Name)
 	}
@@ -217,7 +214,7 @@ func (c *Container) Launch(ctx context.Context, opts *StartOpts) (retErr error) 
 		key, err := generateTailscaleAuthKey(c.TailscaleAPIKey)
 		if err != nil {
 			if !opts.Quiet {
-				_, _ = fmt.Fprintf(c.W, "- Could not generate Tailscale auth key (%v), will use browser auth\n", err)
+				_, _ = fmt.Fprintf(stdout, "- Could not generate Tailscale auth key (%v), will use browser auth\n", err)
 			}
 		} else {
 			opts.TailscaleAuthKey = key
@@ -229,18 +226,18 @@ func (c *Container) Launch(ctx context.Context, opts *StartOpts) (retErr error) 
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	imageName, err := c.ensureImage(ctx, baseImage, opts.Caches, opts.Quiet)
+	imageName, err := c.ensureImage(ctx, stdout, stderr, baseImage, opts.Caches, opts.Quiet)
 	if err != nil {
 		return err
 	}
-	return launchContainer(ctx, c, opts, imageName)
+	return launchContainer(ctx, stdout, stderr, c, opts, imageName)
 }
 
 // Connect waits for SSH, pushes repos into the container, and completes
 // startup. Must be called after Launch. Container.Repos must have
 // branches set before this call.
-func (c *Container) Connect(ctx context.Context, opts *StartOpts) (*StartResult, error) {
-	result, err := connectContainer(ctx, c, opts)
+func (c *Container) Connect(ctx context.Context, stdout, stderr io.Writer, opts *StartOpts) (*StartResult, error) {
+	result, err := connectContainer(ctx, stdout, stderr, c, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +254,7 @@ func (c *Container) Connect(ctx context.Context, opts *StartOpts) (*StartResult,
 // used. caches lists host directories to COPY into the image (same semantics
 // as StartOpts.Caches); nil means no caches. extraEnv holds KEY=VALUE pairs
 // injected into the container's ~/.env (see StartOpts.ExtraEnv).
-func (c *Container) Run(ctx context.Context, baseImage string, command []string, caches []CacheMount, extraEnv []string) (_ int, retErr error) {
+func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage string, command []string, caches []CacheMount, extraEnv []string) (_ int, retErr error) {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
 	var tmpRepos []Repo
@@ -270,7 +267,6 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	}
 	tmp := &Container{
 		Client: c.Client,
-		W:      c.W,
 		Repos:  tmpRepos,
 		Name:   tmpName,
 	}
@@ -278,16 +274,16 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	if baseImage == "" {
 		baseImage = DefaultBaseImage + ":latest"
 	}
-	imageName, err := c.ensureImage(ctx, baseImage, caches, true)
+	imageName, err := c.ensureImage(ctx, stdout, stderr, baseImage, caches, true)
 	if err != nil {
 		return 1, err
 	}
 	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv}
-	if err := launchContainer(ctx, tmp, &opts, imageName); err != nil {
+	if err := launchContainer(ctx, stdout, stderr, tmp, &opts, imageName); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
 	}
-	if _, err := connectContainer(ctx, tmp, &opts); err != nil {
+	if _, err := connectContainer(ctx, stdout, stderr, tmp, &opts); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
 	}
@@ -299,7 +295,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 	} else {
 		sshCmd = cmdStr
 	}
-	_, err = runCmd(ctx, "", c.SSHCommand(tmp.Name, sshCmd), false)
+	err = runCmdOut(ctx, "", c.SSHCommand(tmp.Name, sshCmd), stdout, stderr)
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -318,7 +314,7 @@ func (c *Container) Run(ctx context.Context, baseImage string, command []string,
 // rewrites the SSH config, and waits for SSH to become ready. It does NOT
 // push repos or send .env — the container's filesystem is preserved across
 // stop/start.
-func (c *Container) Revive(ctx context.Context) error {
+func (c *Container) Revive(ctx context.Context, stdout, stderr io.Writer) error {
 	// Validate git remotes before starting. Each remote must either be
 	// absent (will be added) or point to the expected URL. A remote
 	// pointing elsewhere indicates a name collision — fail early.
@@ -334,14 +330,14 @@ func (c *Container) Revive(ctx context.Context) error {
 			continue
 		}
 		// Remote doesn't exist, add it.
-		if _, err := runCmd(ctx, r.GitRoot, []string{"git", "remote", "add", c.Name, wantURL}, false); err != nil {
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "remote", "add", c.Name, wantURL}, stdout, stderr); err != nil {
 			return fmt.Errorf("adding git remote for %s: %w", rName, err)
 		}
 	}
 
 	// Start the stopped container.
 	rt := c.Runtime
-	if _, err := runCmd(ctx, "", []string{rt, "start", c.Name}, true); err != nil {
+	if _, err := runCmd(ctx, "", []string{rt, "start", c.Name}); err != nil {
 		return fmt.Errorf("docker start %s: %w", c.Name, err)
 	}
 
@@ -411,7 +407,7 @@ func waitForSSH(ctx context.Context, c *Container, deadline time.Time) error {
 // it with the new port), but the ControlMaster socket is removed to
 // prevent stale connections from interfering with subsequent SSH commands.
 func (c *Container) Stop(ctx context.Context) error {
-	if _, err := runCmd(ctx, "", []string{c.Runtime, "stop", c.Name}, true); err != nil {
+	if _, err := runCmd(ctx, "", []string{c.Runtime, "stop", c.Name}); err != nil {
 		return fmt.Errorf("docker stop %s: %w", c.Name, err)
 	}
 	// Clean up stale ControlMaster socket (if any). The SSH connection is
@@ -422,9 +418,9 @@ func (c *Container) Stop(ctx context.Context) error {
 }
 
 // Purge stops and removes the container, cleaning up SSH config and git remotes.
-func (c *Container) Purge(ctx context.Context) error {
+func (c *Container) Purge(ctx context.Context, stdout, stderr io.Writer) error {
 	rt := c.Runtime
-	_, containerErr := runCmd(ctx, "", []string{rt, "inspect", c.Name}, true)
+	_, containerErr := runCmd(ctx, "", []string{rt, "inspect", c.Name})
 	containerExists := containerErr == nil
 	var anyRemoteExists bool
 	for _, repo := range c.Repos {
@@ -447,17 +443,17 @@ func (c *Container) Purge(ctx context.Context) error {
 	// Clean up non-ephemeral Tailscale node.
 	if containerExists {
 		if !c.Tailscale {
-			tsLabel, _ := runCmd(ctx, "", []string{rt, "inspect", "--format", `{{index .Config.Labels "md.tailscale"}}`, c.Name}, true)
+			tsLabel, _ := runCmd(ctx, "", []string{rt, "inspect", "--format", `{{index .Config.Labels "md.tailscale"}}`, c.Name})
 			c.Tailscale = tsLabel == "1"
 		}
 		if c.Tailscale {
-			ephLabel, _ := runCmd(ctx, "", []string{rt, "inspect", "--format", `{{index .Config.Labels "md.tailscale_ephemeral"}}`, c.Name}, true)
+			ephLabel, _ := runCmd(ctx, "", []string{rt, "inspect", "--format", `{{index .Config.Labels "md.tailscale_ephemeral"}}`, c.Name})
 			if ephLabel != "1" {
-				statusJSON, err := runCmd(ctx, "", []string{rt, "exec", c.Name, "tailscale", "status", "--json"}, true)
+				statusJSON, err := runCmd(ctx, "", []string{rt, "exec", c.Name, "tailscale", "status", "--json"})
 				if err == nil {
 					var status tailscaleStatus
 					if json.Unmarshal([]byte(statusJSON), &status) == nil && status.Self.ID != "" {
-						_, _ = fmt.Fprintln(c.W, "- Removing Tailscale node from tailnet...")
+						_, _ = fmt.Fprintln(stdout, "- Removing Tailscale node from tailnet...")
 						deleteTailscaleDevice(c.TailscaleAPIKey, status.Self.ID)
 					}
 				}
@@ -477,17 +473,17 @@ func (c *Container) Purge(ctx context.Context) error {
 		}
 	}
 	if containerExists {
-		if _, err := runCmd(ctx, "", []string{rt, "rm", "-f", "-v", c.Name}, true); err != nil {
+		if _, err := runCmd(ctx, "", []string{rt, "rm", "-f", "-v", c.Name}); err != nil {
 			retErr = err
 		}
 	}
-	_, _ = fmt.Fprintf(c.W, "Removed %s\n", c.Name)
+	_, _ = fmt.Fprintf(stdout, "Removed %s\n", c.Name)
 	return retErr
 }
 
 // Push force-pushes local state for Repos[repoIdx] into the container,
 // saving a backup of the container state and returning the backup branch name.
-func (c *Container) Push(ctx context.Context, repoIdx int) (string, error) {
+func (c *Container) Push(ctx context.Context, stdout, stderr io.Writer, repoIdx int) (string, error) {
 	if len(c.Repos) == 0 {
 		return "", errors.New("container has no repos")
 	}
@@ -504,7 +500,7 @@ func (c *Container) Push(ctx context.Context, repoIdx int) (string, error) {
 	repoName := shellQuote(r.Name())
 	branch := shellQuote(r.Branch)
 	// Commit any pending changes in the container.
-	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"), true)
+	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git add . && (git diff --quiet HEAD -- . || git commit -q -m 'Backup before push')"))
 	// Refuse if there are pending local changes on the branch being pushed.
 	currentBranch, _ := gitutil.RunGit(ctx, r.GitRoot, "branch", "--show-current")
 	if currentBranch == r.Branch {
@@ -513,17 +509,17 @@ func (c *Container) Push(ctx context.Context, repoIdx int) (string, error) {
 		}
 	}
 	// Save a backup branch of the current container state.
-	containerCommit, _ := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git rev-parse HEAD"), true)
+	containerCommit, _ := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git rev-parse HEAD"))
 	backupBranch := "backup-" + time.Now().Format("20060102-150405")
-	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git branch -f "+backupBranch+" "+containerCommit), true)
-	if _, err := runCmd(ctx, r.GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, r.Branch + ":base"}, false); err != nil {
+	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git branch -f "+backupBranch+" "+containerCommit))
+	if err := runCmdOut(ctx, r.GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, r.Branch + ":base"}, stdout, stderr); err != nil {
 		return "", err
 	}
-	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git switch -q -C "+branch+" base"), false); err != nil {
+	if err := runCmdOut(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git switch -q -C "+branch+" base"), stdout, stderr); err != nil {
 		return "", err
 	}
 	// Update the local remote-tracking ref so it reflects the pushed state.
-	if _, err := runCmd(ctx, r.GitRoot, []string{"git", "update-ref", "refs/remotes/" + c.Name + "/" + r.Branch, r.Branch}, false); err != nil {
+	if err := runCmdOut(ctx, r.GitRoot, []string{"git", "update-ref", "refs/remotes/" + c.Name + "/" + r.Branch, r.Branch}, stdout, stderr); err != nil {
 		return "", err
 	}
 	return backupBranch, nil
@@ -533,7 +529,7 @@ func (c *Container) Push(ctx context.Context, repoIdx int) (string, error) {
 // fetches them locally, updating the remote-tracking ref without integrating.
 //
 // p controls AI commit message generation. Pass nil to use a default message.
-func (c *Container) Fetch(ctx context.Context, repoIdx int, p genai.Provider) error {
+func (c *Container) Fetch(ctx context.Context, stdout, stderr io.Writer, repoIdx int, p genai.Provider) error {
 	if len(c.Repos) == 0 {
 		return errors.New("container has no repos")
 	}
@@ -549,7 +545,7 @@ func (c *Container) Fetch(ctx context.Context, repoIdx int, p genai.Provider) er
 		return err
 	}
 	// Check if there are uncommitted changes in the container.
-	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git add . && git diff --quiet HEAD -- ."), true); err != nil {
+	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git add . && git diff --quiet HEAD -- .")); err != nil {
 		commitMsg := "Pull from md"
 		if p != nil {
 			metadata := c.gatherGitMetadata(ctx, c.Name, repoName)
@@ -564,11 +560,11 @@ func (c *Container) Fetch(ctx context.Context, repoIdx int, p genai.Provider) er
 		gitUserEmail, _ := gitutil.RunGit(ctx, r.GitRoot, "config", "user.email")
 		gitAuthor := shellQuote(gitUserName + " <" + gitUserEmail + ">")
 		commitCmd := "cd ~/src/" + repoName + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
-		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, commitCmd), false); err != nil {
+		if err := runCmdOut(ctx, "", c.SSHCommand(c.Name, commitCmd), stdout, stderr); err != nil {
 			return fmt.Errorf("committing in container: %w", err)
 		}
 	}
-	if _, err := runCmd(ctx, r.GitRoot, []string{"git", "fetch", "-q", c.Name, r.Branch}, false); err != nil {
+	if err := runCmdOut(ctx, r.GitRoot, []string{"git", "fetch", "-q", c.Name, r.Branch}, stdout, stderr); err != nil {
 		return err
 	}
 	return nil
@@ -578,8 +574,8 @@ func (c *Container) Fetch(ctx context.Context, repoIdx int, p genai.Provider) er
 // the local branch.
 //
 // p controls AI commit message generation. Pass nil to use a default message.
-func (c *Container) Pull(ctx context.Context, repoIdx int, p genai.Provider) error {
-	if err := c.Fetch(ctx, repoIdx, p); err != nil {
+func (c *Container) Pull(ctx context.Context, stdout, stderr io.Writer, repoIdx int, p genai.Provider) error {
+	if err := c.Fetch(ctx, stdout, stderr, repoIdx, p); err != nil {
 		return err
 	}
 	r := c.Repos[repoIdx]
@@ -587,12 +583,12 @@ func (c *Container) Pull(ctx context.Context, repoIdx int, p genai.Provider) err
 	currentBranch, _ := gitutil.RunGit(ctx, r.GitRoot, "branch", "--show-current")
 	if currentBranch == r.Branch {
 		// Already on the branch, rebase locally.
-		if _, err := runCmd(ctx, r.GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "rebase", "-q", remoteRef}, stdout, stderr); err != nil {
 			return err
 		}
 	} else if _, err := gitutil.RunGit(ctx, r.GitRoot, "merge-base", "--is-ancestor", r.Branch, remoteRef); err == nil {
 		// Fast-forward: update ref without checkout.
-		if _, err := runCmd(ctx, r.GitRoot, []string{"git", "update-ref", "refs/heads/" + r.Branch, remoteRef}, false); err != nil {
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "update-ref", "refs/heads/" + r.Branch, remoteRef}, stdout, stderr); err != nil {
 			return err
 		}
 	} else {
@@ -601,24 +597,23 @@ func (c *Container) Pull(ctx context.Context, repoIdx int, p genai.Provider) err
 		if origRef == "" {
 			origRef, _ = gitutil.RunGit(ctx, r.GitRoot, "rev-parse", "HEAD")
 		}
-		if _, err := runCmd(ctx, r.GitRoot, []string{"git", "checkout", "-q", r.Branch}, false); err != nil {
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "checkout", "-q", r.Branch}, stdout, stderr); err != nil {
 			return err
 		}
-		if _, err := runCmd(ctx, r.GitRoot, []string{"git", "rebase", "-q", remoteRef}, false); err != nil {
-			_, _ = runCmd(ctx, r.GitRoot, []string{"git", "checkout", "-q", origRef}, false)
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "rebase", "-q", remoteRef}, stdout, stderr); err != nil {
+			_ = runCmdOut(ctx, r.GitRoot, []string{"git", "checkout", "-q", origRef}, stdout, stderr)
 			return err
 		}
-		if _, err := runCmd(ctx, r.GitRoot, []string{"git", "checkout", "-q", origRef}, false); err != nil {
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "checkout", "-q", origRef}, stdout, stderr); err != nil {
 			return err
 		}
 	}
-	_, err := runCmd(ctx, r.GitRoot, []string{"git", "push", "-q", "-f", c.Name, r.Branch + ":base"}, false)
-	return err
+	return runCmdOut(ctx, r.GitRoot, []string{"git", "push", "-q", "-f", c.Name, r.Branch + ":base"}, stdout, stderr)
 }
 
 // Diff writes the diff between base and current for Repos[repoIdx] to stdout/stderr.
 // When stdout is a terminal, a TTY is allocated so git's pager and colors work.
-func (c *Container) Diff(ctx context.Context, repoIdx int, stdout, stderr io.Writer, extraArgs []string) error {
+func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, repoIdx int, extraArgs []string) error {
 	if len(c.Repos) == 0 {
 		return errors.New("container has no repos")
 	}
@@ -681,7 +676,7 @@ func (c *Container) Stats(ctx context.Context) (*ContainerStats, error) {
 	out, err := runCmd(ctx, "", []string{
 		c.Runtime, "stats", "--no-stream", "--no-trunc",
 		"--format", "{{json .}}", c.Name,
-	}, true)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("container %s is not running", c.Name)
 	}
@@ -698,7 +693,7 @@ func (c *Container) Stats(ctx context.Context) (*ContainerStats, error) {
 func (c *Container) DiskUsage(ctx context.Context) (int64, error) {
 	out, err := runCmd(ctx, "", []string{
 		c.Runtime, "inspect", "--size", "--format", "{{json .SizeRw}}", c.Name,
-	}, true)
+	})
 	if err != nil {
 		return -1, fmt.Errorf("inspecting container %s: %w", c.Name, err)
 	}
@@ -726,7 +721,7 @@ func StatsAll(ctx context.Context, runtime string, names []string) (map[string]*
 		args := make([]string, 0, 6+len(names))
 		args = append(args, runtime, "stats", "--no-stream", "--no-trunc", "--format", "{{json .}}")
 		args = append(args, names...)
-		out, err := runCmd(ctx, "", args, true)
+		out, err := runCmd(ctx, "", args)
 		if err != nil {
 			statsErr = fmt.Errorf("docker stats: %w", err)
 			return
@@ -756,7 +751,7 @@ func StatsAll(ctx context.Context, runtime string, names []string) (map[string]*
 		args := make([]string, 0, 5+len(names))
 		args = append(args, runtime, "inspect", "--size", "--format", "{{.Name}}\t{{json .SizeRw}}")
 		args = append(args, names...)
-		out, err := runCmd(ctx, "", args, true)
+		out, err := runCmd(ctx, "", args)
 		if err != nil {
 			inspectErr = fmt.Errorf("docker inspect --size: %w", err)
 			return
@@ -849,7 +844,7 @@ func parseStatsLine(line string) (*ContainerStats, string, error) {
 // "5901/tcp"). Returns 0 if the port is not mapped.
 func (c *Container) GetHostPort(ctx context.Context, containerPort string) (int32, error) {
 	rt := c.Runtime
-	if _, err := runCmd(ctx, "", []string{rt, "inspect", c.Name}, true); err != nil {
+	if _, err := runCmd(ctx, "", []string{rt, "inspect", c.Name}); err != nil {
 		return 0, fmt.Errorf("container %s is not running", c.Name)
 	}
 	return getHostPort(ctx, rt, c.Name, containerPort)
@@ -859,7 +854,7 @@ func (c *Container) GetHostPort(ctx context.Context, containerPort string) (int3
 // container. It uses JSON output instead of Go templates to work around
 // Docker 27's "index of untyped nil" bug when port bindings are nil.
 func getHostPort(ctx context.Context, rt, container, containerPort string) (int32, error) {
-	raw, err := runCmd(ctx, "", []string{rt, "inspect", "--format", "{{json .NetworkSettings.Ports}}", container}, true)
+	raw, err := runCmd(ctx, "", []string{rt, "inspect", "--format", "{{json .NetworkSettings.Ports}}", container})
 	if err != nil {
 		return 0, err
 	}
@@ -886,7 +881,7 @@ func (c *Container) TailscaleFQDN(ctx context.Context) string {
 	if !c.Tailscale || c.State != "running" {
 		return ""
 	}
-	statusJSON, err := runCmd(ctx, "", []string{c.Runtime, "exec", c.Name, "tailscale", "status", "--json"}, true)
+	statusJSON, err := runCmd(ctx, "", []string{c.Runtime, "exec", c.Name, "tailscale", "status", "--json"})
 	if err != nil {
 		return ""
 	}
@@ -919,7 +914,7 @@ func (c *Container) SyncDefaultBranch(ctx context.Context, repoIdx int) error {
 }
 
 func (c *Container) checkContainerState(ctx context.Context) error {
-	_, containerErr := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name}, true)
+	_, containerErr := runCmd(ctx, "", []string{c.Runtime, "inspect", c.Name})
 	containerExists := containerErr == nil
 	var remoteExists bool
 	if len(c.Repos) > 0 {
@@ -956,17 +951,17 @@ func (c *Container) checkContainerState(ctx context.Context) error {
 // ensureImage checks whether the user image needs rebuilding and, if so,
 // builds it. Returns the computed image name (keyed by base image and active
 // caches). The build is serialized via Client.buildMu.
-func (c *Container) ensureImage(ctx context.Context, baseImage string, caches []CacheMount, quiet bool) (string, error) {
+func (c *Container) ensureImage(ctx context.Context, stdout, stderr io.Writer, baseImage string, caches []CacheMount, quiet bool) (string, error) {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 	imageName := userImageName(baseImage, activeCacheKey(caches, c.Home))
 	if !c.imageBuildNeeded(ctx, c.Runtime, imageName, baseImage, c.keysDir, c.Home, caches) {
 		if !quiet {
-			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", imageName)
+			_, _ = fmt.Fprintf(stdout, "- Docker image %s is up to date, skipping build.\n", imageName)
 		}
 		return imageName, nil
 	}
-	if err := buildSpecializedImage(ctx, c.Runtime, c.W, c.keysDir, imageName, baseImage, c.Home, caches, agentContainerPaths(), quiet); err != nil {
+	if err := buildSpecializedImage(ctx, stdout, stderr, c.Runtime, c.keysDir, imageName, baseImage, c.Home, caches, agentContainerPaths(), quiet); err != nil {
 		return "", err
 	}
 	c.invalidateImageBuildCache()
@@ -981,7 +976,7 @@ func (c *Container) cleanup(ctx context.Context) {
 			_, _ = gitutil.RunGit(ctx, repo.GitRoot, "remote", "remove", c.Name)
 		}
 	}
-	_, _ = runCmd(ctx, "", []string{c.Runtime, "rm", "-f", "-v", c.Name}, true)
+	_, _ = runCmd(ctx, "", []string{c.Runtime, "rm", "-f", "-v", c.Name})
 }
 
 // pushSubmodules transfers submodule bare repos from hostGitRoot into the
@@ -991,7 +986,7 @@ func (c *Container) cleanup(ctx context.Context) {
 //
 // Returns nil when no submodules are declared or when submodules are declared
 // but not yet cloned on the host (uninitialized).
-func (c *Container) pushSubmodules(ctx context.Context, containerRepoPath, hostGitRoot string, quiet bool) error {
+func (c *Container) pushSubmodules(ctx context.Context, stdout, stderr io.Writer, containerRepoPath, hostGitRoot string, quiet bool) error {
 	subs, err := gitutil.ListSubmodules(ctx, hostGitRoot)
 	if err != nil {
 		return err
@@ -1008,7 +1003,7 @@ func (c *Container) pushSubmodules(ctx context.Context, containerRepoPath, hostG
 		return nil
 	}
 	if !quiet {
-		_, _ = fmt.Fprintf(c.W, "- pushing %d submodule(s) ...\n", len(moduleDirs))
+		_, _ = fmt.Fprintf(stdout, "- pushing %d submodule(s) ...\n", len(moduleDirs))
 	}
 
 	containerModulesBase := containerRepoPath + "/.git/modules"
@@ -1027,7 +1022,7 @@ func (c *Container) pushSubmodules(ctx context.Context, containerRepoPath, hostG
 		initCmd := "git init -q --bare " + shellQuote(containerModuleDir) +
 			" && git -C " + shellQuote(containerModuleDir) + " config --unset core.bare" +
 			" && git -C " + shellQuote(containerModuleDir) + " config receive.denyCurrentBranch ignore"
-		if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, initCmd), false); err != nil {
+		if err := runCmdOut(ctx, "", c.SSHCommand(c.Name, initCmd), stdout, stderr); err != nil {
 			return fmt.Errorf("init submodule %s: %w", relPath, err)
 		}
 		// Push all refs from host bare module repo to container.
@@ -1078,7 +1073,7 @@ __md_sm_fix() {
   done
 }
 export -f __md_sm_visit __md_sm_fix && __md_sm_fix`
-	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, script), false); err != nil {
+	if err := runCmdOut(ctx, "", c.SSHCommand(c.Name, script), stdout, stderr); err != nil {
 		return fmt.Errorf("submodule update: %w", err)
 	}
 	return nil
@@ -1114,20 +1109,25 @@ func parseByteSize(s string) (uint64, error) {
 	return 0, fmt.Errorf("unknown unit in %q", s)
 }
 
-// runCmd executes a command and returns (stdout, error).
-// If capture is true, stdout/stderr are captured; otherwise they go to os.Stdout/os.Stderr.
+// runCmd executes a command, captures its output, and returns (stdout, error).
 // If dir is non-empty, the command runs in that directory.
-func runCmd(ctx context.Context, dir string, args []string, capture bool) (string, error) {
+func runCmd(ctx context.Context, dir string, args []string) (string, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "LANG=C")
-	if capture {
-		out, err := cmd.Output()
-		return strings.TrimSpace(string(out)), err
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return "", cmd.Run()
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// runCmdOut executes a command, directing its stdout and stderr to the given writers.
+// If dir is non-empty, the command runs in that directory.
+func runCmdOut(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) error {
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "LANG=C")
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
 }
 
 // shellQuote returns a shell-escaped version of s, safe for embedding in a

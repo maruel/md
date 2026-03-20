@@ -5,6 +5,7 @@
 package md
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,7 +130,7 @@ func TestClient(t *testing.T) {
 			tmp := t.TempDir()
 			t.Setenv("HOME", tmp)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, ".config"))
-			c, err := New()
+			c, err := New(io.Discard)
 			if err != nil {
 				t.Fatal(err)
 			}

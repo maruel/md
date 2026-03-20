@@ -31,9 +31,6 @@ import (
 
 // Client holds global MD tool state (paths, image config, SSH keys).
 type Client struct {
-	// W is the writer for progress and status messages.
-	W io.Writer
-
 	// Paths.
 	Home          string
 	XDGConfigHome string
@@ -93,14 +90,13 @@ type Client struct {
 
 // New creates a Client with global MD tool config and initialises SSH
 // infrastructure (keys, authorized_keys, config.d include).
-func New() (*Client, error) {
+func New(stdout io.Writer) (*Client, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 	xdgConfigHome := envOr("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	c := &Client{
-		W:              os.Stdout,
 		Home:           home,
 		XDGConfigHome:  xdgConfigHome,
 		XDGDataHome:    envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
@@ -112,7 +108,7 @@ func New() (*Client, error) {
 		digestCache:    make(map[string]remoteDigestEntry),
 	}
 	c.keysDir = filepath.Join(c.XDGConfigHome, "md")
-	if err := c.setupSSH(); err != nil {
+	if err := c.setupSSH(stdout); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -120,7 +116,7 @@ func New() (*Client, error) {
 
 // setupSSH ensures SSH keys, authorized_keys, and ~/.ssh/config.d exist.
 // Called once by New(); idempotent.
-func (c *Client) setupSSH() error {
+func (c *Client) setupSSH(stdout io.Writer) error {
 	for _, d := range []string{
 		filepath.Dir(c.HostKeyPath), // ~/.config/md/
 		filepath.Join(c.Home, ".ssh", "config.d"),
@@ -130,7 +126,7 @@ func (c *Client) setupSSH() error {
 		}
 	}
 	sshDir := filepath.Join(c.Home, ".ssh")
-	missing, err := ensureSSHConfigInclude(c.W, sshDir)
+	missing, err := ensureSSHConfigInclude(stdout, sshDir)
 	if err != nil {
 		return err
 	}
@@ -138,10 +134,10 @@ func (c *Client) setupSSH() error {
 	if missing {
 		c.sshArgs = append(c.sshArgs, "-o", "Include="+filepath.Join(sshDir, "config.d", "*.conf"))
 	}
-	if err := ensureEd25519Key(c.W, c.UserKeyPath, "md-user"); err != nil {
+	if err := ensureEd25519Key(stdout, c.UserKeyPath, "md-user"); err != nil {
 		return err
 	}
-	if err := ensureEd25519Key(c.W, c.HostKeyPath, "md-host"); err != nil {
+	if err := ensureEd25519Key(stdout, c.HostKeyPath, "md-host"); err != nil {
 		return err
 	}
 	pubKey, err := os.ReadFile(c.UserKeyPath + ".pub")
@@ -180,7 +176,6 @@ func (c *Client) Container(repos ...Repo) *Container {
 		_, _ = rand.Read(buf[:])
 		return &Container{
 			Client: c,
-			W:      c.W,
 			Name:   fmt.Sprintf("md-agent-%x", buf),
 		}
 	}
@@ -188,7 +183,6 @@ func (c *Client) Container(repos ...Repo) *Container {
 	repoName := strings.TrimSuffix(filepath.Base(primary.GitRoot), ".git")
 	return &Container{
 		Client: c,
-		W:      c.W,
 		Repos:  repos,
 		Name:   containerName(repoName, primary.Branch),
 	}
@@ -215,7 +209,7 @@ func (c *Client) SCPCommand(extraArgs ...string) []string {
 
 // List returns running md containers sorted by name.
 func (c *Client) List(ctx context.Context) ([]*Container, error) {
-	out, err := runCmd(ctx, "", []string{c.Runtime, "ps", "--all", "--no-trunc", "--format", "{{json .}}"}, true)
+	out, err := runCmd(ctx, "", []string{c.Runtime, "ps", "--all", "--no-trunc", "--format", "{{json .}}"})
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +224,6 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 		}
 		if strings.HasPrefix(ct.Name, "md-") {
 			ct.Client = c
-			ct.W = c.W
 			containers = append(containers, &ct)
 		}
 	}
@@ -240,20 +233,20 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 
 // BuildImage builds the base Docker images locally: first md-root-local,
 // then md-user-local on top of it.
-func (c *Client) BuildImage(ctx context.Context) (retErr error) {
+func (c *Client) BuildImage(ctx context.Context, stdout, stderr io.Writer) (retErr error) {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 	arch := runtime.GOARCH
 
 	if c.GithubToken == "" {
-		_, _ = fmt.Fprintln(c.W, "WARNING: GITHUB_TOKEN not found. Some tools (neovim, rust-analyzer, etc) might fail to install or hit rate limits.")
-		_, _ = fmt.Fprintln(c.W, "Please set GITHUB_TOKEN to avoid issues:")
-		_, _ = fmt.Fprintln(c.W, "  https://github.com/settings/personal-access-tokens/new?name=md-build-image&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/caic-xyz/md")
-		_, _ = fmt.Fprintln(c.W, "  export GITHUB_TOKEN=...")
+		_, _ = fmt.Fprintln(stdout, "WARNING: GITHUB_TOKEN not found. Some tools (neovim, rust-analyzer, etc) might fail to install or hit rate limits.")
+		_, _ = fmt.Fprintln(stdout, "Please set GITHUB_TOKEN to avoid issues:")
+		_, _ = fmt.Fprintln(stdout, "  https://github.com/settings/personal-access-tokens/new?name=md-build-image&description=Token%20to%20help%20generating%20local%20docker%20images%20for%20https://github.com/caic-xyz/md")
+		_, _ = fmt.Fprintln(stdout, "  export GITHUB_TOKEN=...")
 	}
 
 	// Step 1: build the root image.
-	_, _ = fmt.Fprintln(c.W, "- Building root Docker image from rsc/root/Dockerfile ...")
+	_, _ = fmt.Fprintln(stdout, "- Building root Docker image from rsc/root/Dockerfile ...")
 	rootCtx, err := prepareRootBuildContext()
 	if err != nil {
 		return err
@@ -269,13 +262,13 @@ func (c *Client) BuildImage(ctx context.Context) (retErr error) {
 		rootCmd = append(rootCmd, "--secret", "id=github_token,env=GITHUB_TOKEN")
 	}
 	rootCmd = append(rootCmd, rootCtx)
-	if _, err := runCmd(ctx, "", rootCmd, false); err != nil {
+	if err := runCmdOut(ctx, "", rootCmd, stdout, stderr); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintln(c.W, "- Root image built as 'md-root-local'.")
+	_, _ = fmt.Fprintln(stdout, "- Root image built as 'md-root-local'.")
 
 	// Step 2: build the user image on top of the root image.
-	_, _ = fmt.Fprintln(c.W, "- Building user Docker image from rsc/user/Dockerfile ...")
+	_, _ = fmt.Fprintln(stdout, "- Building user Docker image from rsc/user/Dockerfile ...")
 	userCtx, err := prepareBuildContext()
 	if err != nil {
 		return err
@@ -292,16 +285,16 @@ func (c *Client) BuildImage(ctx context.Context) (retErr error) {
 		userCmd = append(userCmd, "--secret", "id=github_token,env=GITHUB_TOKEN")
 	}
 	userCmd = append(userCmd, userCtx)
-	if _, err := runCmd(ctx, "", userCmd, false); err != nil {
+	if err := runCmdOut(ctx, "", userCmd, stdout, stderr); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintln(c.W, "- User image built as 'md-user-local'.")
+	_, _ = fmt.Fprintln(stdout, "- User image built as 'md-user-local'.")
 	c.invalidateImageBuildCache()
 	// Clean up BuildKit cache (--mount=type=cache volumes from Dockerfiles).
 	// These are only useful during the build itself; pruning avoids leaving
 	// orphaned resources on disk.
-	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}, true); err != nil {
-		_, _ = fmt.Fprintf(c.W, "- Warning: pruning build cache: %v\n", err)
+	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}); err != nil {
+		_, _ = fmt.Fprintf(stdout, "- Warning: pruning build cache: %v\n", err)
 	}
 	return nil
 }
@@ -319,7 +312,7 @@ type WarmupOpts struct {
 
 // Warmup ensures the base image is pulled and the user image is built,
 // without starting a container. Returns true if a build was performed.
-func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
+func (c *Client) Warmup(ctx context.Context, stdout, stderr io.Writer, opts *WarmupOpts) (bool, error) {
 	c.buildMu.Lock()
 	defer c.buildMu.Unlock()
 	baseImage := opts.BaseImage
@@ -329,11 +322,11 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 	imageName := userImageName(baseImage, activeCacheKey(opts.Caches, c.Home))
 	if !c.imageBuildNeeded(ctx, c.Runtime, imageName, baseImage, c.keysDir, c.Home, opts.Caches) {
 		if !opts.Quiet {
-			_, _ = fmt.Fprintf(c.W, "- Docker image %s is up to date, skipping build.\n", imageName)
+			_, _ = fmt.Fprintf(stdout, "- Docker image %s is up to date, skipping build.\n", imageName)
 		}
 		return false, nil
 	}
-	if err := buildSpecializedImage(ctx, c.Runtime, c.W, c.keysDir, imageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
+	if err := buildSpecializedImage(ctx, stdout, stderr, c.Runtime, c.keysDir, imageName, baseImage, c.Home, opts.Caches, agentContainerPaths(), opts.Quiet); err != nil {
 		return false, err
 	}
 	c.invalidateImageBuildCache()
@@ -342,11 +335,11 @@ func (c *Client) Warmup(ctx context.Context, opts *WarmupOpts) (bool, error) {
 
 // PruneImages removes md-specialized-* images that are not used by any container.
 // Returns the list of removed image names.
-func (c *Client) PruneImages(ctx context.Context) ([]string, error) {
+func (c *Client) PruneImages(ctx context.Context, stdout, stderr io.Writer) ([]string, error) {
 	// List all md-specialized-* images.
 	out, err := runCmd(ctx, "", []string{
 		c.Runtime, "images", "--format", "{{.Repository}}", "--filter", "reference=md-specialized-*",
-	}, true)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("listing images: %w", err)
 	}
@@ -363,7 +356,7 @@ func (c *Client) PruneImages(ctx context.Context) ([]string, error) {
 	// Find images used by running md containers.
 	containerOut, err := runCmd(ctx, "", []string{
 		c.Runtime, "ps", "-a", "--filter", "name=^md-", "--format", "{{.Image}}",
-	}, true)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("listing containers: %w", err)
 	}
@@ -382,8 +375,8 @@ func (c *Client) PruneImages(ctx context.Context) ([]string, error) {
 		if _, used := inUse[img]; used {
 			continue
 		}
-		if _, err := runCmd(ctx, "", []string{c.Runtime, "rmi", img}, true); err != nil {
-			_, _ = fmt.Fprintf(c.W, "- Warning: failed to remove %s: %v\n", img, err)
+		if _, err := runCmd(ctx, "", []string{c.Runtime, "rmi", img}); err != nil {
+			_, _ = fmt.Fprintf(stdout, "- Warning: failed to remove %s: %v\n", img, err)
 			continue
 		}
 		removed = append(removed, img)
@@ -391,8 +384,8 @@ func (c *Client) PruneImages(ctx context.Context) ([]string, error) {
 	sort.Strings(removed)
 
 	// Clean up BuildKit build cache.
-	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}, true); err != nil {
-		_, _ = fmt.Fprintf(c.W, "- Warning: pruning build cache: %v\n", err)
+	if _, err := runCmd(ctx, "", []string{c.Runtime, "builder", "prune", "-f"}); err != nil {
+		_, _ = fmt.Fprintf(stdout, "- Warning: pruning build cache: %v\n", err)
 	}
 	return removed, nil
 }
@@ -401,14 +394,14 @@ func (c *Client) PruneImages(ctx context.Context) ([]string, error) {
 // the container. This data is always small.
 func (c *Client) gatherGitMetadata(ctx context.Context, containerName, repo string) string {
 	cmd := "cd ~/src/" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
-	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd), true)
+	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd))
 	return out
 }
 
 // gatherGitDiff runs SSH to get the full patience diff from the container.
 func (c *Client) gatherGitDiff(ctx context.Context, containerName, repo string) string {
 	cmd := "cd ~/src/" + repo + " && git diff --patience -U10 --cached base -- ."
-	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd), true)
+	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd))
 	return out
 }
 

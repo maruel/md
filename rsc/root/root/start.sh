@@ -34,11 +34,8 @@ echo "[start.sh] Starting dbus service..."
 /etc/init.d/dbus start
 echo "[start.sh] Setting up persistent DBus session for user..."
 session_file="/home/user/.dbus-session-env"
-if su - user -c "dbus-launch --sh-syntax > '$session_file'"; then
-	chown user:user "$session_file"
-else
-	echo "[start.sh] Warning: dbus-launch failed, DBus session may not be available"
-fi
+su - user -c "dbus-launch --sh-syntax > '$session_file'"
+chown user:user "$session_file"
 cat <<EOF >/etc/profile.d/50-dbus-session.sh
 if [ -f "$session_file" ]; then
     . "$session_file"

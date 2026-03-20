@@ -27,8 +27,8 @@ trap 'rm -rf "${TMPDIR}"' EXIT
 # the page layout changes.
 SDK_URL=$(curl -fsSL "https://developer.android.com/studio" | grep -o 'https://dl\.google\.com/android/repository/commandlinetools-linux-[0-9]*_latest\.zip' | head -n 1)
 if [ -z "$SDK_URL" ]; then
-	echo "Warning: could not scrape SDK URL, using latest known URL" >&2
-	SDK_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+	echo "Failed to determine SDK URL" >&2
+	exit 1
 fi
 wget -q "$SDK_URL" -O "${TMPDIR}/cmdline-tools.zip"
 unzip -q "${TMPDIR}/cmdline-tools.zip" -d "${TMPDIR}"

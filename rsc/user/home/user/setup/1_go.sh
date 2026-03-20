@@ -17,7 +17,7 @@ fi
 curl -fsSL -o "${TMPDIR}/go.tar.gz" "https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz"
 rm -rf "$HOME/.local/go"
 mkdir -p "$HOME/.local"
-tar -C "$HOME/.local" -xzf "${TMPDIR}/go.tar.gz" --transform='s,^go,go,'
+tar -C "$HOME/.local" -xzf "${TMPDIR}/go.tar.gz"
 
 # Update PATH for this session
 export PATH="$HOME/.local/go/bin:$HOME/go/bin:$PATH"

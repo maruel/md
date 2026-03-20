@@ -6,7 +6,7 @@ A file to [guide coding agents](https://agents.md/).
 
 - Make sure the code passes shellcheck after every change. Then format with `shfmt -l -w $script_name`
 - Update this file (AGENTS.md) everytime you make a change that affects this project's requirements.
-- Update rsc/user/home/user/AGENTS.md everytime you make a change that affects the agent inside the container.
+- Update rsc/user/home/user/src/AGENTS.md everytime you make a change that affects the agent inside the container.
 - When adding a new setup script in `rsc/root/root/setup/`, add a corresponding `RUN` command to `rsc/root/Dockerfile`. When adding a new setup script in `rsc/user/home/user/setup/`, add a corresponding `RUN` command to `rsc/user/Dockerfile`.
 - No tests should be written for Python or shell script changes.
 - **NEVER run `go build ./cmd/md/` without `-o`** — the repo root contains a Python script named `md` and `go build` will overwrite it. Always use `go build -o /tmp/md-test ./cmd/md/` or similar.
@@ -63,11 +63,10 @@ When installing a new tool in the container, ensure you update:
 
 1. Create setup script in `rsc/root/root/setup/` or `rsc/user/home/user/setup/` (with appropriate numbering)
 2. Add `RUN measure_exec.sh` command to `rsc/root/Dockerfile` or `rsc/user/Dockerfile` accordingly
-3. Add entry to "Installed Tools" section in this AGENTS.md
-4. Add version check to `rsc/user/home/user/setup/generate_version_report.sh`
-6. Update `rsc/user/home/user/src/AGENTS.md` "Preinstalled Tools" section to reflect the change
-7. If the tool needs PATH setup, add a `bash.d` script (see [Shell Environment](#shell-environment-bash_env))
-8. Run `shellcheck` and `shfmt` on any shell scripts
+3. Add version check to `rsc/user/home/user/setup/generate_version_report.sh`
+4. Update `rsc/user/home/user/src/AGENTS.md` "Preinstalled Tools" section to reflect the change
+5. If the tool needs PATH setup, add a `bash.d` script (see [Shell Environment](#shell-environment-bash_env))
+6. Run `shellcheck` and `shfmt` on any shell scripts
 
 ## Shell Environment (BASH_ENV)
 

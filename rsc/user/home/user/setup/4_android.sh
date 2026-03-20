@@ -56,34 +56,11 @@ fi
 echo "Selected Build Tools: $LATEST_BUILD_TOOLS"
 echo "Selected Platform: $LATEST_PLATFORM"
 
-# shellcheck disable=SC2034
-PLATFORM_VERSION=${LATEST_PLATFORM#platforms;}
-
-# Install required SDK components (emulator and system-images not available on arm64)
+# Install required SDK components
 SDK_PACKAGES=(
 	"$LATEST_BUILD_TOOLS"
 	"platform-tools"
 	"$LATEST_PLATFORM"
 )
-
-# Emulator and system images take 3GiB which is a bit too large to always include in the base image.
-# if [ "$ARCH" != "aarch64" ]; then
-#   case "$ARCH" in
-#   x86_64)
-#   	SYS_IMAGE_ABI="x86_64"
-#   	;;
-#   aarch64)
-#   	SYS_IMAGE_ABI="arm64-v8a"
-#   	;;
-#   *)
-#   	echo "Unsupported architecture: $ARCH" >&2
-#   	exit 1
-#   	;;
-#   esac
-#	  SDK_PACKAGES+=(
-#	 	  "system-images;${PLATFORM_VERSION};google_apis;${SYS_IMAGE_ABI}"
-# 	  "emulator"
-#   )
-# fi
 
 "$SDKMANAGER" "${SDK_PACKAGES[@]}"

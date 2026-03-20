@@ -18,7 +18,7 @@ import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 # Tags matching these patterns are always kept.
@@ -36,6 +36,9 @@ def _request(
             return resp.status, resp.read()
     except HTTPError as e:
         return e.code, e.read()
+    except URLError as e:
+        print(f"Network error: {e.reason}", file=sys.stderr)
+        return 0, b""
 
 
 def github_api(

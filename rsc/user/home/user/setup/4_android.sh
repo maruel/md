@@ -18,19 +18,24 @@ ANDROID_SDK_ROOT="$HOME/.local/share/android-sdk"
 mkdir -p "$ANDROID_SDK_ROOT"
 cd "$ANDROID_SDK_ROOT"
 
-# Get the latest commandlinetools download URL dynamically
-SDK_URL=$(curl -s "https://developer.android.com/studio" | grep -o 'https://dl\.google\.com/android/repository/commandlinetools-linux-[0-9]*_latest\.zip' | head -n 1)
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "${TMPDIR}"' EXIT
+
+# Get the latest commandlinetools download URL dynamically.
+# The URL embeds a build number that changes with each release, so we scrape
+# the Studio download page. Fall back to the well-known "latest" redirect if
+# the page layout changes.
+SDK_URL=$(curl -fsSL "https://developer.android.com/studio" | grep -o 'https://dl\.google\.com/android/repository/commandlinetools-linux-[0-9]*_latest\.zip' | head -n 1)
 if [ -z "$SDK_URL" ]; then
-	echo "Failed to determine SDK URL" >&2
-	exit 1
+	echo "Warning: could not scrape SDK URL, using latest known URL" >&2
+	SDK_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
 fi
-wget -q "$SDK_URL" -O /tmp/cmdline-tools.zip
-unzip -q /tmp/cmdline-tools.zip -d /tmp
-rm /tmp/cmdline-tools.zip
+wget -q "$SDK_URL" -O "${TMPDIR}/cmdline-tools.zip"
+unzip -q "${TMPDIR}/cmdline-tools.zip" -d "${TMPDIR}"
 
 # Move cmdline-tools to proper location (sdkmanager expects this structure)
 mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-mv /tmp/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+mv "${TMPDIR}/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
 chmod 755 "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"/*
 SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 

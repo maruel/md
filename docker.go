@@ -662,7 +662,7 @@ func formatCount(n int64) string {
 // absolute paths are returned unchanged.
 func resolveHostPath(p, home string) string {
 	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
-		return filepath.Join(home, p[2:])
+		return filepath.ToSlash(filepath.Join(home, p[2:]))
 	}
 	return p
 }

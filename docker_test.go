@@ -7,6 +7,7 @@ package md
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 )
@@ -57,9 +58,11 @@ func TestResolveHostPath(t *testing.T) {
 	}{
 		{"~/go/pkg/mod", "/home/alice", "/home/alice/go/pkg/mod"},
 		{"~/.cargo/registry", "/home/alice", "/home/alice/.cargo/registry"},
-		{`~\go\pkg\mod`, `C:\Users\alice`, `C:\Users\alice/go\pkg\mod`},
 		{"/absolute/path", "/home/alice", "/absolute/path"},
 		{"/no/tilde", "/home/alice", "/no/tilde"},
+	}
+	if runtime.GOOS == "windows" {
+		tests = append(tests, struct{ path, home, want string }{`~\go\pkg\mod`, `C:\Users\alice`, `C:/Users/alice/go/pkg/mod`})
 	}
 	for _, tt := range tests {
 		if got := resolveHostPath(tt.path, tt.home); got != tt.want {

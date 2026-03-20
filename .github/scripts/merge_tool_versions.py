@@ -49,7 +49,7 @@ def main():
         print("Error: At least one of --amd64 or --arm64 must be provided.", file=sys.stderr)
         sys.exit(1)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     amd64_tools = parse_markdown_table(amd64_path) if amd64_path else {}
     arm64_tools = parse_markdown_table(arm64_path) if arm64_path else {}

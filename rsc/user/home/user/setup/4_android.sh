@@ -30,7 +30,7 @@ if [ -z "$SDK_URL" ]; then
 	echo "Failed to determine SDK URL" >&2
 	exit 1
 fi
-wget -q "$SDK_URL" -O "${TMPDIR}/cmdline-tools.zip"
+curl -fsSL "$SDK_URL" -o "${TMPDIR}/cmdline-tools.zip"
 unzip -q "${TMPDIR}/cmdline-tools.zip" -d "${TMPDIR}"
 
 # Move cmdline-tools to proper location (sdkmanager expects this structure)

@@ -898,11 +898,18 @@ func connectContainer(ctx context.Context, stdout, stderr io.Writer, c *Containe
 	// instead of scp gives reliable exit code 255 on connection errors.
 	// If no .env exists locally the container still gets an empty file.
 	var envContent []byte
-	if data, err := os.ReadFile(".env"); err == nil {
-		envContent = data
-		if !opts.Quiet {
-			_, _ = fmt.Fprintln(stdout, "- sending .env into container ...")
+	for _, r := range c.Repos {
+		data, err := os.ReadFile(filepath.Join(r.GitRoot, ".env"))
+		if err != nil {
+			continue
 		}
+		if len(envContent) > 0 && envContent[len(envContent)-1] != '\n' {
+			envContent = append(envContent, '\n')
+		}
+		envContent = append(envContent, data...)
+	}
+	if len(envContent) > 0 && !opts.Quiet {
+		_, _ = fmt.Fprintln(stdout, "- sending .env into container ...")
 	}
 	if len(opts.ExtraEnv) > 0 {
 		if len(envContent) > 0 && envContent[len(envContent)-1] != '\n' {

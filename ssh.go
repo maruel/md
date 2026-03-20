@@ -69,7 +69,7 @@ func ensurePublicKey(privPath string) error {
 
 // controlSocketPath returns the ControlMaster socket path for a container.
 func controlSocketPath(containerName string) string {
-	return "/tmp/md-" + containerName + ".sock"
+	return filepath.Join(os.TempDir(), "md-"+containerName+".sock")
 }
 
 // writeSSHConfig writes the SSH config file for a container.

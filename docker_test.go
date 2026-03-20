@@ -57,6 +57,7 @@ func TestResolveHostPath(t *testing.T) {
 	}{
 		{"~/go/pkg/mod", "/home/alice", "/home/alice/go/pkg/mod"},
 		{"~/.cargo/registry", "/home/alice", "/home/alice/.cargo/registry"},
+		{`~\go\pkg\mod`, `C:\Users\alice`, `C:\Users\alice/go\pkg\mod`},
 		{"/absolute/path", "/home/alice", "/absolute/path"},
 		{"/no/tilde", "/home/alice", "/no/tilde"},
 	}

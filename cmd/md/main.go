@@ -76,7 +76,7 @@ func mainImpl() error {
 	_ = pre.Parse(os.Args[1:])
 	initLogging(*preVerbose)
 	runtimeOverride = *preRuntime
-	controlMasterEnabled = *preControlMaster
+	controlMasterEnabled = *preControlMaster && runtime.GOOS != "windows"
 	remaining := pre.Args()
 
 	if len(remaining) == 0 {

@@ -51,7 +51,10 @@ func generateTailscaleAuthKey(apiKey string) (string, error) {
 		return "", fmt.Errorf("network error: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		s := string(respBody)
 		if strings.Contains(s, "tags") && strings.Contains(s, "invalid") {

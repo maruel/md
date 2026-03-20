@@ -1199,7 +1199,9 @@ func unmarshalContainer(data []byte) (Container, error) {
 		switch k {
 		case "md.repos":
 			if data, err := base64.StdEncoding.DecodeString(v); err == nil {
-				_ = json.Unmarshal(data, &ct.Repos)
+				if err := json.Unmarshal(data, &ct.Repos); err != nil {
+					slog.Warn("failed to unmarshal repos label", "err", err)
+				}
 			}
 		case "md.display":
 			ct.Display = v == "1"

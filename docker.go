@@ -658,11 +658,11 @@ func formatCount(n int64) string {
 	return b.String()
 }
 
-// resolveHostPath expands a leading "~/" to home; absolute paths are returned
-// unchanged.
+// resolveHostPath expands a leading "~/" (or "~\" on Windows) to home;
+// absolute paths are returned unchanged.
 func resolveHostPath(p, home string) string {
-	if strings.HasPrefix(p, "~/") {
-		return path.Join(home, p[2:])
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		return filepath.Join(home, p[2:])
 	}
 	return p
 }

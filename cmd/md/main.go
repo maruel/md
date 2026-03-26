@@ -155,15 +155,6 @@ func newClient() (*md.Client, error) {
 	}
 	c.ControlMaster = controlMasterEnabled
 	c.GithubToken = os.Getenv("GITHUB_TOKEN")
-	if c.GithubToken == "" {
-		if _, err2 := exec.LookPath("gh"); err2 == nil {
-			if out, err2 := exec.Command("gh", "auth", "token").Output(); err2 == nil {
-				c.GithubToken = strings.TrimSpace(string(out))
-			} else {
-				fmt.Fprintf(os.Stderr, "gh auth token: %v\n", err2)
-			}
-		}
-	}
 	c.TailscaleAPIKey = os.Getenv("TAILSCALE_API_KEY")
 	return c, nil
 }
@@ -329,33 +320,29 @@ func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []stri
 	return c.Container(repos...), nil
 }
 
-// resolveGithubToken returns the GitHub token to inject into the container
-// based on the --github flag value. Returns "" when the flag is empty.
-// "ro" attempts to create a fine-grained read-only token, falling back to the
-// host token on error. "rw" uses the host token directly.
-func resolveGithubToken(ctx context.Context, c *md.Client, github string) (string, error) {
-	switch github {
-	case "":
-		return "", nil
-	case "ro", "rw":
-	default:
-		return "", fmt.Errorf("--github: invalid value %q (want ro or rw)", github)
-	}
+// ensureGithubToken populates c.GithubToken from `gh auth token` if
+// GITHUB_TOKEN was not set. Returns true if a token is available.
+func ensureGithubToken(c *md.Client) bool {
 	if c.GithubToken == "" {
+		if _, err := exec.LookPath("gh"); err == nil {
+			if out, err := exec.Command("gh", "auth", "token").Output(); err == nil {
+				c.GithubToken = strings.TrimSpace(string(out))
+			}
+		}
+	}
+	return c.GithubToken != ""
+}
+
+// resolveGithubToken returns the GitHub token to inject into the container
+// when github is true. Returns "" when false.
+func resolveGithubToken(c *md.Client, github bool) (string, error) {
+	if !github {
+		return "", nil
+	}
+	if !ensureGithubToken(c) {
 		return "", errors.New("--github requires a GitHub token; set GITHUB_TOKEN or authenticate with `gh auth login`")
 	}
-	if github == "rw" {
-		return c.GithubToken, nil
-	}
-	// Read-only: try to create a short-lived fine-grained token.
-	token, err := md.CreateReadOnlyGithubToken(ctx, c.GithubToken)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not create read-only GitHub token: %v\n", err)
-		fmt.Fprintf(os.Stderr, "warning: falling back to host token (may have write access)\n")
-		fmt.Fprintf(os.Stderr, "hint: grant manage:write:personal_access_tokens scope to your token to enable read-only mode\n")
-		return c.GithubToken, nil
-	}
-	return token, nil
+	return c.GithubToken, nil
 }
 
 func cmdStart(ctx context.Context, args []string) error {
@@ -379,7 +366,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	noCacheSpecs := &stringSlice{}
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
-	github := fs.String("github", "", "Inject GitHub token: ro (read-only, tries fine-grained PAT) or rw (read-write)")
+	github := fs.Bool("github", false, "Inject GitHub token into container")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -398,7 +385,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	githubToken, err := resolveGithubToken(ctx, ct.Client, *github)
+	githubToken, err := resolveGithubToken(ct.Client, *github)
 	if err != nil {
 		return err
 	}
@@ -472,7 +459,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	noCacheSpecs := &stringSlice{}
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
-	github := fs.String("github", "", "Inject GitHub token: ro (read-only, tries fine-grained PAT) or rw (read-write)")
+	github := fs.Bool("github", false, "Inject GitHub token into container")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -494,7 +481,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	githubToken, err := resolveGithubToken(ctx, ct.Client, *github)
+	githubToken, err := resolveGithubToken(ct.Client, *github)
 	if err != nil {
 		return err
 	}
@@ -888,6 +875,7 @@ func cmdBuildImage(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	ensureGithubToken(c)
 	return c.BuildImage(ctx, os.Stdout, os.Stderr)
 }
 

@@ -7,6 +7,7 @@ A file to [guide coding agents](https://agents.md/).
 - Make sure the code passes shellcheck after every change. Then format with `shfmt -l -w $script_name`
 - Update this file (AGENTS.md) everytime you make a change that affects this project's requirements.
 - Update rsc/user/home/user/src/AGENTS.md everytime you make a change that affects the agent inside the container.
+- **Glob/find tools may skip dotfiles by default.** The `rsc/` tree contains important config under dot-directories (e.g. `rsc/user/home/user/.config/git/config`). Use Grep or explicit dot-inclusive patterns when searching for files under `rsc/`.
 - When adding a new setup script in `rsc/root/root/setup/`, add a corresponding `RUN` command to `rsc/root/Dockerfile`. When adding a new setup script in `rsc/user/home/user/setup/`, add a corresponding `RUN` command to `rsc/user/Dockerfile`.
 - No tests should be written for Python or shell script changes.
 - **NEVER run `go build ./cmd/md/` without `-o`** — the repo root contains a Python script named `md` and `go build` will overwrite it. Always use `go build -o /tmp/md-test ./cmd/md/` or similar.

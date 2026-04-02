@@ -515,7 +515,7 @@ func (c *Container) Push(ctx context.Context, stdout, stderr io.Writer, repoIdx 
 	if err := runCmdOut(ctx, r.GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, r.Branch + ":base"}, stdout, stderr); err != nil {
 		return "", err
 	}
-	if err := runCmdOut(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git switch -q -C "+branch+" base"), stdout, stderr); err != nil {
+	if err := runCmdOut(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git switch -q -C "+branch+" base && git branch --set-upstream-to=base"), stdout, stderr); err != nil {
 		return "", err
 	}
 	// Update the local remote-tracking ref so it reflects the pushed state.

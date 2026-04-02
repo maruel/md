@@ -23,6 +23,8 @@
 	tool = vimdiff
 	noprefix = true
 	colorMoved = dimmed-zebra
+[pull]
+	rebase = true
 [alias]
 	br = branch
 	ci = commit

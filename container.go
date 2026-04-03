@@ -713,7 +713,7 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		return nil, fmt.Errorf("inspecting labels: %w", err)
 	}
 	commitArgs := []string{rt, "commit"}
-	for _, key := range strings.Fields(labelCSV) {
+	for key := range strings.FieldsSeq(labelCSV) {
 		commitArgs = append(commitArgs, "--change", "LABEL "+key+"=")
 	}
 	commitArgs = append(commitArgs, c.Name, snapshotImage)

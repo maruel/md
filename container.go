@@ -661,6 +661,8 @@ type ForkOpts struct {
 	// USB enables USB device passthrough on the forked container.
 	// When false, inherits the source container's setting.
 	USB bool
+	// Labels are additional Docker labels (key=value) applied to the forked container.
+	Labels []string
 	// Quiet suppresses informational output.
 	Quiet bool
 	// AgentPaths specifies which agent config directories to mount.
@@ -697,12 +699,25 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		}
 	}
 
-	// Snapshot the source container.
+	// Snapshot the source container, stripping all labels so
+	// launchContainer sets them fresh on the forked container.
+	// docker commit bakes container labels into the image; any label
+	// not explicitly re-set by launchContainer would leak through.
 	snapshotImage := "md-fork-" + c.Name
 	if !opts.Quiet {
 		_, _ = fmt.Fprintf(stdout, "- Snapshotting container %s → %s ...\n", c.Name, snapshotImage)
 	}
-	if _, err := runCmd(ctx, "", []string{rt, "commit", c.Name, snapshotImage}); err != nil {
+	// Inspect the source container to discover all label keys.
+	labelCSV, err := runCmd(ctx, "", []string{rt, "inspect", "--format", `{{range $k, $v := .Config.Labels}}{{$k}} {{end}}`, c.Name})
+	if err != nil {
+		return nil, fmt.Errorf("inspecting labels: %w", err)
+	}
+	commitArgs := []string{rt, "commit"}
+	for _, key := range strings.Fields(labelCSV) {
+		commitArgs = append(commitArgs, "--change", "LABEL "+key+"=")
+	}
+	commitArgs = append(commitArgs, c.Name, snapshotImage)
+	if _, err := runCmd(ctx, "", commitArgs); err != nil {
 		return nil, fmt.Errorf("docker commit: %w", err)
 	}
 
@@ -731,6 +746,7 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 	}
 	startOpts := &StartOpts{
 		Quiet:      opts.Quiet,
+		Labels:     opts.Labels,
 		AgentPaths: opts.AgentPaths,
 		ExtraEnv:   opts.ExtraEnv,
 		Display:    c.Display || opts.Display,

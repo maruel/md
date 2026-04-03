@@ -372,6 +372,9 @@ func cmdStart(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 0); err != nil {
+		return err
+	}
 
 	ct, err := newContainer(ctx, cf, extraRepos.values)
 	if err != nil {
@@ -520,6 +523,9 @@ func cmdList(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 0); err != nil {
+		return err
+	}
 	c, err := md.New(os.Stdout)
 	if err != nil {
 		return err
@@ -625,6 +631,9 @@ func cmdStop(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 1); err != nil {
+		return err
+	}
 	if name := fs.Arg(0); name != "" {
 		c, err := newClient()
 		if err != nil {
@@ -656,6 +665,9 @@ func cmdPurge(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 1); err != nil {
+		return err
+	}
 	// A bare container name may be passed as a positional argument for
 	// repo-less containers, which have no git root to search by.
 	if name := fs.Arg(0); name != "" {
@@ -690,6 +702,9 @@ func cmdPush(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 0); err != nil {
+		return err
+	}
 	ct, repoIdx, err := findContainerAndRepo(ctx, cf)
 	if err != nil {
 		return err
@@ -734,6 +749,9 @@ func cmdPull(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 0); err != nil {
+		return err
+	}
 	ct, repoIdx, err := findContainerAndRepo(ctx, cf)
 	if err != nil {
 		return err
@@ -825,6 +843,9 @@ func cmdVNC(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 0); err != nil {
+		return err
+	}
 	ct, err := newContainer(ctx, cf, nil)
 	if err != nil {
 		return err
@@ -871,6 +892,9 @@ func cmdBuildImage(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 0); err != nil {
+		return err
+	}
 	c, err := newClient()
 	if err != nil {
 		return err
@@ -886,6 +910,9 @@ func cmdPrune(ctx context.Context, args []string) error {
 		return err
 	}
 	initLogging(*verbose)
+	if err := checkArgs(fs, 0); err != nil {
+		return err
+	}
 	c, err := newClient()
 	if err != nil {
 		return err
@@ -947,6 +974,13 @@ func cmdVersion(args []string) error {
 func noArgs(cmd string, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("%s: unexpected arguments: %s", cmd, strings.Join(args, " "))
+	}
+	return nil
+}
+
+func checkArgs(fs *flag.FlagSet, maxArgs int) error {
+	if fs.NArg() > maxArgs {
+		return fmt.Errorf("%s: unexpected arguments: %s", fs.Name(), strings.Join(fs.Args()[maxArgs:], " "))
 	}
 	return nil
 }

@@ -5,6 +5,7 @@
 package md
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -644,6 +645,186 @@ func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, repoIdx 
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()
+}
+
+// ForkOpts configures a container fork operation.
+type ForkOpts struct {
+	// Suffix is appended to each repo's current branch name to form the new
+	// branch (e.g. "experiment" → "main-experiment"). Required.
+	Suffix string
+	// Display enables X11/VNC virtual display on the forked container.
+	// When false, inherits the source container's setting.
+	Display bool
+	// Tailscale enables Tailscale networking on the forked container.
+	// When false, inherits the source container's setting.
+	Tailscale bool
+	// USB enables USB device passthrough on the forked container.
+	// When false, inherits the source container's setting.
+	USB bool
+	// Quiet suppresses informational output.
+	Quiet bool
+	// AgentPaths specifies which agent config directories to mount.
+	AgentPaths []AgentPaths
+	// ExtraEnv holds additional KEY=VALUE pairs to inject into the container's
+	// ~/.env at runtime.
+	ExtraEnv []string
+}
+
+// Fork snapshots a running container and creates a new one where each mapped
+// repository is checked out on a new branch derived from the current state.
+// The new branch name is "<original-branch>-<suffix>" for each repo.
+//
+// The snapshot preserves the container's entire filesystem (installed
+// packages, build artifacts, etc.) while giving each repo a fresh branch
+// that diverges from the source container's working state.
+func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *ForkOpts) (*Container, error) {
+	if len(c.Repos) == 0 {
+		return nil, errors.New("container has no repos to fork")
+	}
+	if err := c.checkContainerState(ctx); err != nil {
+		return nil, err
+	}
+	rt := c.Runtime
+
+	// Build the new repo list with forked branch names.
+	newRepos := make([]Repo, len(c.Repos))
+	for i, r := range c.Repos {
+		newRepos[i] = Repo{
+			GitRoot:       r.GitRoot,
+			Branch:        r.Branch + "-" + opts.Suffix,
+			DefaultRemote: r.DefaultRemote,
+			DefaultBranch: r.DefaultBranch,
+		}
+	}
+
+	// Snapshot the source container.
+	snapshotImage := "md-fork-" + c.Name
+	if !opts.Quiet {
+		_, _ = fmt.Fprintf(stdout, "- Snapshotting container %s → %s ...\n", c.Name, snapshotImage)
+	}
+	if _, err := runCmd(ctx, "", []string{rt, "commit", c.Name, snapshotImage}); err != nil {
+		return nil, fmt.Errorf("docker commit: %w", err)
+	}
+
+	// Fetch current state from source container and create local branches.
+	if !opts.Quiet {
+		_, _ = fmt.Fprintln(stdout, "- Creating local branches ...")
+	}
+	for i, r := range c.Repos {
+		// Fetch current branch state from the source container.
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "fetch", "-q", c.Name, r.Branch}, stdout, stderr); err != nil {
+			return nil, fmt.Errorf("fetching %s from source container: %w", r.Name(), err)
+		}
+		// Create new branch from the fetched state.
+		fetchedRef := c.Name + "/" + r.Branch
+		if err := runCmdOut(ctx, r.GitRoot, []string{"git", "branch", newRepos[i].Branch, fetchedRef}, stdout, stderr); err != nil {
+			return nil, fmt.Errorf("creating branch %s: %w", newRepos[i].Branch, err)
+		}
+	}
+
+	// Create the new container handle.
+	fork := c.Container(newRepos...)
+
+	// Start the new container from the snapshot image.
+	if !opts.Quiet {
+		_, _ = fmt.Fprintf(stdout, "- Starting forked container %s ...\n", fork.Name)
+	}
+	startOpts := &StartOpts{
+		Quiet:      opts.Quiet,
+		AgentPaths: opts.AgentPaths,
+		ExtraEnv:   opts.ExtraEnv,
+		Display:    c.Display || opts.Display,
+		Tailscale:  c.Tailscale || opts.Tailscale,
+		USB:        c.USB || opts.USB,
+	}
+	// Launch directly with the snapshot image (no base image resolution needed).
+	if err := c.prepare(startOpts.AgentPaths); err != nil {
+		return nil, err
+	}
+	if err := launchContainer(ctx, stdout, stderr, fork, startOpts, snapshotImage); err != nil {
+		return nil, err
+	}
+
+	// Wait for SSH and set up repos.
+	addr := fmt.Sprintf("localhost:%d", fork.SSHPort)
+	deadline := time.Now().Add(30 * time.Second)
+	if err := waitForTCP(ctx, addr, deadline); err != nil {
+		return nil, fmt.Errorf("waiting for SSH on forked container: %w", err)
+	}
+
+	// Send .env into the forked container (same logic as connectContainer).
+	var envContent []byte
+	for _, r := range newRepos {
+		data, err := os.ReadFile(filepath.Join(r.GitRoot, ".env"))
+		if err != nil {
+			continue
+		}
+		if len(envContent) > 0 && envContent[len(envContent)-1] != '\n' {
+			envContent = append(envContent, '\n')
+		}
+		envContent = append(envContent, data...)
+	}
+	if len(startOpts.ExtraEnv) > 0 {
+		if len(envContent) > 0 && envContent[len(envContent)-1] != '\n' {
+			envContent = append(envContent, '\n')
+		}
+		for _, kv := range startOpts.ExtraEnv {
+			envContent = append(envContent, []byte(kv+"\n")...)
+		}
+	}
+	sshEnvArgs := fork.SSHCommand(fork.Name, "cat > /home/user/.env")
+	for {
+		cmd := exec.CommandContext(ctx, sshEnvArgs[0], sshEnvArgs[1:]...)
+		cmd.Stdin = bytes.NewReader(envContent)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			break
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 255 || time.Now().After(deadline) {
+			return nil, fmt.Errorf("copying .env to forked container: %w\n%s", err, out)
+		}
+	}
+
+	// Inside the forked container, rename branches for each repo.
+	if !opts.Quiet {
+		_, _ = fmt.Fprintln(stdout, "- Setting up branches in forked container ...")
+	}
+	for i, r := range c.Repos {
+		repoName := shellQuote(r.Name())
+		oldBranch := shellQuote(r.Branch)
+		newBranch := shellQuote(newRepos[i].Branch)
+
+		// Push the current state as base, then rename the branch.
+		if err := runCmdOut(ctx, newRepos[i].GitRoot, []string{
+			"git", "push", "-q", "-f", fork.Name,
+			newRepos[i].Branch + ":refs/heads/base",
+		}, stdout, stderr); err != nil {
+			return nil, fmt.Errorf("pushing base for %s: %w", r.Name(), err)
+		}
+		// Rename the branch in-place and set it to track base.
+		renameCmd := "cd ~/src/" + repoName +
+			" && git branch -m " + oldBranch + " " + newBranch +
+			" && git branch --set-upstream-to=base"
+		if err := runCmdOut(ctx, "", fork.SSHCommand(fork.Name, renameCmd), stdout, stderr); err != nil {
+			return nil, fmt.Errorf("renaming branch for %s: %w", r.Name(), err)
+		}
+		// Fetch the renamed branch so the remote tracking ref exists on the host,
+		// then set the host branch to track it.
+		if err := runCmdOut(ctx, newRepos[i].GitRoot, []string{
+			"git", "fetch", "-q", fork.Name, newRepos[i].Branch,
+		}, stdout, stderr); err != nil {
+			return nil, fmt.Errorf("fetching %s from fork: %w", newRepos[i].Branch, err)
+		}
+		if err := runCmdOut(ctx, newRepos[i].GitRoot, []string{
+			"git", "branch", "--set-upstream-to", fork.Name + "/" + newRepos[i].Branch, newRepos[i].Branch,
+		}, stdout, stderr); err != nil {
+			return nil, fmt.Errorf("setting upstream for %s: %w", newRepos[i].Branch, err)
+		}
+	}
+
+	fork.State = "running"
+	return fork, nil
 }
 
 // ContainerStats holds runtime resource usage for a container.

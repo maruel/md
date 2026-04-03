@@ -106,6 +106,8 @@ func mainImpl() error {
 		return cmdPull(ctx, args)
 	case "diff":
 		return cmdDiff(ctx, args)
+	case "fork":
+		return cmdFork(ctx, args)
 	case "vnc":
 		return cmdVNC(ctx, args)
 	case "build-image":
@@ -139,9 +141,10 @@ func usage() {
 		"  push        Force-push current repo state into the running container\n"+
 		"  pull        Pull changes from container back to local branch\n"+
 		"  diff        Show differences between base and current changes\n"+
+		"  fork        Snapshot container and create a new one on forked branches\n"+
 		"  vnc         Open VNC connection to the container\n"+
 		"  build-image Build the base Docker image locally\n"+
-		"  prune       Remove unused md-specialized-* images\n"+
+		"  prune       Remove unused md-specialized-* and md-fork-* images\n"+
 		"  version     Print version information\n")
 }
 
@@ -835,6 +838,78 @@ func cmdDiff(ctx context.Context, args []string) error {
 	return nil
 }
 
+func cmdFork(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("fork", flag.ExitOnError)
+	verbose := addVerboseFlag(fs)
+	cf := addContainerFlags(fs, false)
+	display := fs.Bool("display", false, "Enable X11/VNC display")
+	tailscale := fs.Bool("tailscale", false, "Enable Tailscale networking")
+	usb := fs.Bool("usb", false, "Pass through USB devices (/dev/bus/usb)")
+	quiet := fs.Bool("q", false, "Suppress informational messages")
+	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the forked container after starting")
+	github := fs.Bool("github", false, "Inject GitHub token into container")
+	fs.Usage = func() {
+		w := fs.Output()
+		_, _ = fmt.Fprintf(w, "Usage: md fork <suffix>\n\n")
+		_, _ = fmt.Fprintf(w, "Snapshot a running container and create a new one with each repo on\n")
+		_, _ = fmt.Fprintf(w, "a new branch named <current-branch>-<suffix>.\n\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	initLogging(*verbose)
+	if fs.NArg() != 1 {
+		return errors.New("fork requires exactly one argument: branch suffix")
+	}
+	suffix := fs.Arg(0)
+
+	ct, _, err := findContainerAndRepo(ctx, cf)
+	if err != nil {
+		return err
+	}
+	githubToken, err := resolveGithubToken(ct.Client, *github)
+	if err != nil {
+		return err
+	}
+	var extraEnv []string
+	if githubToken != "" {
+		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
+	}
+	opts := md.ForkOpts{
+		Suffix:     suffix,
+		Display:    *display,
+		Tailscale:  *tailscale,
+		USB:        *usb,
+		Quiet:      *quiet,
+		AgentPaths: slices.Collect(maps.Values(md.HarnessMounts)),
+		ExtraEnv:   extraEnv,
+	}
+	fork, err := ct.Fork(ctx, os.Stdout, os.Stderr, &opts)
+	if err != nil {
+		return err
+	}
+	if !*quiet {
+		fmt.Printf("- Forked %s → %s\n", ct.Name, fork.Name)
+		fmt.Println("- Cool facts:")
+		fmt.Printf("  > SSH: `ssh %s`\n", fork.Name)
+		for _, r := range fork.Repos {
+			fmt.Printf("  > Repo %s on branch '%s'\n", r.Name(), r.Branch)
+		}
+		fmt.Println("  > Stop container (on host)  : `md stop`")
+		fmt.Println("  > Purge container (on host) : `md purge`")
+	}
+	if !*noSSH {
+		sshArgs := fork.SSHCommand(fork.Name)
+		cmd := exec.CommandContext(ctx, sshArgs[0], sshArgs[1:]...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	return nil
+}
+
 func cmdVNC(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("vnc", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
@@ -922,7 +997,7 @@ func cmdPrune(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(removed) == 0 {
-		fmt.Println("No unused md-specialized images to remove")
+		fmt.Println("No unused md images to remove")
 		return nil
 	}
 	for _, name := range removed {

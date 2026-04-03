@@ -333,24 +333,26 @@ func (c *Client) Warmup(ctx context.Context, stdout, stderr io.Writer, opts *War
 	return true, nil
 }
 
-// PruneImages removes md-specialized-* images that are not used by any container.
+// PruneImages removes md-specialized-* and md-fork-* images that are not used by any container.
 // Returns the list of removed image names.
 func (c *Client) PruneImages(ctx context.Context, stdout, stderr io.Writer) ([]string, error) {
-	// List all md-specialized-* images.
-	out, err := runCmd(ctx, "", []string{
-		c.Runtime, "images", "--format", "{{.Repository}}", "--filter", "reference=md-specialized-*",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("listing images: %w", err)
-	}
-	if out == "" {
-		return nil, nil
-	}
+	// List all md-specialized-* and md-fork-* images.
 	allImages := make(map[string]struct{})
-	for name := range strings.SplitSeq(out, "\n") {
-		if name != "" {
-			allImages[name] = struct{}{}
+	for _, prefix := range []string{"md-specialized-*", "md-fork-*"} {
+		out, err := runCmd(ctx, "", []string{
+			c.Runtime, "images", "--format", "{{.Repository}}", "--filter", "reference=" + prefix,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing images: %w", err)
 		}
+		for name := range strings.SplitSeq(out, "\n") {
+			if name != "" {
+				allImages[name] = struct{}{}
+			}
+		}
+	}
+	if len(allImages) == 0 {
+		return nil, nil
 	}
 
 	// Find images used by running md containers.

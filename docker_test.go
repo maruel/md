@@ -185,6 +185,13 @@ func TestCacheSpecKey(t *testing.T) {
 			t.Error("different caches should produce different keys")
 		}
 	})
+	t.Run("shallow_differs_from_recursive", func(t *testing.T) {
+		a := cacheSpecKey([]CacheMount{{Name: "android-keys", ContainerPath: "/home/user/.android"}})
+		b := cacheSpecKey([]CacheMount{{Name: "android-keys", ContainerPath: "/home/user/.android", Shallow: true}})
+		if a == b {
+			t.Error("shallow and recursive caches with same name/path should produce different keys")
+		}
+	})
 }
 
 func TestResolveCaches(t *testing.T) {
@@ -253,6 +260,67 @@ func TestResolveCaches(t *testing.T) {
 		}
 		if activeKey != "" {
 			t.Errorf("activeKey = %q, want \"\"", activeKey)
+		}
+	})
+
+	t.Run("shallow_copies_only_files", func(t *testing.T) {
+		cacheDir := t.TempDir()
+		// Create top-level files and a subdirectory with a file.
+		if err := os.WriteFile(filepath.Join(cacheDir, "debug.keystore"), []byte("ks"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, "adbkey"), []byte("key"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(cacheDir, "avd", "Pixel_8"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheDir, "avd", "Pixel_8", "config.ini"), []byte("big"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		caches := []CacheMount{{
+			Name:          "android-keys",
+			HostPath:      cacheDir,
+			ContainerPath: "/home/user/.android",
+			Shallow:       true,
+		}}
+		active, _, activeKey := resolveCaches(caches, "/home/user", nil)
+
+		if len(active) != 1 {
+			t.Fatalf("active = %d, want 1", len(active))
+		}
+		if activeKey == "" {
+			t.Error("activeKey should be non-empty")
+		}
+		// Only top-level files, not subdirectory contents.
+		got := active[0].files
+		if len(got) != 2 {
+			t.Fatalf("files = %v, want 2 entries", got)
+		}
+		for _, want := range []string{"adbkey", "debug.keystore"} {
+			if !slices.Contains(got, want) {
+				t.Errorf("files = %v, want to contain %s", got, want)
+			}
+		}
+	})
+
+	t.Run("shallow_skipped_when_no_files", func(t *testing.T) {
+		cacheDir := t.TempDir()
+		// Only a subdirectory, no top-level files.
+		if err := os.MkdirAll(filepath.Join(cacheDir, "avd"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		caches := []CacheMount{{
+			Name:          "android-keys",
+			HostPath:      cacheDir,
+			ContainerPath: "/home/user/.android",
+			Shallow:       true,
+		}}
+		active, _, _ := resolveCaches(caches, "/home/user", nil)
+		if len(active) != 0 {
+			t.Errorf("active = %d, want 0 (no top-level files)", len(active))
 		}
 	})
 

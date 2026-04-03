@@ -209,6 +209,8 @@ type manifestIndex struct {
 type activeCM struct {
 	cm       CacheMount
 	hostPath string
+	// files lists top-level filenames for Shallow caches. nil for recursive.
+	files []string
 }
 
 // imageBuildCacheEntry caches the result of imageBuildNeeded so that
@@ -271,7 +273,11 @@ func cacheSpecKey(caches []CacheMount) string {
 	}
 	specs := make([]string, len(caches))
 	for i, c := range caches {
-		specs[i] = c.Name + ":" + c.ContainerPath
+		s := c.Name + ":" + c.ContainerPath
+		if c.Shallow {
+			s += ":shallow"
+		}
+		specs[i] = s
 	}
 	sort.Strings(specs)
 	h := sha256.Sum256([]byte(strings.Join(specs, ",")))
@@ -398,7 +404,22 @@ func resolveCaches(caches []CacheMount, home string, mountPaths []string) (activ
 		if _, err := os.Stat(hostPath); err != nil {
 			continue
 		}
-		active = append(active, activeCM{cm, hostPath})
+		a := activeCM{cm: cm, hostPath: hostPath}
+		if cm.Shallow {
+			entries, err := os.ReadDir(hostPath)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				if !e.IsDir() {
+					a.files = append(a.files, e.Name())
+				}
+			}
+			if len(a.files) == 0 {
+				continue
+			}
+		}
+		active = append(active, a)
 	}
 
 	// activeKey reflects only the caches actually injected, not all requested.
@@ -528,7 +549,19 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 			}
 		}
 		for _, a := range active {
-			files, size := dirStats(a.hostPath)
+			var files int64
+			var size int64
+			if a.files != nil {
+				// Shallow: only top-level files are copied.
+				files = int64(len(a.files))
+				for _, f := range a.files {
+					if info, err := os.Stat(filepath.Join(a.hostPath, f)); err == nil {
+						size += info.Size()
+					}
+				}
+			} else {
+				files, size = dirStats(a.hostPath)
+			}
 			_, _ = fmt.Fprintf(stdout, "  Cache %s: %s files, %s\n", a.cm.Name, formatCount(files), FormatBytes(size))
 		}
 	}
@@ -562,7 +595,14 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 	for _, a := range active {
 		// Each cache uses a named build context ("cache-<name>") pointing at
 		// the host directory, so COPY reads directly from the host path.
-		fmt.Fprintf(&df, "COPY --from=cache-%s --chown=user:user . %s/\n", a.cm.Name, a.cm.ContainerPath)
+		if a.files != nil {
+			// Shallow: copy only top-level files, skip subdirectories.
+			for _, f := range a.files {
+				fmt.Fprintf(&df, "COPY --from=cache-%s --chown=user:user %s %s/\n", a.cm.Name, f, a.cm.ContainerPath)
+			}
+		} else {
+			fmt.Fprintf(&df, "COPY --from=cache-%s --chown=user:user . %s/\n", a.cm.Name, a.cm.ContainerPath)
+		}
 	}
 	// Single RUN layer for file permissions and directory pre-creation.
 	var run strings.Builder

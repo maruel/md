@@ -471,6 +471,11 @@ type CacheMount struct {
 	ContainerPath string
 	// ReadOnly mounts the directory read-only inside the container.
 	ReadOnly bool
+	// Shallow copies only top-level files from HostPath, ignoring
+	// subdirectories. Useful for directories like ~/.android where only a few
+	// files (debug.keystore, adbkey) are needed but subdirectories (avd/,
+	// cache/) are large and unwanted.
+	Shallow bool
 }
 
 // WellKnownCaches is the set of predefined build-tool caches, keyed by short
@@ -479,6 +484,9 @@ type CacheMount struct {
 // prefix that [Container.Launch] resolves to the user's home directory at
 // runtime; custom absolute paths are also accepted.
 var WellKnownCaches = map[string][]CacheMount{
+	"android-keys": {
+		{Name: "android-keys", Description: "Android debug keystore and ADB keys", HostPath: "~/.android", ContainerPath: "/home/user/.android", Shallow: true},
+	},
 	"bun": {
 		{Name: "bun", Description: "Bun package manager", HostPath: "~/.bun/install/cache", ContainerPath: "/home/user/.bun/install/cache"},
 	},

@@ -44,7 +44,9 @@ A file to [guide coding agents](https://agents.md/).
 - `--no-caches` — disable all default caches; use `--cache` to add back specific ones.
 - `--cache <spec>` — add a well-known name (re-adds when used with `--no-caches`) or a custom `host:container[:ro]` path.
 
-**Well-known cache names** (defined in `WellKnownCaches`, `client.go`): bun, cargo, go-mod, gradle, maven, npm, pip, pnpm, uv.
+**Well-known cache names** (defined in `WellKnownCaches`, `client.go`): android-keys, bun, cargo, go-mod, gradle, maven, npm, pip, pnpm, uv.
+
+**Shallow caches**: setting `Shallow: true` on a `CacheMount` copies only top-level files from the host directory, ignoring subdirectories. This is useful for directories like `~/.android` where only a few files (debug.keystore, adbkey) are needed but subdirectories (avd/, cache/) are large and unwanted. The generated Dockerfile emits one `COPY` per file instead of `COPY . <dest>/`. If no top-level files exist, the cache is skipped.
 
 **Adding a new well-known cache**: add an entry to `WellKnownCaches` in `client.go`. No other changes needed — it is automatically picked up by `resolveCaches` and the flag help text.
 
@@ -55,7 +57,7 @@ A file to [guide coding agents](https://agents.md/).
 | `md.base_image` | Base image reference used at build time |
 | `md.base_digest` | Digest (or image ID for local images) of the base |
 | `md.context_sha` | SHA-256 of SSH keys |
-| `md.cache_key` | 8-byte hex hash of the **active** (injected) cache names+paths |
+| `md.cache_key` | 8-byte hex hash of the **active** (injected) cache names+paths+shallow flag |
 | `md.base_manifest_digest` | Per-platform manifest digest from the registry (remote bases only) |
 
 ## Adding a New Tool Checklist

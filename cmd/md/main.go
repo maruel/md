@@ -842,33 +842,55 @@ func cmdFork(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("fork", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, false)
+	source := fs.String("source", "", "Name of the source container (default: auto-detect from repo)")
+	fs.StringVar(source, "s", "", "Name of the source container (default: auto-detect from repo)")
 	display := fs.Bool("display", false, "Enable X11/VNC display")
 	tailscale := fs.Bool("tailscale", false, "Enable Tailscale networking")
 	usb := fs.Bool("usb", false, "Pass through USB devices (/dev/bus/usb)")
 	quiet := fs.Bool("q", false, "Suppress informational messages")
 	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the forked container after starting")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
-	fs.Usage = func() {
-		w := fs.Output()
-		_, _ = fmt.Fprintf(w, "Usage: md fork <suffix>\n\n")
-		_, _ = fmt.Fprintf(w, "Snapshot a running container and create a new one with each repo on\n")
-		_, _ = fmt.Fprintf(w, "a new branch named <current-branch>-<suffix>.\n\n")
-		fs.PrintDefaults()
-	}
+	labels := &stringSlice{}
+	fs.Var(labels, "label", "Set Docker container label (key=value); can be repeated")
+	fs.Var(labels, "l", "Set Docker container label (key=value); can be repeated")
+	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	initLogging(*verbose)
-	if fs.NArg() != 1 {
-		return errors.New("fork requires exactly one argument: branch suffix")
-	}
-	suffix := fs.Arg(0)
-
-	ct, _, err := findContainerAndRepo(ctx, cf)
-	if err != nil {
+	if err := checkArgs(fs, 0); err != nil {
 		return err
 	}
-	githubToken, err := resolveGithubToken(ct.Client, *github)
+
+	// Find the source container: by name if -source is given, otherwise
+	// auto-detect from the repo like push does.
+	var sourceCt *md.Container
+	if *source != "" {
+		c, err := newClient()
+		if err != nil {
+			return err
+		}
+		containers, err := c.List(ctx)
+		if err != nil {
+			return err
+		}
+		for _, cand := range containers {
+			if cand.Name == *source {
+				sourceCt = cand
+				break
+			}
+		}
+		if sourceCt == nil {
+			return fmt.Errorf("container %q not found", *source)
+		}
+	} else {
+		var err error
+		sourceCt, _, err = findContainerAndRepo(ctx, cf)
+		if err != nil {
+			return err
+		}
+	}
+	githubToken, err := resolveGithubToken(sourceCt.Client, *github)
 	if err != nil {
 		return err
 	}
@@ -876,21 +898,42 @@ func cmdFork(ctx context.Context, args []string) error {
 	if githubToken != "" {
 		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
 	}
+	targetCt, err := newContainer(ctx, cf, nil)
+	if err != nil {
+		return err
+	}
+	// Build fork repos: when git repo are mapped in, map source repos 1:1 with
+	// the target branch (like start creates branches). When there are no
+	// git repo mapped i, fork only the container filesystem.
+	var forkRepos []md.Repo
+	if len(targetCt.Repos) > 0 {
+		targetBranch := targetCt.Repos[0].Branch
+		forkRepos = make([]md.Repo, len(sourceCt.Repos))
+		for i, r := range sourceCt.Repos {
+			forkRepos[i] = md.Repo{
+				GitRoot:       r.GitRoot,
+				Branch:        targetBranch,
+				DefaultRemote: r.DefaultRemote,
+				DefaultBranch: r.DefaultBranch,
+			}
+		}
+	}
 	opts := md.ForkOpts{
-		Suffix:     suffix,
+		Repos:      forkRepos,
 		Display:    *display,
 		Tailscale:  *tailscale,
 		USB:        *usb,
+		Labels:     labels.values,
 		Quiet:      *quiet,
 		AgentPaths: slices.Collect(maps.Values(md.HarnessMounts)),
 		ExtraEnv:   extraEnv,
 	}
-	fork, err := ct.Fork(ctx, os.Stdout, os.Stderr, &opts)
+	fork, err := sourceCt.Fork(ctx, os.Stdout, os.Stderr, &opts)
 	if err != nil {
 		return err
 	}
 	if !*quiet {
-		fmt.Printf("- Forked %s → %s\n", ct.Name, fork.Name)
+		fmt.Printf("- Forked %s → %s\n", sourceCt.Name, fork.Name)
 		fmt.Println("- Cool facts:")
 		fmt.Printf("  > SSH: `ssh %s`\n", fork.Name)
 		for _, r := range fork.Repos {

@@ -311,7 +311,6 @@ func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []stri
 	return c.Container(repos...), nil
 }
 
-// ensureGithubToken populates c.GithubToken from `gh auth token` if
 // resolveRepoSpecs resolves "path[:branch]" specs into Repos.
 func resolveRepoSpecs(ctx context.Context, specs []string) ([]md.Repo, error) {
 	repos := make([]md.Repo, 0, len(specs))
@@ -332,6 +331,7 @@ func resolveRepoSpecs(ctx context.Context, specs []string) ([]md.Repo, error) {
 	return repos, nil
 }
 
+// ensureGithubToken populates c.GithubToken from `gh auth token` if
 // GITHUB_TOKEN was not set. Returns true if a token is available.
 func ensureGithubToken(c *md.Client) bool {
 	if c.GithubToken == "" {

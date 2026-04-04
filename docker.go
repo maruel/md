@@ -903,9 +903,6 @@ func launchContainer(ctx context.Context, stdout, stderr io.Writer, c *Container
 	return nil
 }
 
-// connectContainer waits for SSH, pushes repos into the container, and
-// handles .env and Tailscale auth. Must be called after launchContainer.
-// The task branch and default branch are pushed in parallel to reduce latency.
 // waitForTCP polls until a TCP connection to addr succeeds or the deadline is
 // exceeded. ECONNREFUSED returns immediately from the kernel so no sleep is
 // needed — this detects readiness within microseconds of the service binding.
@@ -926,6 +923,10 @@ func waitForTCP(ctx context.Context, addr string, deadline time.Time) error {
 	}
 }
 
+// connectContainer waits for SSH, pushes repos into the container, and
+// handles .env and Tailscale auth. Must be called after launchContainer.
+//
+// The task branch and default branch are pushed in parallel to reduce latency.
 func connectContainer(ctx context.Context, stdout, stderr io.Writer, c *Container, opts *StartOpts) (*StartResult, error) {
 	result := &StartResult{}
 

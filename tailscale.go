@@ -63,9 +63,7 @@ func generateTailscaleAuthKey(ctx context.Context, apiKey string) (string, error
 		}
 		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, s)
 	}
-	var result struct {
-		Key string `json:"key"`
-	}
+	var result tailscaleAuthKeyResponse
 	if err := json.Unmarshal(respBody, &result); err != nil || result.Key == "" {
 		return "", errors.New("no key in response")
 	}

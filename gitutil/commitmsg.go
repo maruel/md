@@ -250,8 +250,15 @@ func reduceDiffContext(diff string) string {
 	return renderDiff(files)
 }
 
+// hunkSpan marks a contiguous run of context or changed lines in a hunk body.
+type hunkSpan struct {
+	start, end int
+	context    bool
+}
+
 // trimHunkContext trims leading and trailing context-only runs and
 // inter-change context runs to at most target lines on each side.
+//
 // Returns the trimmed lines and the number of lines removed.
 func trimHunkContext(body []string, target int) ([]string, int) {
 	if len(body) == 0 {
@@ -264,11 +271,7 @@ func trimHunkContext(body []string, target int) ([]string, int) {
 	}
 
 	// Find runs of context lines and changed lines.
-	type span struct {
-		start, end int
-		context    bool
-	}
-	var spans []span
+	var spans []hunkSpan
 	i := 0
 	for i < len(body) {
 		ctx := isCtx(body[i])
@@ -276,7 +279,7 @@ func trimHunkContext(body []string, target int) ([]string, int) {
 		for j < len(body) && isCtx(body[j]) == ctx {
 			j++
 		}
-		spans = append(spans, span{i, j, ctx})
+		spans = append(spans, hunkSpan{i, j, ctx})
 		i = j
 	}
 

@@ -53,7 +53,10 @@ func RootDir(ctx context.Context, wd string) (string, error) {
 // directory.
 func CurrentBranch(ctx context.Context, wd string) (string, error) {
 	out, err := RunGit(ctx, wd, "branch", "--show-current")
-	if err != nil || out == "" {
+	if err != nil {
+		return "", fmt.Errorf("check out a named branch: %w", err)
+	}
+	if out == "" {
 		return "", errors.New("check out a named branch")
 	}
 	return out, nil
@@ -254,18 +257,6 @@ func IsReachable(ctx context.Context, dir, commit string) (bool, error) {
 	return strings.TrimSpace(string(out)) != "", nil
 }
 
-// CreateBranchAt creates a local branch pointing at commit without checking it
-// out. This does not touch the working tree or index.
-func CreateBranchAt(ctx context.Context, dir, name, commit string) error {
-	slog.Info("git create branch at", "branch", name, "commit", commit)
-	cmd := newGitCmd(ctx, dir, []string{"branch", name, commit})
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git branch %s %s: %w: %s", name, commit, err, stderr.String())
-	}
-	return nil
-}
 
 // ListBranches returns branches sorted alphabetically. It always runs git
 // directly with no caching so the result is always fresh even when branches

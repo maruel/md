@@ -587,44 +587,6 @@ func TestIsReachable(t *testing.T) {
 	})
 }
 
-func TestCreateBranchAt(t *testing.T) {
-	ctx := t.Context()
-	dir := t.TempDir()
-
-	run := func(t *testing.T, d string, args ...string) string {
-		t.Helper()
-		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Dir = d
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
-
-	run(t, "", "init", "--initial-branch=main", dir)
-	run(t, dir, "config", "user.name", "Test")
-	run(t, dir, "config", "user.email", "test@test")
-	run(t, dir, "commit", "--allow-empty", "-m", "init")
-	commit := run(t, dir, "rev-parse", "HEAD")
-
-	t.Run("Basic", func(t *testing.T) {
-		if err := CreateBranchAt(ctx, dir, "caic-backup/caic/w0", commit); err != nil {
-			t.Fatal(err)
-		}
-		got := run(t, dir, "rev-parse", "caic-backup/caic/w0")
-		if got != commit {
-			t.Errorf("branch points at %s, want %s", got, commit)
-		}
-	})
-
-	t.Run("AlreadyExists", func(t *testing.T) {
-		if err := CreateBranchAt(ctx, dir, "caic-backup/caic/w0", commit); err == nil {
-			t.Error("expected error for duplicate branch")
-		}
-	})
-}
-
 func TestCreateBranch(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()

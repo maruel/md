@@ -46,7 +46,7 @@ func ensureEd25519Key(w io.Writer, path, comment string) error {
 		return fmt.Errorf("creating SSH public key: %w", err)
 	}
 	pubLine := string(ssh.MarshalAuthorizedKey(sshPub))
-	return os.WriteFile(path+".pub", []byte(pubLine), 0o600)
+	return os.WriteFile(path+".pub", []byte(pubLine), 0o644)
 }
 
 // ensurePublicKey regenerates the .pub file from the private key if missing.

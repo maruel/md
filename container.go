@@ -216,7 +216,7 @@ func (c *Container) Launch(ctx context.Context, stdout, stderr io.Writer, opts *
 
 	// Generate Tailscale auth key if needed.
 	if opts.Tailscale && opts.TailscaleAuthKey == "" {
-		key, err := generateTailscaleAuthKey(c.TailscaleAPIKey)
+		key, err := generateTailscaleAuthKey(ctx, c.TailscaleAPIKey)
 		if err != nil {
 			if !opts.Quiet {
 				_, _ = fmt.Fprintf(stdout, "- Could not generate Tailscale auth key (%v), will use browser auth\n", err)
@@ -460,7 +460,7 @@ func (c *Container) Purge(ctx context.Context, stdout, stderr io.Writer) error {
 					var status tailscaleStatus
 					if json.Unmarshal([]byte(statusJSON), &status) == nil && status.Self.ID != "" {
 						_, _ = fmt.Fprintln(stdout, "- Removing Tailscale node from tailnet...")
-						if err := deleteTailscaleDevice(c.TailscaleAPIKey, status.Self.ID); err != nil {
+						if err := deleteTailscaleDevice(ctx, c.TailscaleAPIKey, status.Self.ID); err != nil {
 							slog.WarnContext(ctx, "failed to remove Tailscale device", "err", err)
 						}
 					}

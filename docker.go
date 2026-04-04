@@ -33,10 +33,12 @@ import (
 //go:embed all:rsc
 var rscFS embed.FS
 
-// prepareBuildContext writes the embedded rsc/user/ tree to a temp directory.
-// Returns the temp dir path (caller must clean up).
-func prepareBuildContext() (dir string, retErr error) {
-	tmp, err := os.MkdirTemp("", "md-build-*")
+// extractEmbeddedTree writes an embedded rsc/ subtree to a temp directory.
+//
+// prefix is the embedded path (e.g. "rsc/user"), tmpPattern is the os.MkdirTemp
+// pattern. Returns the temp dir path (caller must clean up).
+func extractEmbeddedTree(prefix, tmpPattern string) (dir string, retErr error) {
+	tmp, err := os.MkdirTemp("", tmpPattern)
 	if err != nil {
 		return "", err
 	}
@@ -45,14 +47,12 @@ func prepareBuildContext() (dir string, retErr error) {
 			retErr = errors.Join(retErr, os.RemoveAll(tmp))
 		}
 	}()
-	// Walk the embedded filesystem and write all files.
-	err = fs.WalkDir(rscFS, "rsc/user", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(rscFS, prefix, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		// Strip the leading "rsc/user/" prefix so we get a clean build context.
-		rel := strings.TrimPrefix(path, "rsc/user/")
-		if rel == "" {
+		rel := strings.TrimPrefix(path, prefix+"/")
+		if rel == "" || rel == path {
 			return nil
 		}
 		target := filepath.Join(tmp, rel)
@@ -71,52 +71,24 @@ func prepareBuildContext() (dir string, retErr error) {
 		return os.WriteFile(target, data, mode)
 	})
 	if err != nil {
-		return "", fmt.Errorf("extracting build context: %w", err)
+		return "", fmt.Errorf("extracting %s: %w", prefix, err)
 	}
 	return tmp, nil
 }
 
+// prepareBuildContext writes the embedded rsc/user/ tree to a temp directory.
+//
+// Returns the temp dir path (caller must clean up).
+func prepareBuildContext() (string, error) {
+	return extractEmbeddedTree("rsc/user", "md-build-*")
+}
+
 // prepareRootBuildContext writes the embedded rsc/root/ tree to a temp
-// directory. Returns the temp dir path (caller must clean up).
-func prepareRootBuildContext() (dir string, retErr error) {
-	tmp, err := os.MkdirTemp("", "md-build-root-*")
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		if retErr != nil {
-			retErr = errors.Join(retErr, os.RemoveAll(tmp))
-		}
-	}()
-	// Walk the embedded filesystem and write all files.
-	err = fs.WalkDir(rscFS, "rsc/root", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		// Strip the leading "rsc/root/" prefix so we get a clean build context.
-		rel := strings.TrimPrefix(path, "rsc/root/")
-		if rel == "" {
-			return nil
-		}
-		target := filepath.Join(tmp, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		data, err := rscFS.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		// Preserve executable bits for shell scripts.
-		mode := os.FileMode(0o644)
-		if strings.HasSuffix(path, ".sh") || strings.HasSuffix(path, "xstartup") {
-			mode = 0o755
-		}
-		return os.WriteFile(target, data, mode)
-	})
-	if err != nil {
-		return "", fmt.Errorf("extracting root build context: %w", err)
-	}
-	return tmp, nil
+// directory.
+//
+// Returns the temp dir path (caller must clean up).
+func prepareRootBuildContext() (string, error) {
+	return extractEmbeddedTree("rsc/root", "md-build-root-*")
 }
 
 // keysSHA computes a deterministic SHA-256 hash over the SSH key files in

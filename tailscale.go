@@ -6,6 +6,7 @@ package md
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +19,7 @@ import (
 
 // generateTailscaleAuthKey creates a one-time ephemeral pre-authorized
 // Tailscale auth key via the API.
-func generateTailscaleAuthKey(apiKey string) (string, error) {
+func generateTailscaleAuthKey(ctx context.Context, apiKey string) (string, error) {
 	if apiKey == "" {
 		return "", errors.New("no Tailscale API key provided, create an API access key at https://login.tailscale.com/admin/settings/keys")
 	}
@@ -39,7 +40,7 @@ func generateTailscaleAuthKey(apiKey string) (string, error) {
 		return "", err
 	}
 	const keysURL = "https://api.tailscale.com/api/v2/tailnet/-/keys"
-	req, err := http.NewRequest(http.MethodPost, keysURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, keysURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -72,7 +73,7 @@ func generateTailscaleAuthKey(apiKey string) (string, error) {
 }
 
 // deleteTailscaleDevice deletes a Tailscale device using the API.
-func deleteTailscaleDevice(apiKey, deviceID string) error {
+func deleteTailscaleDevice(ctx context.Context, apiKey, deviceID string) error {
 	if apiKey == "" {
 		return nil
 	}
@@ -83,7 +84,7 @@ func deleteTailscaleDevice(apiKey, deviceID string) error {
 	if err != nil {
 		return fmt.Errorf("building device URL: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodDelete, u, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}

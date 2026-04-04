@@ -185,6 +185,9 @@ func (c *Container) prepare(paths []AgentPaths) error {
 			claudeJSON := filepath.Join(c.Home, ".claude.json")
 			target := filepath.Join(c.Home, ".claude", "claude.json")
 			if fi, err := os.Lstat(claudeJSON); err != nil {
+				if !os.IsNotExist(err) {
+					return fmt.Errorf("checking claude.json symlink: %w", err)
+				}
 				if err := os.Symlink(target, claudeJSON); err != nil {
 					return fmt.Errorf("creating claude.json symlink: %w", err)
 				}
@@ -644,7 +647,11 @@ func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, repoIdx 
 		cmd.Stdin = os.Stdin
 	}
 	sshArgs = append(sshArgs, c.Name, "cd ~/src/"+repoName+" && git add . && git diff base "+strings.Join(quotedArgs, " ")+" -- .")
-	cmd.Path, _ = exec.LookPath(sshArgs[0])
+	var err error
+	cmd.Path, err = exec.LookPath(sshArgs[0])
+	if err != nil {
+		return fmt.Errorf("ssh not found: %w", err)
+	}
 	cmd.Args = sshArgs
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

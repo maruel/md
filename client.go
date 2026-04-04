@@ -395,14 +395,16 @@ func (c *Client) PruneImages(ctx context.Context, stdout, stderr io.Writer) ([]s
 // gatherGitMetadata runs SSH commands to collect branch, stat, and log from
 // the container. This data is always small.
 func (c *Client) gatherGitMetadata(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ~/src/" + repo + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
+	r := shellQuote(repo)
+	cmd := "cd ~/src/" + r + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached base -- . && echo && echo '=== Recent Commits ===' && git log -5 base -- ."
 	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd))
 	return out
 }
 
 // gatherGitDiff runs SSH to get the full patience diff from the container.
 func (c *Client) gatherGitDiff(ctx context.Context, containerName, repo string) string {
-	cmd := "cd ~/src/" + repo + " && git diff --patience -U10 --cached base -- ."
+	r := shellQuote(repo)
+	cmd := "cd ~/src/" + r + " && git diff --patience -U10 --cached base -- ."
 	out, _ := runCmd(ctx, "", c.SSHCommand(containerName, cmd))
 	return out
 }

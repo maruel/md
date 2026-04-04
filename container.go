@@ -513,7 +513,7 @@ func (c *Container) Push(ctx context.Context, stdout, stderr io.Writer, repoIdx 
 	// Save a backup branch of the current container state.
 	containerCommit, _ := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git rev-parse HEAD"))
 	backupBranch := "backup-" + time.Now().Format("20060102-150405")
-	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git branch -f "+backupBranch+" "+containerCommit))
+	_, _ = runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git branch -f "+backupBranch+" "+shellQuote(containerCommit)))
 	if err := runCmdOut(ctx, r.GitRoot, []string{"git", "push", "-q", "-f", "--tags", c.Name, r.Branch + ":base"}, stdout, stderr); err != nil {
 		return "", err
 	}
@@ -550,8 +550,8 @@ func (c *Container) Fetch(ctx context.Context, stdout, stderr io.Writer, repoIdx
 	if _, err := runCmd(ctx, "", c.SSHCommand(c.Name, "cd ~/src/"+repoName+" && git add . && git diff --quiet HEAD -- .")); err != nil {
 		commitMsg := "Pull from md"
 		if p != nil {
-			metadata := c.gatherGitMetadata(ctx, c.Name, repoName)
-			diff := c.gatherGitDiff(ctx, c.Name, repoName)
+			metadata := c.gatherGitMetadata(ctx, c.Name, r.Name())
+			diff := c.gatherGitDiff(ctx, c.Name, r.Name())
 			if msg, err := gitutil.GenerateCommitMsg(ctx, p, metadata, diff, nil); err != nil {
 				slog.WarnContext(ctx, "failed to generate commit message", "err", err)
 			} else if msg != "" {

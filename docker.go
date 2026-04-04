@@ -423,6 +423,47 @@ func resolveCaches(caches []CacheMount, home string, mountPaths []string) (activ
 	return active, dirs, activeKey
 }
 
+// generateDockerfile produces the Dockerfile content for a specialized image.
+func generateDockerfile(baseImage string, active []activeCM, dirs []string, baseDigest, contextSHA, activeKey, manifestDigest string) string {
+	var df strings.Builder
+	fmt.Fprintf(&df, "FROM %s\n", baseImage)
+	df.WriteString("COPY --chown=root:root ssh_host_ed25519_key /etc/ssh/ssh_host_ed25519_key\n")
+	df.WriteString("COPY --chown=root:root ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ed25519_key.pub\n")
+	df.WriteString("COPY --chown=user:user authorized_keys /home/user/.ssh/authorized_keys\n")
+	for _, a := range active {
+		if a.files != nil {
+			// Shallow: copy only top-level files, skip subdirectories.
+			// JSON form handles filenames with spaces or special characters.
+			for _, f := range a.files {
+				fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", %q, %q]\n", a.cm.Name, f, a.cm.ContainerPath+"/")
+			}
+		} else {
+			fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", \".\", %q]\n", a.cm.Name, a.cm.ContainerPath+"/")
+		}
+	}
+	// Single RUN layer for file permissions and directory pre-creation.
+	var run strings.Builder
+	run.WriteString("chmod 0600 /etc/ssh/ssh_host_ed25519_key")
+	run.WriteString(" && chmod 0644 /etc/ssh/ssh_host_ed25519_key.pub")
+	run.WriteString(" && chmod 0400 /home/user/.ssh/authorized_keys")
+	if len(dirs) > 0 {
+		quoted := make([]string, len(dirs))
+		for i, d := range dirs {
+			quoted[i] = shellQuote(d)
+		}
+		joined := strings.Join(quoted, " ")
+		fmt.Fprintf(&run, " && mkdir -p %s && chown user:user %s", joined, joined)
+	}
+	fmt.Fprintf(&df, "RUN %s\n", run.String())
+	fmt.Fprintf(&df, "LABEL md.base_image=%q\n", baseImage)
+	fmt.Fprintf(&df, "LABEL md.base_digest=%q\n", baseDigest)
+	fmt.Fprintf(&df, "LABEL md.context_sha=%q\n", contextSHA)
+	fmt.Fprintf(&df, "LABEL md.cache_key=%q\n", activeKey)
+	fmt.Fprintf(&df, "LABEL md.base_manifest_digest=%q\n", manifestDigest)
+	df.WriteString("CMD [\"/root/start.sh\"]\n")
+	return df.String()
+}
+
 // buildSpecializedImage builds the per-user Docker image by generating a
 // Dockerfile at build time and running "docker build".
 //
@@ -557,48 +598,9 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 		}
 	}
 
-	// Generate Dockerfile. COPY --chown sets ownership at copy time so no
-	// container start/exec is needed for permission fixes.
-	var df strings.Builder
-	fmt.Fprintf(&df, "FROM %s\n", baseImage)
-	df.WriteString("COPY --chown=root:root ssh_host_ed25519_key /etc/ssh/ssh_host_ed25519_key\n")
-	df.WriteString("COPY --chown=root:root ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ed25519_key.pub\n")
-	df.WriteString("COPY --chown=user:user authorized_keys /home/user/.ssh/authorized_keys\n")
-	for _, a := range active {
-		// Each cache uses a named build context ("cache-<name>") pointing at
-		// the host directory, so COPY reads directly from the host path.
-		if a.files != nil {
-			// Shallow: copy only top-level files, skip subdirectories.
-			// JSON form handles filenames with spaces or special characters.
-			for _, f := range a.files {
-				fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", %q, %q]\n", a.cm.Name, f, a.cm.ContainerPath+"/")
-			}
-		} else {
-			fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", \".\", %q]\n", a.cm.Name, a.cm.ContainerPath+"/")
-		}
-	}
-	// Single RUN layer for file permissions and directory pre-creation.
-	var run strings.Builder
-	run.WriteString("chmod 0600 /etc/ssh/ssh_host_ed25519_key")
-	run.WriteString(" && chmod 0644 /etc/ssh/ssh_host_ed25519_key.pub")
-	run.WriteString(" && chmod 0400 /home/user/.ssh/authorized_keys")
-	if len(dirs) > 0 {
-		quoted := make([]string, len(dirs))
-		for i, d := range dirs {
-			quoted[i] = shellQuote(d)
-		}
-		joined := strings.Join(quoted, " ")
-		fmt.Fprintf(&run, " && mkdir -p %s && chown user:user %s", joined, joined)
-	}
-	fmt.Fprintf(&df, "RUN %s\n", run.String())
-	fmt.Fprintf(&df, "LABEL md.base_image=%q\n", baseImage)
-	fmt.Fprintf(&df, "LABEL md.base_digest=%q\n", baseDigest)
-	fmt.Fprintf(&df, "LABEL md.context_sha=%q\n", contextSHA)
-	fmt.Fprintf(&df, "LABEL md.cache_key=%q\n", activeKey)
-	fmt.Fprintf(&df, "LABEL md.base_manifest_digest=%q\n", manifestDigest)
-	df.WriteString("CMD [\"/root/start.sh\"]\n")
+	df := generateDockerfile(baseImage, active, dirs, baseDigest, contextSHA, activeKey, manifestDigest)
 
-	if err := os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(df.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(df), 0o644); err != nil {
 		return fmt.Errorf("writing Dockerfile: %w", err)
 	}
 

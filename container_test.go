@@ -7,6 +7,7 @@ package md
 import (
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 )
@@ -140,6 +141,18 @@ func TestUnmarshalContainer(t *testing.T) {
 			t.Fatal("expected error for bad CreatedAt")
 		}
 	})
+	t.Run("empty_input", func(t *testing.T) {
+		_, err := unmarshalContainer([]byte(""))
+		if err == nil {
+			t.Fatal("expected error for empty input")
+		}
+	})
+	t.Run("bad_json", func(t *testing.T) {
+		_, err := unmarshalContainer([]byte("{not json}"))
+		if err == nil {
+			t.Fatal("expected error for bad JSON")
+		}
+	})
 }
 
 func TestParseStatsLine(t *testing.T) {
@@ -174,6 +187,200 @@ func TestParseStatsLine(t *testing.T) {
 		}
 		if s.CPUPerc != 0 || s.MemUsed != 0 || s.MemLimit != 0 || s.NetRx != 0 || s.NetTx != 0 {
 			t.Errorf("expected all-zero stats for N/A, got %+v", s)
+		}
+	})
+	t.Run("error", func(t *testing.T) {
+		tests := []struct {
+			name string
+			in   string
+		}{
+			{"empty", ""},
+			{"bad_json", "{invalid json}"},
+			{"bad_cpu", `{"Name":"x","CPUPerc":"bad%","MemUsage":"0B / 0B","MemPerc":"0%","PIDs":"0","NetIO":"0B / 0B","BlockIO":"0B / 0B"}`},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, _, err := parseStatsLine(tt.in)
+				if err == nil {
+					t.Errorf("parseStatsLine(%q) should return error", tt.in)
+				}
+			})
+		}
+	})
+}
+
+func TestParseByteSize(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		tests := []struct {
+			name string
+			in   string
+			want uint64
+		}{
+			{"zero_bytes", "0B", 0},
+			{"bytes", "100B", 100},
+			{"kib", "1KiB", 1 << 10},
+			{"mib", "150MiB", 150 << 20},
+			{"gib", "7.5GiB", uint64(7.5 * float64(1<<30))},
+			{"tib", "1TiB", 1 << 40},
+			{"kb", "1.5kB", 1500},
+			{"mb", "10MB", 10_000_000},
+			{"gb", "1GB", 1_000_000_000},
+			{"tb", "2TB", 2_000_000_000_000},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got, err := parseByteSize(tt.in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got != tt.want {
+					t.Errorf("parseByteSize(%q) = %d, want %d", tt.in, got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		tests := []struct {
+			name string
+			in   string
+		}{
+			{"unknown_unit", "100XB"},
+			{"no_unit", "100"},
+			{"empty", ""},
+			{"bad_number", "abcMiB"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := parseByteSize(tt.in)
+				if err == nil {
+					t.Errorf("parseByteSize(%q) should return error", tt.in)
+				}
+			})
+		}
+	})
+}
+
+func TestParseMemUsage(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		used, limit, err := parseMemUsage("150MiB / 7.5GiB")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if used != 150<<20 {
+			t.Errorf("used = %d, want %d", used, 150<<20)
+		}
+		if limit != uint64(7.5*float64(1<<30)) {
+			t.Errorf("limit = %d, want %d", limit, uint64(7.5*float64(1<<30)))
+		}
+	})
+
+	t.Run("na", func(t *testing.T) {
+		used, limit, err := parseMemUsage("N/A / N/A")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if used != 0 || limit != 0 {
+			t.Errorf("expected (0, 0), got (%d, %d)", used, limit)
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		tests := []struct {
+			name string
+			in   string
+		}{
+			{"no_slash", "150MiB"},
+			{"bad_used", "abc / 1GiB"},
+			{"bad_limit", "1MiB / xyz"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, _, err := parseMemUsage(tt.in)
+				if err == nil {
+					t.Errorf("parseMemUsage(%q) should return error", tt.in)
+				}
+			})
+		}
+	})
+}
+
+func TestParseIOPair(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		a, b, err := parseIOPair("1.5kB / 500B")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a != 1500 {
+			t.Errorf("a = %d, want 1500", a)
+		}
+		if b != 500 {
+			t.Errorf("b = %d, want 500", b)
+		}
+	})
+
+	t.Run("na", func(t *testing.T) {
+		a, b, err := parseIOPair("N/A / N/A")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a != 0 || b != 0 {
+			t.Errorf("expected (0, 0), got (%d, %d)", a, b)
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		tests := []struct {
+			name string
+			in   string
+		}{
+			{"no_slash", "100kB"},
+			{"bad_first", "abc / 1kB"},
+			{"bad_second", "1kB / xyz"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, _, err := parseIOPair(tt.in)
+				if err == nil {
+					t.Errorf("parseIOPair(%q) should return error", tt.in)
+				}
+			})
+		}
+	})
+}
+
+func TestMergePaths(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		got := mergePaths(nil)
+		// Should return alwaysPaths base.
+		if len(got.XDGConfigPaths) < 2 {
+			t.Errorf("expected at least 2 XDGConfigPaths from alwaysPaths, got %d", len(got.XDGConfigPaths))
+		}
+	})
+
+	t.Run("merge", func(t *testing.T) {
+		input := []AgentPaths{
+			{HomePaths: []string{".foo"}, XDGConfigPaths: []string{"bar"}},
+			{HomePaths: []string{".baz"}, LocalSharePaths: []string{"qux"}},
+		}
+		got := mergePaths(input)
+		if !slices.Contains(got.HomePaths, ".foo") || !slices.Contains(got.HomePaths, ".baz") {
+			t.Errorf("HomePaths = %v, want .foo and .baz", got.HomePaths)
+		}
+		if !slices.Contains(got.XDGConfigPaths, "bar") {
+			t.Errorf("XDGConfigPaths = %v, want bar", got.XDGConfigPaths)
+		}
+		if !slices.Contains(got.LocalSharePaths, "qux") {
+			t.Errorf("LocalSharePaths = %v, want qux", got.LocalSharePaths)
+		}
+	})
+
+	t.Run("does_not_mutate_global", func(t *testing.T) {
+		before := len(alwaysPaths.XDGConfigPaths)
+		_ = mergePaths([]AgentPaths{{XDGConfigPaths: []string{"extra1", "extra2"}}})
+		after := len(alwaysPaths.XDGConfigPaths)
+		if before != after {
+			t.Errorf("alwaysPaths.XDGConfigPaths mutated: was %d, now %d", before, after)
 		}
 	})
 }

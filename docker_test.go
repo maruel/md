@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -334,6 +335,88 @@ func TestResolveCaches(t *testing.T) {
 		requestedKey := cacheSpecKey(requested)
 		if activeKey == requestedKey {
 			t.Errorf("activeKey %q should differ from requestedKey %q when host dir is missing", activeKey, requestedKey)
+		}
+	})
+}
+
+func TestGenerateDockerfile(t *testing.T) {
+	t.Run("no_caches_no_dirs", func(t *testing.T) {
+		got := generateDockerfile("mybase:latest", nil, nil, "sha256:abc", "ctxsha", "", "")
+		if !strings.Contains(got, "FROM mybase:latest\n") {
+			t.Error("missing FROM line")
+		}
+		if !strings.Contains(got, "COPY --chown=root:root ssh_host_ed25519_key") {
+			t.Error("missing SSH key COPY")
+		}
+		if !strings.Contains(got, `LABEL md.base_digest="sha256:abc"`) {
+			t.Errorf("missing base_digest label in:\n%s", got)
+		}
+		if strings.Contains(got, "mkdir") {
+			t.Error("should not contain mkdir when dirs is empty")
+		}
+		if !strings.Contains(got, `CMD ["/root/start.sh"]`) {
+			t.Error("missing CMD")
+		}
+	})
+
+	t.Run("recursive_cache", func(t *testing.T) {
+		active := []activeCM{{
+			cm: CacheMount{Name: "go-mod", ContainerPath: "/home/user/go/pkg/mod"},
+		}}
+		got := generateDockerfile("base:v1", active, []string{"/home/user/go/pkg/mod"}, "", "", "cachekey", "")
+		if !strings.Contains(got, `COPY ["--from=cache-go-mod", "--chown=user:user", ".", "/home/user/go/pkg/mod/"]`) {
+			t.Errorf("missing recursive COPY in:\n%s", got)
+		}
+		if !strings.Contains(got, "mkdir -p /home/user/go/pkg/mod") {
+			t.Errorf("missing mkdir in:\n%s", got)
+		}
+	})
+
+	t.Run("shallow_cache", func(t *testing.T) {
+		active := []activeCM{{
+			cm:    CacheMount{Name: "android-keys", ContainerPath: "/home/user/.android"},
+			files: []string{"debug.keystore", "adbkey"},
+		}}
+		got := generateDockerfile("base:v1", active, nil, "", "", "", "")
+		if !strings.Contains(got, `COPY ["--from=cache-android-keys", "--chown=user:user", "debug.keystore", "/home/user/.android/"]`) {
+			t.Errorf("missing shallow COPY for debug.keystore in:\n%s", got)
+		}
+		if !strings.Contains(got, `COPY ["--from=cache-android-keys", "--chown=user:user", "adbkey", "/home/user/.android/"]`) {
+			t.Errorf("missing shallow COPY for adbkey in:\n%s", got)
+		}
+	})
+
+	t.Run("filename_with_spaces", func(t *testing.T) {
+		active := []activeCM{{
+			cm:    CacheMount{Name: "keys", ContainerPath: "/home/user/.keys"},
+			files: []string{"my key.pem"},
+		}}
+		got := generateDockerfile("base:v1", active, nil, "", "", "", "")
+		// JSON form should properly quote the filename.
+		if !strings.Contains(got, `"my key.pem"`) {
+			t.Errorf("filename with spaces not properly quoted in:\n%s", got)
+		}
+	})
+
+	t.Run("dir_with_spaces", func(t *testing.T) {
+		dirs := []string{"/home/user/my cache"}
+		got := generateDockerfile("base:v1", nil, dirs, "", "", "", "")
+		if !strings.Contains(got, "'/home/user/my cache'") {
+			t.Errorf("dir with spaces not shell-quoted in:\n%s", got)
+		}
+	})
+
+	t.Run("labels_set", func(t *testing.T) {
+		got := generateDockerfile("img", nil, nil, "dig", "ctx", "ckey", "mdig")
+		for _, want := range []string{
+			`LABEL md.base_digest="dig"`,
+			`LABEL md.context_sha="ctx"`,
+			`LABEL md.cache_key="ckey"`,
+			`LABEL md.base_manifest_digest="mdig"`,
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing %q in:\n%s", want, got)
+			}
 		}
 	})
 }

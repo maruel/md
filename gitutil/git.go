@@ -257,7 +257,6 @@ func IsReachable(ctx context.Context, dir, commit string) (bool, error) {
 	return strings.TrimSpace(string(out)) != "", nil
 }
 
-
 // ListBranches returns branches sorted alphabetically. It always runs git
 // directly with no caching so the result is always fresh even when branches
 // are created or deleted frequently.

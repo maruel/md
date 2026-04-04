@@ -36,13 +36,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     measure_exec.sh "System Packages" /root/setup/1_packages.sh
 RUN --mount=type=secret,id=github_token \
-    [ -f /run/secrets/github_token ] && export GITHUB_TOKEN=$(cat /run/secrets/github_token); \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
     measure_exec.sh "Neovim" /root/setup/2_neovim.sh
 RUN measure_exec.sh "Extrepo Packages" /root/setup/3_extrepo.sh
 RUN measure_exec.sh "Create User" /root/setup/4_create_user.sh
 RUN measure_exec.sh "KVM Setup" /root/setup/5_kvm.sh
 RUN --mount=type=secret,id=github_token \
-    [ -f /run/secrets/github_token ] && export GITHUB_TOKEN=$(cat /run/secrets/github_token); \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
     measure_exec.sh "radare2" /root/setup/6_radare2.sh
 RUN measure_exec.sh "Podman" /root/setup/7_podman.sh
 

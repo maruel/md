@@ -21,7 +21,11 @@ chmod 666 "$LOGFILE"
 # Start Xvnc
 log "Starting Xvnc on $DISPLAY (port 5901)..."
 Xvnc "$DISPLAY" -geometry 1920x1080 -depth 24 -SecurityTypes None -rfbport 5901 &
-sleep 1
+# Wait for the X socket to appear instead of a fixed sleep.
+for _ in $(seq 1 50); do
+	[ -e /tmp/.X11-unix/X1 ] && break
+	sleep 0.1
+done
 
 # Write DISPLAY to profile.d
 log "Writing DISPLAY=$DISPLAY to $DISPLAY_FILE"

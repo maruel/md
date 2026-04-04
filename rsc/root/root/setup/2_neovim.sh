@@ -33,9 +33,9 @@ if [[ -z "${NVIM_URL}" ]]; then
 fi
 
 curl -fsSL "${NVIM_URL}" -o "${TMPDIR}/nvim.tar.gz"
-mkdir -p /opt
-tar xzf "${TMPDIR}/nvim.tar.gz" -C /opt --strip-components=1
-ln -sf /opt/bin/nvim /usr/local/bin/nvim
-ln -sf /opt/bin/nvim /usr/local/bin/vim
-ln -sf /opt/bin/nvim /usr/local/bin/vi
-ln -sf /opt/bin/vimdiff /usr/local/bin/vimdiff
+mkdir -p /opt/nvim
+tar xzf "${TMPDIR}/nvim.tar.gz" -C /opt/nvim --strip-components=1
+ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim
+ln -sf /opt/nvim/bin/nvim /usr/local/bin/vim
+ln -sf /opt/nvim/bin/nvim /usr/local/bin/vi
+ln -sf /opt/nvim/bin/vimdiff /usr/local/bin/vimdiff

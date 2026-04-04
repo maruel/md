@@ -1,4 +1,6 @@
 #!/bin/bash
+# Intentionally fail-fast: any startup failure should be visible immediately
+# rather than masked, so the user can diagnose a broken container.
 set -eu
 
 # Generate dynamic motd with hostname

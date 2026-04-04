@@ -432,20 +432,20 @@ func GenerateCommitMsg(ctx context.Context, p genai.Provider, metadata, diff str
 
 	// Step 0: try full diff.
 	if metaLen+renderDiffLen(files) <= maxDiffLen {
-		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)))
+		return genCommitMsg(ctx, p, commitMsgPrompt, buildContext(metadata, renderDiff(files)))
 	}
 
 	// Step 1: reduce context lines.
 	reduceFileDiffContext(files, reducedContext)
 	if metaLen+renderDiffLen(files) <= maxDiffLen {
-		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)))
+		return genCommitMsg(ctx, p, commitMsgPrompt, buildContext(metadata, renderDiff(files)))
 	}
 
 	// Step 2+: apply each filter progressively until the diff fits.
 	files, removed := progressiveFilter(files, filters, maxDiffLen-metaLen)
 	annotation := filteredAnnotation(removed)
 	if metaLen+renderDiffLen(files)+len(annotation) <= maxDiffLen {
-		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+buildContext(metadata, renderDiff(files)+annotation))
+		return genCommitMsg(ctx, p, commitMsgPrompt, buildContext(metadata, renderDiff(files)+annotation))
 	}
 
 	// Final fallback: parallel map-reduce. Include annotation in metadata so
@@ -469,7 +469,7 @@ func parallelDescribe(ctx context.Context, p genai.Provider, metadata string, fi
 	chunkSize = max(chunkSize, 1000)
 	chunks := splitFiles(files, chunkSize)
 	if len(chunks) == 0 {
-		return genCommitMsg(ctx, p, commitMsgPrompt+"\n\n"+metadata)
+		return genCommitMsg(ctx, p, commitMsgPrompt, metadata)
 	}
 
 	summaries := make([]string, len(chunks))
@@ -478,8 +478,8 @@ func parallelDescribe(ctx context.Context, p genai.Provider, metadata string, fi
 	for i, chunk := range chunks {
 		g.Go(func() error {
 			header := fmt.Sprintf("(part %d/%d)\n", i+1, len(chunks))
-			prompt := chunkPrompt + "\n\n" + metaPrefix + "\n" + header + chunk
-			summary, err := genCommitMsg(gctx, p, prompt)
+			content := metaPrefix + "\n" + header + chunk
+			summary, err := genCommitMsg(gctx, p, chunkPrompt, content)
 			if err != nil {
 				return err
 			}
@@ -493,14 +493,20 @@ func parallelDescribe(ctx context.Context, p genai.Provider, metadata string, fi
 
 	// Synthesize.
 	combined := metadata + "\n=== Chunk Summaries ===\n" + strings.Join(summaries, "\n---\n")
-	return genCommitMsg(ctx, p, synthesizePrompt+"\n\n"+combined)
+	return genCommitMsg(ctx, p, synthesizePrompt, combined)
 }
 
 // genCommitMsg generates a commit message using an already-initialized provider.
-func genCommitMsg(ctx context.Context, p genai.Provider, prompt string) (string, error) {
+//
+// The system prompt contains instructions; the user content contains the diff
+// and metadata. Separating them lets the LLM weight instructions correctly.
+func genCommitMsg(ctx context.Context, p genai.Provider, systemPrompt, content string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	res, err := p.GenSync(ctx, genai.Messages{genai.NewTextMessage(prompt)}, &genai.GenOptionText{MaxTokens: 1024})
+	res, err := p.GenSync(ctx, genai.Messages{genai.NewTextMessage(content)}, &genai.GenOptionText{
+		MaxTokens:    1024,
+		SystemPrompt: systemPrompt,
+	})
 	if err != nil {
 		return "", err
 	}

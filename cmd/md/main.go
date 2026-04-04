@@ -284,6 +284,8 @@ func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []stri
 	}
 	gitRoot, gitErr := gitutil.RootDir(ctx, primaryPath)
 	if gitErr == nil {
+		// Chdir so that relative paths in subsequent flag resolution (e.g.
+		// -extra-repo) resolve from the git root. Safe because the CLI is serial.
 		if err := os.Chdir(gitRoot); err != nil {
 			return nil, err
 		}

@@ -17,6 +17,10 @@ import (
 	"time"
 )
 
+type tailscaleAuthKeyResponse struct {
+	Key string `json:"key"`
+}
+
 // generateTailscaleAuthKey creates a one-time ephemeral pre-authorized
 // Tailscale auth key via the API.
 func generateTailscaleAuthKey(ctx context.Context, apiKey string) (string, error) {

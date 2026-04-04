@@ -18,7 +18,8 @@
 		if command -v "$cmd" >/dev/null 2>&1; then
 			local version output
 			# specific handling for some tools that output to stderr or have weird formats
-			output=$("$cmd" "$version_flag" 2>&1)
+			# shellcheck disable=SC2086 # intentional word splitting for multi-flag args
+			output=$("$cmd" $version_flag 2>&1)
 			if [ -n "$filter" ]; then
 				version=$(echo "$output" | grep "$filter" | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 			else
@@ -75,8 +76,8 @@
 	check_version "xxd" "xxd" "-v"
 	check_version "SQLite" "sqlite3" "--version"
 	check_version "asciinema" "asciinema" "--version"
-	check_version "FFmpeg" "ffmpeg" "-hide_banner -version | head -n 1"
-	check_version "ImageMagick" "magick" "--version | head -n 1"
+	check_version "FFmpeg" "ffmpeg" "-hide_banner -version"
+	check_version "ImageMagick" "magick" "--version"
 
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"

@@ -401,6 +401,7 @@ func waitForSSH(ctx context.Context, c *Container, deadline time.Time) error {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out waiting for SSH on %s", c.Name)
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -847,6 +848,7 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 255 || time.Now().After(deadline) {
 			return nil, fmt.Errorf("copying .env to forked container: %w\n%s", err, out)
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// Inside the forked container: rename branches for source repos,

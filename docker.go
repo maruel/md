@@ -909,8 +909,7 @@ func launchContainer(ctx context.Context, stdout, stderr io.Writer, c *Container
 }
 
 // waitForTCP polls until a TCP connection to addr succeeds or the deadline is
-// exceeded. ECONNREFUSED returns immediately from the kernel so no sleep is
-// needed — this detects readiness within microseconds of the service binding.
+// exceeded.
 func waitForTCP(ctx context.Context, addr string, deadline time.Time) error {
 	dialer := net.Dialer{Timeout: 500 * time.Millisecond}
 	for {
@@ -925,6 +924,7 @@ func waitForTCP(ctx context.Context, addr string, deadline time.Time) error {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out waiting for TCP %s", addr)
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

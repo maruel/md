@@ -303,7 +303,19 @@ func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []stri
 	}
 	// Not in a git repo and no explicit -repo: create a no-repo container.
 	// Resolve extra repos.
-	for _, spec := range extraRepoSpecs {
+	extra, err := resolveRepoSpecs(ctx, extraRepoSpecs)
+	if err != nil {
+		return nil, err
+	}
+	repos = append(repos, extra...)
+	return c.Container(repos...), nil
+}
+
+// ensureGithubToken populates c.GithubToken from `gh auth token` if
+// resolveRepoSpecs resolves "path[:branch]" specs into Repos.
+func resolveRepoSpecs(ctx context.Context, specs []string) ([]md.Repo, error) {
+	repos := make([]md.Repo, 0, len(specs))
+	for _, spec := range specs {
 		path, branch, _ := strings.Cut(spec, ":")
 		gitRoot, err := gitutil.RootDir(ctx, path)
 		if err != nil {
@@ -317,13 +329,9 @@ func newContainer(ctx context.Context, cf *containerFlags, extraRepoSpecs []stri
 		}
 		repos = append(repos, md.Repo{GitRoot: gitRoot, Branch: branch})
 	}
-	if len(repos) > 1000 {
-		return nil, fmt.Errorf("too many repositories: %d (max 1000)", len(repos))
-	}
-	return c.Container(repos...), nil
+	return repos, nil
 }
 
-// ensureGithubToken populates c.GithubToken from `gh auth token` if
 // GITHUB_TOKEN was not set. Returns true if a token is available.
 func ensureGithubToken(c *md.Client) bool {
 	if c.GithubToken == "" {
@@ -850,6 +858,9 @@ func cmdFork(ctx context.Context, args []string) error {
 	quiet := fs.Bool("q", false, "Suppress informational messages")
 	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the forked container after starting")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
+	extraRepos := &stringSlice{}
+	fs.Var(extraRepos, "extra-repo", "Additional git repository path[:branch] to map; may be repeated")
+	fs.Var(extraRepos, "e", "Additional git repository path[:branch] to map; may be repeated")
 	labels := &stringSlice{}
 	fs.Var(labels, "label", "Set Docker container label (key=value); can be repeated")
 	fs.Var(labels, "l", "Set Docker container label (key=value); can be repeated")
@@ -898,28 +909,12 @@ func cmdFork(ctx context.Context, args []string) error {
 	if githubToken != "" {
 		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
 	}
-	targetCt, err := newContainer(ctx, cf, nil)
+	resolved, err := resolveRepoSpecs(ctx, extraRepos.values)
 	if err != nil {
 		return err
 	}
-	// Build fork repos: when git repo are mapped in, map source repos 1:1 with
-	// the target branch (like start creates branches). When there are no
-	// git repo mapped i, fork only the container filesystem.
-	var forkRepos []md.Repo
-	if len(targetCt.Repos) > 0 {
-		targetBranch := targetCt.Repos[0].Branch
-		forkRepos = make([]md.Repo, len(sourceCt.Repos))
-		for i, r := range sourceCt.Repos {
-			forkRepos[i] = md.Repo{
-				GitRoot:       r.GitRoot,
-				Branch:        targetBranch,
-				DefaultRemote: r.DefaultRemote,
-				DefaultBranch: r.DefaultBranch,
-			}
-		}
-	}
 	opts := md.ForkOpts{
-		Repos:      forkRepos,
+		ExtraRepos: resolved,
 		Display:    *display,
 		Tailscale:  *tailscale,
 		USB:        *usb,

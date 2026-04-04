@@ -712,6 +712,9 @@ func resolveHostPath(p, home string) string {
 // Port and creation-time results are stored directly on c (launchSSHPort,
 // launchVNCPort, CreatedAt) so that connectContainer can complete startup.
 func launchContainer(ctx context.Context, stdout, stderr io.Writer, c *Container, opts *StartOpts, imageName string) error {
+	if len(c.Repos) > 1000 {
+		return fmt.Errorf("too many repositories: %d (max 1000)", len(c.Repos))
+	}
 	rt := c.Runtime
 	var dockerArgs []string
 	dockerArgs = append(dockerArgs, rt, "run", "-d",

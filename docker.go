@@ -597,11 +597,12 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 		// the host directory, so COPY reads directly from the host path.
 		if a.files != nil {
 			// Shallow: copy only top-level files, skip subdirectories.
+			// JSON form handles filenames with spaces or special characters.
 			for _, f := range a.files {
-				fmt.Fprintf(&df, "COPY --from=cache-%s --chown=user:user %s %s/\n", a.cm.Name, f, a.cm.ContainerPath)
+				fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", %q, %q]\n", a.cm.Name, f, a.cm.ContainerPath+"/")
 			}
 		} else {
-			fmt.Fprintf(&df, "COPY --from=cache-%s --chown=user:user . %s/\n", a.cm.Name, a.cm.ContainerPath)
+			fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", \".\", %q]\n", a.cm.Name, a.cm.ContainerPath+"/")
 		}
 	}
 	// Single RUN layer for file permissions and directory pre-creation.
@@ -610,7 +611,11 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 	run.WriteString(" && chmod 0644 /etc/ssh/ssh_host_ed25519_key.pub")
 	run.WriteString(" && chmod 0400 /home/user/.ssh/authorized_keys")
 	if len(dirs) > 0 {
-		joined := strings.Join(dirs, " ")
+		quoted := make([]string, len(dirs))
+		for i, d := range dirs {
+			quoted[i] = shellQuote(d)
+		}
+		joined := strings.Join(quoted, " ")
 		fmt.Fprintf(&run, " && mkdir -p %s && chown user:user %s", joined, joined)
 	}
 	fmt.Fprintf(&df, "RUN %s\n", run.String())

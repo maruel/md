@@ -456,7 +456,9 @@ func (c *Container) Purge(ctx context.Context, stdout, stderr io.Writer) error {
 					var status tailscaleStatus
 					if json.Unmarshal([]byte(statusJSON), &status) == nil && status.Self.ID != "" {
 						_, _ = fmt.Fprintln(stdout, "- Removing Tailscale node from tailnet...")
-						deleteTailscaleDevice(c.TailscaleAPIKey, status.Self.ID)
+						if err := deleteTailscaleDevice(c.TailscaleAPIKey, status.Self.ID); err != nil {
+							slog.WarnContext(ctx, "failed to remove Tailscale device", "err", err)
+						}
 					}
 				}
 			}

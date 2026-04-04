@@ -414,7 +414,9 @@ func findModuleDirs(base, dir string, paths *[]string) error {
 		*paths = append(*paths, filepath.ToSlash(rel))
 		// Recurse into <module>/modules/ to find nested submodule repos.
 		if hasModules {
-			_ = findModuleDirs(base, filepath.Join(dir, "modules"), paths)
+			if err := findModuleDirs(base, filepath.Join(dir, "modules"), paths); err != nil {
+				slog.Warn("skipping nested modules", "dir", filepath.Join(dir, "modules"), "err", err)
+			}
 		}
 		return nil
 	}
@@ -423,7 +425,9 @@ func findModuleDirs(base, dir string, paths *[]string) error {
 		if !e.IsDir() {
 			continue
 		}
-		_ = findModuleDirs(base, filepath.Join(dir, e.Name()), paths)
+		if err := findModuleDirs(base, filepath.Join(dir, e.Name()), paths); err != nil {
+			slog.Warn("skipping subdirectory", "dir", filepath.Join(dir, e.Name()), "err", err)
+		}
 	}
 	return nil
 }

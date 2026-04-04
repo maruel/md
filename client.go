@@ -214,18 +214,23 @@ func (c *Client) List(ctx context.Context) ([]*Container, error) {
 		return nil, err
 	}
 	var containers []*Container
+	var parseErrs []error
 	for line := range strings.SplitSeq(out, "\n") {
 		if line == "" {
 			continue
 		}
 		ct, err := unmarshalContainer([]byte(line))
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
 		if strings.HasPrefix(ct.Name, "md-") {
 			ct.Client = c
 			containers = append(containers, &ct)
 		}
+	}
+	if len(containers) == 0 && len(parseErrs) > 0 {
+		return nil, fmt.Errorf("failed to parse container output: %w", parseErrs[0])
 	}
 	sort.Slice(containers, func(i, j int) bool { return containers[i].Name < containers[j].Name })
 	return containers, nil

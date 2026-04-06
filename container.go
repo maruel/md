@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -283,7 +284,7 @@ func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage
 	if err != nil {
 		return 1, err
 	}
-	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv}
+	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv, AgentPaths: slices.Collect(maps.Values(HarnessMounts))}
 	if err := launchContainer(ctx, stdout, stderr, tmp, &opts, imageName); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err

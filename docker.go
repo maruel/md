@@ -433,12 +433,13 @@ func generateDockerfile(baseImage string, active []activeCM, dirs []string, base
 	for _, a := range active {
 		if a.files != nil {
 			// Shallow: copy only top-level files, skip subdirectories.
-			// JSON form handles filenames with spaces or special characters.
+			// Flags must appear before the JSON array; the array contains only
+			// sources and destination.
 			for _, f := range a.files {
-				fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", %q, %q]\n", a.cm.Name, f, a.cm.ContainerPath+"/")
+				fmt.Fprintf(&df, "COPY --from=cache-%s --chown=user:user [%q, %q]\n", a.cm.Name, f, a.cm.ContainerPath+"/")
 			}
 		} else {
-			fmt.Fprintf(&df, "COPY [\"--from=cache-%s\", \"--chown=user:user\", \".\", %q]\n", a.cm.Name, a.cm.ContainerPath+"/")
+			fmt.Fprintf(&df, "COPY --from=cache-%s --chown=user:user [\".\", %q]\n", a.cm.Name, a.cm.ContainerPath+"/")
 		}
 	}
 	// Single RUN layer for file permissions and directory pre-creation.
@@ -515,7 +516,7 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 		}
 		if quiet {
 			if _, err := runCmd(ctx, "", []string{rt, "pull", "--platform", "linux/" + arch, baseImage}); err != nil {
-				return fmt.Errorf("pulling base image: %w", err)
+				return cmdErrWithStderr("pulling base image", err)
 			}
 		} else {
 			if err := runCmdOut(ctx, "", []string{rt, "pull", "--platform", "linux/" + arch, baseImage}, stdout, stderr); err != nil {
@@ -615,14 +616,50 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 
 	if quiet {
 		if _, err := runCmd(ctx, "", buildCmd); err != nil {
-			return fmt.Errorf("building image: %w", err)
+			buildErr := cmdErrWithStderr("building image", err)
+			if isStaleBuilderCacheErr(buildErr) {
+				if _, pruneErr := runCmd(ctx, "", []string{rt, "builder", "prune", "-f"}); pruneErr != nil {
+					return buildErr
+				}
+				if _, err2 := runCmd(ctx, "", buildCmd); err2 != nil {
+					return cmdErrWithStderr("building image", err2)
+				}
+				return nil
+			}
+			return buildErr
 		}
 	} else {
 		if err := runCmdOut(ctx, "", buildCmd, stdout, stderr); err != nil {
-			return fmt.Errorf("building image: %w", err)
+			buildErr := fmt.Errorf("building image: %w", err)
+			if isStaleBuilderCacheErr(buildErr) {
+				_, _ = fmt.Fprintln(stdout, "- Stale BuildKit cache detected; pruning and retrying ...")
+				if _, pruneErr := runCmd(ctx, "", []string{rt, "builder", "prune", "-f"}); pruneErr != nil {
+					return buildErr
+				}
+				if err2 := runCmdOut(ctx, "", buildCmd, stdout, stderr); err2 != nil {
+					return fmt.Errorf("building image: %w", err2)
+				}
+				return nil
+			}
+			return buildErr
 		}
 	}
 	return nil
+}
+
+// isStaleBuilderCacheErr reports whether err looks like a BuildKit cache
+// corruption error caused by a file that existed in a previous build context
+// snapshot but has since been deleted from the host. This most commonly affects
+// shallow caches: because each file gets its own COPY instruction, BuildKit
+// stores per-file refs; if any of those files is later deleted, the next build
+// fails to checksum the stale ref. Non-shallow caches copy "." so deleted files
+// fall out naturally without leaving dangling refs.
+func isStaleBuilderCacheErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "failed to compute cache key") || strings.Contains(s, "failed to calculate checksum of ref")
 }
 
 // dirStats returns the number of regular files and total byte size under dir.

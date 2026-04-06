@@ -1394,6 +1394,19 @@ func runCmd(ctx context.Context, dir string, args []string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// cmdErrWithStderr wraps err with the captured stderr from an *exec.ExitError
+// so that quiet-mode failures include actionable output.
+func cmdErrWithStderr(prefix string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+		return fmt.Errorf("%s: %w\n%s", prefix, err, strings.TrimSpace(string(exitErr.Stderr)))
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
+}
+
 // runCmdOut executes a command, directing its stdout and stderr to the given writers.
 // If dir is non-empty, the command runs in that directory.
 func runCmdOut(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) error {

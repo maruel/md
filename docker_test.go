@@ -364,7 +364,7 @@ func TestGenerateDockerfile(t *testing.T) {
 			cm: CacheMount{Name: "go-mod", ContainerPath: "/home/user/go/pkg/mod"},
 		}}
 		got := generateDockerfile("base:v1", active, []string{"/home/user/go/pkg/mod"}, "", "", "cachekey", "")
-		if !strings.Contains(got, `COPY ["--from=cache-go-mod", "--chown=user:user", ".", "/home/user/go/pkg/mod/"]`) {
+		if !strings.Contains(got, `COPY --from=cache-go-mod --chown=user:user [".", "/home/user/go/pkg/mod/"]`) {
 			t.Errorf("missing recursive COPY in:\n%s", got)
 		}
 		if !strings.Contains(got, "mkdir -p /home/user/go/pkg/mod") {
@@ -378,10 +378,10 @@ func TestGenerateDockerfile(t *testing.T) {
 			files: []string{"debug.keystore", "adbkey"},
 		}}
 		got := generateDockerfile("base:v1", active, nil, "", "", "", "")
-		if !strings.Contains(got, `COPY ["--from=cache-android-keys", "--chown=user:user", "debug.keystore", "/home/user/.android/"]`) {
+		if !strings.Contains(got, `COPY --from=cache-android-keys --chown=user:user ["debug.keystore", "/home/user/.android/"]`) {
 			t.Errorf("missing shallow COPY for debug.keystore in:\n%s", got)
 		}
-		if !strings.Contains(got, `COPY ["--from=cache-android-keys", "--chown=user:user", "adbkey", "/home/user/.android/"]`) {
+		if !strings.Contains(got, `COPY --from=cache-android-keys --chown=user:user ["adbkey", "/home/user/.android/"]`) {
 			t.Errorf("missing shallow COPY for adbkey in:\n%s", got)
 		}
 	})

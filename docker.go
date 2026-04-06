@@ -1021,7 +1021,7 @@ func connectContainer(ctx context.Context, stdout, stderr io.Writer, c *Containe
 					}
 					return runCmdOut(innerCtx, "", c.SSHCommand(c.Name,
 						"cd ~/src/"+rRepo+
-							" && git branch --track "+rBranch+" base"+
+							" && git branch -q --track "+rBranch+" base"+
 							" && git switch -q "+rBranch), stdout, stderr)
 				})
 				inner.Go(func() error {

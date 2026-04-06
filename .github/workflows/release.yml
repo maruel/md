@@ -70,7 +70,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
           args: release --snapshot --clean
@@ -95,7 +95,7 @@ jobs:
       - name: Fetch tag
         run: git fetch --tags --force
       - name: Create GitHub Release with Binaries
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
           args: release --clean

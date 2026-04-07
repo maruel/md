@@ -45,6 +45,7 @@
 	check_version "Node.js" "node" "--version"
 	check_version "Rust" "rustc" "--version"
 	check_version "Java" "java" "-version"
+	check_version "R" "Rscript" "--version"
 
 	# Build Tools
 	check_version "awk" "awk" "--version"

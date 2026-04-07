@@ -45,6 +45,9 @@ RUN --mount=type=secret,id=github_token \
     if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN=$(cat /run/secrets/github_token); fi && \
     measure_exec.sh "radare2" /root/setup/6_radare2.sh
 RUN measure_exec.sh "Podman" /root/setup/7_podman.sh
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    measure_exec.sh "R" /root/setup/8_r.sh
 
 CMD ["/root/start.sh"]
 

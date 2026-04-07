@@ -1010,27 +1010,31 @@ func connectContainer(ctx context.Context, stdout, stderr io.Writer, c *Containe
 					return fmt.Errorf("init repo %s in container: %w", rName, err)
 				}
 
-				// Push task branch and sync default branch in parallel — different refs.
-				inner, innerCtx := errgroup.WithContext(egCtx)
-				inner.Go(func() error {
-					if err := runCmdOut(innerCtx, c.Repos[repoIdx].GitRoot, []string{
-						"git", "push", "-q", c.Name,
-						c.Repos[repoIdx].Branch + ":refs/heads/base",
-					}, stdout, stderr); err != nil {
-						return fmt.Errorf("push repo %s: %w", rName, err)
-					}
-					return runCmdOut(innerCtx, "", c.SSHCommand(c.Name,
-						"cd ~/src/"+rRepo+
-							" && git branch -q --track "+rBranch+" base"+
-							" && git switch -q "+rBranch), stdout, stderr)
-				})
-				inner.Go(func() error {
-					if err := c.Repos[repoIdx].resolveDefaults(innerCtx); err != nil {
-						return fmt.Errorf("resolve defaults for %s: %w", rName, err)
-					}
-					return c.SyncDefaultBranch(innerCtx, repoIdx)
-				})
-				if err := inner.Wait(); err != nil {
+				// Resolve defaults concurrently with the base push (no git I/O to the
+				// container), but serialize the two pushes: concurrent receive-pack
+				// on the same repo can race on pack migration (.keep file conflicts).
+				resolveErr := make(chan error, 1)
+				go func() {
+					resolveErr <- c.Repos[repoIdx].resolveDefaults(egCtx)
+				}()
+
+				if err := runCmdOut(egCtx, c.Repos[repoIdx].GitRoot, []string{
+					"git", "push", "-q", c.Name,
+					c.Repos[repoIdx].Branch + ":refs/heads/base",
+				}, stdout, stderr); err != nil {
+					return fmt.Errorf("push repo %s: %w", rName, err)
+				}
+				if err := runCmdOut(egCtx, "", c.SSHCommand(c.Name,
+					"cd ~/src/"+rRepo+
+						" && git branch -q --track "+rBranch+" base"+
+						" && git switch -q "+rBranch), stdout, stderr); err != nil {
+					return err
+				}
+
+				if err := <-resolveErr; err != nil {
+					return fmt.Errorf("resolve defaults for %s: %w", rName, err)
+				}
+				if err := c.SyncDefaultBranch(egCtx, repoIdx); err != nil {
 					return err
 				}
 

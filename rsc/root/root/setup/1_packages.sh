@@ -64,7 +64,7 @@ apt-get install -qq -y --no-install-recommends \
 	podman \
 	python-is-python3 \
 	python3 \
-	r-base \
+	r-base-dev \
 	qemu-kvm \
 	qemu-system-arm \
 	qemu-system-x86 \

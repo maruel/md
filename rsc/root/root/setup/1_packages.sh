@@ -43,12 +43,14 @@ apt-get install -qq -y --no-install-recommends \
 	kmod \
 	less \
 	libc6-dev \
+	libcurl4-openssl-dev \
 	libffi-dev \
 	libgl1 \
 	libopus-dev \
 	librsvg2-bin \
 	libssl-dev \
 	libusb-1.0-0 \
+	libxml2-dev \
 	libvirt-clients \
 	libvirt-daemon \
 	libvirt-daemon-system \

@@ -52,6 +52,7 @@ apt-get install -qq -y --no-install-recommends \
 	libgl1 \
 	libharfbuzz-dev \
 	libjpeg-dev \
+	libopenblas-dev \
 	libopus-dev \
 	libpng-dev \
 	librsvg2-bin \
@@ -80,7 +81,6 @@ apt-get install -qq -y --no-install-recommends \
 	qemu-system-arm \
 	qemu-system-x86 \
 	qemu-utils \
-	libopenblas-dev \
 	r-base-dev \
 	ripgrep \
 	rsync \

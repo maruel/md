@@ -30,9 +30,9 @@ apt-get install -qq -y --no-install-recommends \
 	dfu-util \
 	extrepo \
 	ffmpeg \
-	fuse-overlayfs \
 	file \
 	flex \
+	fuse-overlayfs \
 	git \
 	gperf \
 	gpg \
@@ -43,34 +43,44 @@ apt-get install -qq -y --no-install-recommends \
 	kmod \
 	less \
 	libc6-dev \
+	libcairo2-dev \
 	libcurl4-openssl-dev \
 	libffi-dev \
+	libfontconfig1-dev \
+	libfreetype-dev \
+	libfribidi-dev \
 	libgl1 \
+	libharfbuzz-dev \
+	libjpeg-dev \
 	libopus-dev \
+	libpng-dev \
 	librsvg2-bin \
 	libssl-dev \
+	libtiff-dev \
 	libusb-1.0-0 \
-	libxml2-dev \
+	libuv1-dev \
 	libvirt-clients \
 	libvirt-daemon \
 	libvirt-daemon-system \
+	libwebp-dev \
+	libxml2-dev \
 	lldb \
 	locales \
 	lsof \
 	net-tools \
-	nmap \
 	ninja-build \
+	nmap \
 	openjdk-21-jdk-headless \
 	openssh-server \
 	pkg-config \
 	podman \
 	python-is-python3 \
 	python3 \
-	r-base-dev \
 	qemu-kvm \
 	qemu-system-arm \
 	qemu-system-x86 \
 	qemu-utils \
+	r-base-dev \
 	ripgrep \
 	rsync \
 	shared-mime-info \

@@ -80,6 +80,7 @@ apt-get install -qq -y --no-install-recommends \
 	qemu-system-arm \
 	qemu-system-x86 \
 	qemu-utils \
+	libopenblas-dev \
 	r-base-dev \
 	ripgrep \
 	rsync \
@@ -101,6 +102,10 @@ apt-get install -qq -y --no-install-recommends \
 	xvfb \
 	xxd \
 	zstd >/dev/null
+
+# Configure R to use OpenBLAS via the alternatives system
+ARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH)
+update-alternatives --set "libblas.so.3-${ARCH}" "/usr/lib/${ARCH}/libopenblas.so.0"
 
 # Remove PEP 668 marker — pip install --user is safe and this is a container.
 rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED

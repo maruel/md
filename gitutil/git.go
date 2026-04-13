@@ -109,7 +109,7 @@ func MergeBase(ctx context.Context, dir, baseRef string) string {
 
 // Fetch fetches the latest refs from origin.
 func Fetch(ctx context.Context, dir string) error {
-	slog.Info("git fetch", "dir", dir)
+	slog.InfoContext(ctx, "git", "msg", "git fetch", "dir", dir)
 	cmd := newGitCmd(ctx, dir, []string{"fetch", "origin"})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -122,7 +122,7 @@ func Fetch(ctx context.Context, dir string) error {
 // CreateBranch creates a new branch from startPoint without touching the
 // working tree or index.
 func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
-	slog.Info("git create branch", "branch", name, "startPoint", startPoint)
+	slog.InfoContext(ctx, "git", "msg", "git create branch", "branch", name, "startPoint", startPoint)
 	cmd := newGitCmd(ctx, dir, []string{"branch", name, startPoint})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -134,7 +134,7 @@ func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
 
 // CheckoutBranch switches to an existing branch.
 func CheckoutBranch(ctx context.Context, dir, name string) error {
-	slog.Info("git checkout", "branch", name)
+	slog.InfoContext(ctx, "git", "msg", "git checkout", "branch", name)
 	cmd := newGitCmd(ctx, dir, []string{"checkout", name})
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -189,7 +189,7 @@ func RemoteToHTTPS(raw string) string {
 // ref can be a remote-tracking ref (e.g. "container/branch"), a branch
 // name, or any valid git ref. When force is true, --force is passed.
 func PushRef(ctx context.Context, dir, ref, branch string, force bool) error {
-	slog.Info("git push", "ref", ref, "branch", branch, "force", force)
+	slog.InfoContext(ctx, "git", "msg", "git push", "ref", ref, "branch", branch, "force", force)
 	args := []string{"push"}
 	if force {
 		args = append(args, "--force")
@@ -209,7 +209,7 @@ func PushRef(ctx context.Context, dir, ref, branch string, force bool) error {
 // working-tree checkout needed. The push is non-force so it fails with a
 // non-fast-forward error if origin/<targetBranch> has advanced since fetch.
 func SquashOnto(ctx context.Context, dir, sourceRef, targetBranch, message string) error {
-	slog.Info("squash onto", "sourceRef", sourceRef, "targetBranch", targetBranch)
+	slog.InfoContext(ctx, "git", "msg", "squash onto", "sourceRef", sourceRef, "targetBranch", targetBranch)
 
 	// 1. Fetch so origin/<targetBranch> is up to date.
 	if err := Fetch(ctx, dir); err != nil {
@@ -405,7 +405,7 @@ func findModuleDirs(base, dir string, paths *[]string) error {
 		// Recurse into <module>/modules/ to find nested submodule repos.
 		if hasModules {
 			if err := findModuleDirs(base, filepath.Join(dir, "modules"), paths); err != nil {
-				slog.Warn("skipping nested modules", "dir", filepath.Join(dir, "modules"), "err", err)
+				slog.Warn("git", "msg", "skipping nested modules", "dir", filepath.Join(dir, "modules"), "err", err)
 			}
 		}
 		return nil
@@ -416,7 +416,7 @@ func findModuleDirs(base, dir string, paths *[]string) error {
 			continue
 		}
 		if err := findModuleDirs(base, filepath.Join(dir, e.Name()), paths); err != nil {
-			slog.Warn("skipping subdirectory", "dir", filepath.Join(dir, e.Name()), "err", err)
+			slog.Warn("git", "msg", "skipping subdirectory", "dir", filepath.Join(dir, e.Name()), "err", err)
 		}
 	}
 	return nil

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -139,6 +140,7 @@ func getImageVersionLabel(ctx context.Context, rt, imageName string) string {
 // "manifests[].{digest, platform}" JSON structure, so one parser covers both
 // runtimes and both formats.
 func getRemoteManifestDigest(ctx context.Context, rt, image, arch string) (string, error) {
+	slog.DebugContext(ctx, "md", "msg", "fetching remote manifest digest", "image", image, "arch", arch)
 	out, err := runCmd(ctx, "", []string{rt, "manifest", "inspect", image})
 	if err != nil {
 		return "", err
@@ -309,13 +311,16 @@ func (c *Client) invalidateImageBuildCache() {
 
 // imageBuildNeededSlow performs the full check with docker inspect calls.
 func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseImage, contextSHA, activeKey string) bool {
+	slog.DebugContext(ctx, "md", "msg", "checking if image build needed", "image", imageName, "base", baseImage)
 	// Quick check: does the specialized image have labels at all?
 	currentDigest, err := dockerInspectFormat(ctx, rt, imageName, `{{index .Config.Labels "md.base_digest"}}`)
 	if err != nil || currentDigest == "" || currentDigest == "<no value>" {
+		slog.DebugContext(ctx, "md", "msg", "build needed: no base_digest label", "image", imageName)
 		return true
 	}
 	currentContext, err := dockerInspectFormat(ctx, rt, imageName, `{{index .Config.Labels "md.context_sha"}}`)
 	if err != nil || currentContext == "" || currentContext == "<no value>" {
+		slog.DebugContext(ctx, "md", "msg", "build needed: no context_sha label", "image", imageName)
 		return true
 	}
 
@@ -326,9 +331,11 @@ func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseIm
 	} else if id, err := dockerInspectFormat(ctx, rt, baseImage, "{{.Id}}"); err == nil {
 		baseDigest = id
 	} else {
+		slog.DebugContext(ctx, "md", "msg", "build needed: cannot get base image digest", "base", baseImage)
 		return true
 	}
 	if currentDigest != baseDigest {
+		slog.DebugContext(ctx, "md", "msg", "build needed: base digest changed", "current", currentDigest, "base", baseDigest)
 		return true
 	}
 
@@ -341,16 +348,19 @@ func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseIm
 	// the base digest label comparison above already catches locally-pulled updates.
 	isLocal := !strings.Contains(baseImage, "/")
 	if !isLocal {
+		slog.DebugContext(ctx, "md", "msg", "checking remote manifest digest", "base", baseImage)
 		storedManifest, err := dockerInspectFormat(ctx, rt, imageName, `{{index .Config.Labels "md.base_manifest_digest"}}`)
 		if err == nil && storedManifest != "" && storedManifest != "<no value>" {
 			remoteDigest, err := c.cachedRemoteManifestDigest(ctx, rt, baseImage, runtime.GOARCH)
 			if err == nil && remoteDigest != storedManifest {
+				slog.DebugContext(ctx, "md", "msg", "build needed: remote manifest changed", "stored", storedManifest, "remote", remoteDigest)
 				return true
 			}
 		}
 	}
 
 	if currentContext != contextSHA {
+		slog.DebugContext(ctx, "md", "msg", "build needed: context SHA changed", "current", currentContext, "expected", contextSHA)
 		return true
 	}
 
@@ -359,9 +369,11 @@ func (c *Client) imageBuildNeededSlow(ctx context.Context, rt, imageName, baseIm
 		currentKey = ""
 	}
 	if activeKey != currentKey {
+		slog.DebugContext(ctx, "md", "msg", "build needed: cache key changed", "current", currentKey, "expected", activeKey)
 		return true
 	}
 
+	slog.DebugContext(ctx, "md", "msg", "image is up to date", "image", imageName)
 	return false
 }
 
@@ -497,6 +509,7 @@ func generateDockerfile(baseImage string, active []activeCM, dirs []string, base
 // cache HostPaths. mountPaths lists container-side -v mount targets to
 // pre-create with user ownership.
 func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, keysDir, imageName, baseImage, home string, caches []CacheMount, mountPaths []string, quiet bool) error {
+	slog.DebugContext(ctx, "md", "msg", "building specialized image", "image", imageName, "base", baseImage)
 	arch := runtime.GOARCH
 	// Local-only images (no "/" in name) are never pulled from a registry.
 	// A tag (":latest") does not imply a registry; only a "/" does.
@@ -533,6 +546,7 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 		}
 	}
 
+	slog.DebugContext(ctx, "md", "msg", "pull complete, fetching base image digest")
 	// Get base image digest for label.
 	baseDigest, err := runCmd(ctx, "", []string{rt, "image", "inspect", "--format", "{{index .RepoDigests 0}}", baseImage})
 	if err != nil || baseDigest == "" {
@@ -600,6 +614,7 @@ func buildSpecializedImage(ctx context.Context, stdout, stderr io.Writer, rt, ke
 	}
 
 	df := generateDockerfile(baseImage, active, dirs, baseDigest, contextSHA, activeKey, manifestDigest)
+	slog.DebugContext(ctx, "md", "msg", "generated Dockerfile", "content", df)
 
 	if err := os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte(df), 0o644); err != nil {
 		return fmt.Errorf("writing Dockerfile: %w", err)

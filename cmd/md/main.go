@@ -561,7 +561,7 @@ func cmdList(ctx context.Context, args []string) error {
 		var statsErr error
 		allStats, statsErr = md.StatsAll(ctx, c.Runtime, names)
 		if statsErr != nil {
-			slog.Warn("fetching container stats", "err", statsErr)
+			slog.WarnContext(ctx, "md", "msg", "fetching container stats", "err", statsErr)
 		}
 	}
 
@@ -774,7 +774,7 @@ func cmdPull(ctx context.Context, args []string) error {
 		var err error
 		p, err = newProvider(ctx, providerName, os.Getenv("ASK_MODEL"))
 		if err != nil {
-			slog.WarnContext(ctx, "failed to initialize provider", "err", err)
+			slog.WarnContext(ctx, "md", "msg", "failed to initialize provider", "err", err)
 		}
 	}
 	if !*all {

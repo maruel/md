@@ -462,7 +462,7 @@ func (c *Container) Purge(ctx context.Context, stdout, stderr io.Writer) error {
 					if json.Unmarshal([]byte(statusJSON), &status) == nil && status.Self.ID != "" {
 						_, _ = fmt.Fprintln(stdout, "- Removing Tailscale node from tailnet...")
 						if err := deleteTailscaleDevice(ctx, c.TailscaleAPIKey, status.Self.ID); err != nil {
-							slog.WarnContext(ctx, "failed to remove Tailscale device", "err", err)
+							slog.WarnContext(ctx, "md", "msg", "failed to remove Tailscale device", "err", err)
 						}
 					}
 				}
@@ -560,7 +560,7 @@ func (c *Container) Fetch(ctx context.Context, stdout, stderr io.Writer, repoIdx
 			metadata := c.gatherGitMetadata(ctx, c.Name, r.Name())
 			diff := c.gatherGitDiff(ctx, c.Name, r.Name())
 			if msg, err := gitutil.GenerateCommitMsg(ctx, p, metadata, diff, nil); err != nil {
-				slog.WarnContext(ctx, "failed to generate commit message", "err", err)
+				slog.WarnContext(ctx, "md", "msg", "failed to generate commit message", "err", err)
 			} else if msg != "" {
 				commitMsg = msg
 			}
@@ -1388,6 +1388,7 @@ func parseByteSize(s string) (uint64, error) {
 // runCmd executes a command, captures its output, and returns (stdout, error).
 // If dir is non-empty, the command runs in that directory.
 func runCmd(ctx context.Context, dir string, args []string) (string, error) {
+	slog.DebugContext(ctx, "md", "msg", "exec", "cmd", args)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "LANG=C")
@@ -1411,6 +1412,7 @@ func cmdErrWithStderr(prefix string, err error) error {
 // runCmdOut executes a command, directing its stdout and stderr to the given writers.
 // If dir is non-empty, the command runs in that directory.
 func runCmdOut(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) error {
+	slog.DebugContext(ctx, "md", "msg", "exec", "cmd", args)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "LANG=C")
@@ -1489,7 +1491,7 @@ func unmarshalContainer(data []byte) (Container, error) {
 		case "md.repos":
 			if data, err := base64.StdEncoding.DecodeString(v); err == nil {
 				if err := json.Unmarshal(data, &ct.Repos); err != nil {
-					slog.Warn("failed to unmarshal repos label", "err", err)
+					slog.Warn("md", "msg", "failed to unmarshal repos label", "err", err)
 				}
 			}
 		case "md.display":

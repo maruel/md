@@ -89,6 +89,9 @@ type StartOpts struct {
 	// Passed as --cpus to docker/podman. Zero means no limit.
 	// Use [DefaultMaxCPUs] for a sensible default.
 	MaxCPUs int
+	// ExtraRunArgs are additional arguments passed verbatim to the
+	// container runtime's "run" command. Not portable across runtimes.
+	ExtraRunArgs []string
 }
 
 // StartResult contains Tailscale information from Connect. Port information
@@ -264,7 +267,7 @@ func (c *Container) Connect(ctx context.Context, stdout, stderr io.Writer, opts 
 // used. caches lists host directories to COPY into the image (same semantics
 // as StartOpts.Caches); nil means no caches. extraEnv holds KEY=VALUE pairs
 // injected into the container's ~/.env (see StartOpts.ExtraEnv).
-func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage string, command []string, caches []CacheMount, extraEnv []string, maxCPUs int) (_ int, retErr error) {
+func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage string, command []string, caches []CacheMount, extraEnv []string, maxCPUs int, extraRunArgs []string) (_ int, retErr error) {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
 	var tmpRepos []Repo
@@ -288,7 +291,7 @@ func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage
 	if err != nil {
 		return 1, err
 	}
-	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv, AgentPaths: slices.Collect(maps.Values(HarnessMounts)), MaxCPUs: maxCPUs}
+	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv, AgentPaths: slices.Collect(maps.Values(HarnessMounts)), MaxCPUs: maxCPUs, ExtraRunArgs: extraRunArgs}
 	if err := launchContainer(ctx, stdout, stderr, tmp, &opts, imageName); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
@@ -692,6 +695,9 @@ type ForkOpts struct {
 	// Passed as --cpus to docker/podman. Zero means no limit.
 	// Use [DefaultMaxCPUs] for a sensible default.
 	MaxCPUs int
+	// ExtraRunArgs are additional arguments passed verbatim to the
+	// container runtime's "run" command. Not portable across runtimes.
+	ExtraRunArgs []string
 }
 
 // Fork snapshots a running container and creates a new one where each mapped
@@ -810,14 +816,15 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		_, _ = fmt.Fprintf(stdout, "- Starting forked container %s ...\n", fork.Name)
 	}
 	startOpts := &StartOpts{
-		Quiet:      opts.Quiet,
-		Labels:     opts.Labels,
-		AgentPaths: opts.AgentPaths,
-		ExtraEnv:   opts.ExtraEnv,
-		Display:    c.Display || opts.Display,
-		Tailscale:  c.Tailscale || opts.Tailscale,
-		USB:        c.USB || opts.USB,
-		MaxCPUs:    opts.MaxCPUs,
+		Quiet:        opts.Quiet,
+		Labels:       opts.Labels,
+		AgentPaths:   opts.AgentPaths,
+		ExtraEnv:     opts.ExtraEnv,
+		Display:      c.Display || opts.Display,
+		Tailscale:    c.Tailscale || opts.Tailscale,
+		USB:          c.USB || opts.USB,
+		MaxCPUs:      opts.MaxCPUs,
+		ExtraRunArgs: opts.ExtraRunArgs,
 	}
 	if err := c.prepare(startOpts.AgentPaths); err != nil {
 		return nil, err

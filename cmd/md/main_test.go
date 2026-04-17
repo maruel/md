@@ -159,3 +159,90 @@ func TestResolveCaches(t *testing.T) {
 		}
 	})
 }
+
+func TestShellSplit(t *testing.T) {
+	t.Run("simple", func(t *testing.T) {
+		got, err := shellSplit("--memory 4g")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"--memory", "4g"}
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("single_arg", func(t *testing.T) {
+		got, err := shellSplit("--privileged")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0] != "--privileged" {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("equals_form", func(t *testing.T) {
+		got, err := shellSplit("--memory=4g")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0] != "--memory=4g" {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("single_quotes", func(t *testing.T) {
+		got, err := shellSplit("-v '/path with spaces:/container'")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || got[0] != "-v" || got[1] != "/path with spaces:/container" {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("double_quotes", func(t *testing.T) {
+		got, err := shellSplit(`-e "FOO=hello world"`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || got[0] != "-e" || got[1] != "FOO=hello world" {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("backslash_escape", func(t *testing.T) {
+		got, err := shellSplit(`--label key=val\ ue`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || got[0] != "--label" || got[1] != "key=val ue" {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		got, err := shellSplit("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Errorf("got %v", got)
+		}
+	})
+
+	t.Run("unterminated_single_quote", func(t *testing.T) {
+		_, err := shellSplit("--flag 'oops")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("unterminated_double_quote", func(t *testing.T) {
+		_, err := shellSplit(`--flag "oops`)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}

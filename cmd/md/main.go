@@ -381,6 +381,8 @@ func cmdStart(ctx context.Context, args []string) error {
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
 	cpus := fs.Int("cpus", md.DefaultMaxCPUs(), "Max CPU cores for the container (0=no limit)")
+	dockerFlags := &shellSplitSlice{}
+	fs.Var(dockerFlags, "docker-flag", "Extra flag passed verbatim to docker/podman run; may be repeated")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -422,6 +424,7 @@ func cmdStart(ctx context.Context, args []string) error {
 		AgentPaths:       slices.Collect(maps.Values(md.HarnessMounts)),
 		ExtraEnv:         extraEnv,
 		MaxCPUs:          *cpus,
+		ExtraRunArgs:     dockerFlags.values,
 	}
 	if err := ct.Launch(ctx, os.Stdout, os.Stderr, &opts); err != nil {
 		return err
@@ -479,6 +482,8 @@ func cmdRun(ctx context.Context, args []string) error {
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
 	cpus := fs.Int("cpus", md.DefaultMaxCPUs(), "Max CPU cores for the container (0=no limit)")
+	dockerFlags := &shellSplitSlice{}
+	fs.Var(dockerFlags, "docker-flag", "Extra flag passed verbatim to docker/podman run; may be repeated")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -508,7 +513,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	if githubToken != "" {
 		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
 	}
-	exitCode, err := ct.Run(ctx, os.Stdout, os.Stderr, baseImage, extra, caches, extraEnv, *cpus)
+	exitCode, err := ct.Run(ctx, os.Stdout, os.Stderr, baseImage, extra, caches, extraEnv, *cpus, dockerFlags.values)
 	if err != nil {
 		return err
 	}
@@ -864,6 +869,8 @@ func cmdFork(ctx context.Context, args []string) error {
 	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the forked container after starting")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
 	cpus := fs.Int("cpus", md.DefaultMaxCPUs(), "Max CPU cores for the container (0=no limit)")
+	dockerFlags := &shellSplitSlice{}
+	fs.Var(dockerFlags, "docker-flag", "Extra flag passed verbatim to docker/podman run; may be repeated")
 	extraRepos := &stringSlice{}
 	fs.Var(extraRepos, "extra-repo", "Additional git repository path[:branch] to map; may be repeated")
 	fs.Var(extraRepos, "e", "Additional git repository path[:branch] to map; may be repeated")
@@ -920,15 +927,16 @@ func cmdFork(ctx context.Context, args []string) error {
 		return err
 	}
 	opts := md.ForkOpts{
-		ExtraRepos: resolved,
-		Display:    *display,
-		Tailscale:  *tailscale,
-		USB:        *usb,
-		Labels:     labels.values,
-		Quiet:      *quiet,
-		AgentPaths: slices.Collect(maps.Values(md.HarnessMounts)),
-		ExtraEnv:   extraEnv,
-		MaxCPUs:    *cpus,
+		ExtraRepos:   resolved,
+		Display:      *display,
+		Tailscale:    *tailscale,
+		USB:          *usb,
+		Labels:       labels.values,
+		Quiet:        *quiet,
+		AgentPaths:   slices.Collect(maps.Values(md.HarnessMounts)),
+		ExtraEnv:     extraEnv,
+		MaxCPUs:      *cpus,
+		ExtraRunArgs: dockerFlags.values,
 	}
 	fork, err := sourceCt.Fork(ctx, os.Stdout, os.Stderr, &opts)
 	if err != nil {
@@ -1228,6 +1236,86 @@ func (s *stringSlice) String() string {
 func (s *stringSlice) Set(v string) error {
 	s.values = append(s.values, v)
 	return nil
+}
+
+// shellSplitSlice implements flag.Value for repeatable flags whose values are
+// shell-split into individual arguments. e.g. --docker-flag="--memory 4g"
+// produces ["--memory", "4g"].
+type shellSplitSlice struct {
+	values []string
+}
+
+func (s *shellSplitSlice) String() string {
+	return strings.Join(s.values, ", ")
+}
+
+func (s *shellSplitSlice) Set(v string) error {
+	args, err := shellSplit(v)
+	if err != nil {
+		return err
+	}
+	s.values = append(s.values, args...)
+	return nil
+}
+
+// shellSplit splits a string into words following shell quoting rules
+// (single quotes, double quotes, backslash escapes).
+func shellSplit(s string) ([]string, error) {
+	var args []string
+	var cur strings.Builder
+	inWord := false
+	i := 0
+	for i < len(s) {
+		c := s[i]
+		switch {
+		case c == '\\' && i+1 < len(s):
+			cur.WriteByte(s[i+1])
+			inWord = true
+			i += 2
+		case c == '\'':
+			i++
+			for i < len(s) && s[i] != '\'' {
+				cur.WriteByte(s[i])
+				i++
+			}
+			if i >= len(s) {
+				return nil, fmt.Errorf("unterminated single quote in %q", s)
+			}
+			inWord = true
+			i++
+		case c == '"':
+			i++
+			for i < len(s) && s[i] != '"' {
+				if s[i] == '\\' && i+1 < len(s) {
+					cur.WriteByte(s[i+1])
+					i += 2
+				} else {
+					cur.WriteByte(s[i])
+					i++
+				}
+			}
+			if i >= len(s) {
+				return nil, fmt.Errorf("unterminated double quote in %q", s)
+			}
+			inWord = true
+			i++
+		case c == ' ' || c == '\t':
+			if inWord {
+				args = append(args, cur.String())
+				cur.Reset()
+				inWord = false
+			}
+			i++
+		default:
+			cur.WriteByte(c)
+			inWord = true
+			i++
+		}
+	}
+	if inWord {
+		args = append(args, cur.String())
+	}
+	return args, nil
 }
 
 func newProvider(ctx context.Context, provider, model string) (genai.Provider, error) {

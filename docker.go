@@ -868,6 +868,7 @@ func launchContainer(ctx context.Context, stdout, stderr io.Writer, c *Container
 	for _, l := range opts.Labels {
 		dockerArgs = append(dockerArgs, "--label", l)
 	}
+	dockerArgs = append(dockerArgs, opts.ExtraRunArgs...)
 	dockerArgs = append(dockerArgs, imageName)
 
 	if opts.Quiet {

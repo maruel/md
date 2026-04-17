@@ -380,6 +380,7 @@ func cmdStart(ctx context.Context, args []string) error {
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
+	cpus := fs.Int("cpus", md.DefaultMaxCPUs(), "Max CPU cores for the container (0=no limit)")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -420,6 +421,7 @@ func cmdStart(ctx context.Context, args []string) error {
 		Quiet:            *quiet,
 		AgentPaths:       slices.Collect(maps.Values(md.HarnessMounts)),
 		ExtraEnv:         extraEnv,
+		MaxCPUs:          *cpus,
 	}
 	if err := ct.Launch(ctx, os.Stdout, os.Stderr, &opts); err != nil {
 		return err
@@ -476,6 +478,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	fs.Var(noCacheSpecs, "no-cache", "Exclude a default well-known cache by name; may be repeated")
 	noCaches := fs.Bool("no-caches", false, "Disable all default caches")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
+	cpus := fs.Int("cpus", md.DefaultMaxCPUs(), "Max CPU cores for the container (0=no limit)")
 	fs.Usage = func() { printSubcommandUsage(fs) }
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -505,7 +508,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	if githubToken != "" {
 		extraEnv = append(extraEnv, "GITHUB_TOKEN="+githubToken)
 	}
-	exitCode, err := ct.Run(ctx, os.Stdout, os.Stderr, baseImage, extra, caches, extraEnv)
+	exitCode, err := ct.Run(ctx, os.Stdout, os.Stderr, baseImage, extra, caches, extraEnv, *cpus)
 	if err != nil {
 		return err
 	}
@@ -860,6 +863,7 @@ func cmdFork(ctx context.Context, args []string) error {
 	quiet := fs.Bool("q", false, "Suppress informational messages")
 	noSSH := fs.Bool("no-ssh", false, "Don't SSH into the forked container after starting")
 	github := fs.Bool("github", false, "Inject GitHub token into container")
+	cpus := fs.Int("cpus", md.DefaultMaxCPUs(), "Max CPU cores for the container (0=no limit)")
 	extraRepos := &stringSlice{}
 	fs.Var(extraRepos, "extra-repo", "Additional git repository path[:branch] to map; may be repeated")
 	fs.Var(extraRepos, "e", "Additional git repository path[:branch] to map; may be repeated")
@@ -924,6 +928,7 @@ func cmdFork(ctx context.Context, args []string) error {
 		Quiet:      *quiet,
 		AgentPaths: slices.Collect(maps.Values(md.HarnessMounts)),
 		ExtraEnv:   extraEnv,
+		MaxCPUs:    *cpus,
 	}
 	fork, err := sourceCt.Fork(ctx, os.Stdout, os.Stderr, &opts)
 	if err != nil {

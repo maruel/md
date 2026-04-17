@@ -31,6 +31,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// DefaultMaxCPUs returns max(2, NumCPU-2), a sensible CPU limit that
+// leaves headroom for the host while guaranteeing at least 2 cores.
+func DefaultMaxCPUs() int {
+	return max(2, runtime.NumCPU()-2)
+}
+
 //go:embed all:rsc
 var rscFS embed.FS
 
@@ -751,6 +757,10 @@ func launchContainer(ctx context.Context, stdout, stderr io.Writer, c *Container
 	dockerArgs = append(dockerArgs, rt, "run", "-d",
 		"--name", c.Name, "--hostname", c.Name,
 		"-p", "127.0.0.1::22")
+
+	if opts.MaxCPUs > 0 {
+		dockerArgs = append(dockerArgs, "--cpus", strconv.Itoa(opts.MaxCPUs))
+	}
 
 	if opts.Display {
 		dockerArgs = append(dockerArgs, "-p", "127.0.0.1::5901", "-e", "MD_DISPLAY=1")

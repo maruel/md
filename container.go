@@ -85,6 +85,10 @@ type StartOpts struct {
 	// ~/.env at runtime. Each entry is appended verbatim, so values may
 	// contain spaces but must not contain newlines.
 	ExtraEnv []string
+	// MaxCPUs limits the number of CPU cores the container may use.
+	// Passed as --cpus to docker/podman. Zero means no limit.
+	// Use [DefaultMaxCPUs] for a sensible default.
+	MaxCPUs int
 }
 
 // StartResult contains Tailscale information from Connect. Port information
@@ -260,7 +264,7 @@ func (c *Container) Connect(ctx context.Context, stdout, stderr io.Writer, opts 
 // used. caches lists host directories to COPY into the image (same semantics
 // as StartOpts.Caches); nil means no caches. extraEnv holds KEY=VALUE pairs
 // injected into the container's ~/.env (see StartOpts.ExtraEnv).
-func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage string, command []string, caches []CacheMount, extraEnv []string) (_ int, retErr error) {
+func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage string, command []string, caches []CacheMount, extraEnv []string, maxCPUs int) (_ int, retErr error) {
 	var buf [4]byte
 	_, _ = rand.Read(buf[:])
 	var tmpRepos []Repo
@@ -284,7 +288,7 @@ func (c *Container) Run(ctx context.Context, stdout, stderr io.Writer, baseImage
 	if err != nil {
 		return 1, err
 	}
-	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv, AgentPaths: slices.Collect(maps.Values(HarnessMounts))}
+	opts := StartOpts{Quiet: true, ExtraEnv: extraEnv, AgentPaths: slices.Collect(maps.Values(HarnessMounts)), MaxCPUs: maxCPUs}
 	if err := launchContainer(ctx, stdout, stderr, tmp, &opts, imageName); err != nil {
 		tmp.cleanup(ctx)
 		return 1, err
@@ -684,6 +688,10 @@ type ForkOpts struct {
 	// ExtraEnv holds additional KEY=VALUE pairs to inject into the container's
 	// ~/.env at runtime.
 	ExtraEnv []string
+	// MaxCPUs limits the number of CPU cores the forked container may use.
+	// Passed as --cpus to docker/podman. Zero means no limit.
+	// Use [DefaultMaxCPUs] for a sensible default.
+	MaxCPUs int
 }
 
 // Fork snapshots a running container and creates a new one where each mapped
@@ -809,6 +817,7 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		Display:    c.Display || opts.Display,
 		Tailscale:  c.Tailscale || opts.Tailscale,
 		USB:        c.USB || opts.USB,
+		MaxCPUs:    opts.MaxCPUs,
 	}
 	if err := c.prepare(startOpts.AgentPaths); err != nil {
 		return nil, err

@@ -777,13 +777,9 @@ func cmdPull(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	var p genai.Provider
-	if providerName := os.Getenv("ASK_PROVIDER"); providerName != "" {
-		var err error
-		p, err = newProvider(ctx, providerName, os.Getenv("ASK_MODEL"))
-		if err != nil {
-			slog.WarnContext(ctx, "md", "msg", "failed to initialize provider", "err", err)
-		}
+	p, err := newProvider(ctx, os.Getenv("ASK_PROVIDER"), os.Getenv("ASK_MODEL"))
+	if err != nil {
+		slog.WarnContext(ctx, "md", "msg", "failed to initialize provider", "err", err)
 	}
 	if !*all {
 		return ct.Pull(ctx, os.Stdout, os.Stderr, repoIdx, p)
@@ -1319,13 +1315,34 @@ func shellSplit(s string) ([]string, error) {
 }
 
 func newProvider(ctx context.Context, provider, model string) (genai.Provider, error) {
-	cfg, ok := providers.All[provider]
-	if !ok {
-		return nil, fmt.Errorf("unknown provider %q", provider)
-	}
 	m := genai.ProviderOptionModel(model)
 	if m == "" {
 		m = genai.ModelCheap
 	}
-	return cfg.Factory(ctx, m)
+	if provider != "" {
+		cfg, ok := providers.All[provider]
+		if !ok {
+			return nil, fmt.Errorf("unknown provider %q", provider)
+		}
+		return cfg.Factory(ctx, m)
+	}
+	// Auto-discover: prefer CLI-based providers, then alphabetically.
+	provs := providers.Available(ctx)
+	if len(provs) == 0 {
+		return nil, errors.New("no providers available")
+	}
+	order := append([]string{"pi", "codex", "opencode", "claudecode"}, slices.Sorted(maps.Keys(provs))...)
+	for _, name := range order {
+		cfg, ok := provs[name]
+		if !ok {
+			continue
+		}
+		c, err := cfg.Factory(ctx, m)
+		if err != nil {
+			slog.DebugContext(ctx, "md", "msg", "provider skipped", "provider", name, "error", err)
+			continue
+		}
+		return c, nil
+	}
+	return nil, errors.New("no providers could be loaded")
 }

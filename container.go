@@ -574,6 +574,12 @@ func (c *Container) Fetch(ctx context.Context, stdout, stderr io.Writer, repoIdx
 		}
 		gitUserName, _ := gitutil.RunGit(ctx, r.GitRoot, "config", "user.name")
 		gitUserEmail, _ := gitutil.RunGit(ctx, r.GitRoot, "config", "user.email")
+		if gitUserName == "" {
+			gitUserName = "md"
+		}
+		if gitUserEmail == "" {
+			gitUserEmail = "md@localhost"
+		}
 		gitAuthor := shellQuote(gitUserName + " <" + gitUserEmail + ">")
 		commitCmd := "cd ~/src/" + repoName + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
 		if err := runCmdOut(ctx, "", c.SSHCommand(c.Name, commitCmd), stdout, stderr); err != nil {

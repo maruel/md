@@ -165,12 +165,13 @@ type containerFlags struct {
 	image    *string
 	tag      *string
 	platform *string
+	tags     *string
 	branch   *string
 	repo     *string
 }
 
 // addContainerFlags registers -b/-branch and -repo on the given FlagSet.
-// When image is true, --image and --tag are also registered.
+// When image is true, image and platform flags are also registered.
 func addContainerFlags(fs *flag.FlagSet, image bool) *containerFlags {
 	cf := &containerFlags{}
 	if image {
@@ -360,6 +361,11 @@ func (a *app) newContainer(ctx context.Context, cf *containerFlags, extraRepoSpe
 		return nil, err
 	}
 	repos = append(repos, extra...)
+	if cf.tags != nil && *cf.tags != "" {
+		for i := range repos {
+			repos[i].TagRegexp = *cf.tags
+		}
+	}
 	return c.Container(repos...)
 }
 
@@ -455,6 +461,7 @@ func (a *app) cmdStart(ctx context.Context, args []string) error {
 	usb := fs.Bool("usb", false, "Pass through USB devices (/dev/bus/usb)")
 	sudoFlag := fs.Bool("sudo", false, "Enable root access via sudo (random per-container password)")
 	cf := addContainerFlags(fs, true)
+	cf.tags = fs.String("tags", ".*", "Regular expression selecting Git tags to map; use an empty expression to map none")
 	extraRepos := &stringSlice{}
 	fs.Var(extraRepos, "extra-repo", "Additional git repository path[:branch1[,branch2...]] to map; may be repeated")
 	fs.Var(extraRepos, "e", "Additional git repository path[:branch1[,branch2...]] to map; may be repeated")
@@ -536,6 +543,13 @@ func (a *app) cmdStart(ctx context.Context, args []string) error {
 	}
 	switch ct.Status(ctx) {
 	case "exited", "stopped":
+		// Reload persisted repository metadata. Start flags configure new
+		// containers; a revived container retains its original ref mappings.
+		stored, err := ct.Get(ctx, ct.Name)
+		if err != nil {
+			return fmt.Errorf("loading stopped container %s: %w", ct.Name, err)
+		}
+		ct = stored
 		if !*quiet {
 			_, _ = fmt.Fprintf(os.Stdout, "- Reviving stopped container %s ...\n", ct.Name)
 		}
@@ -589,7 +603,8 @@ func printContainerSummary(ctx context.Context, ct *md.Container, r *md.StartRes
 	}
 	if len(ct.Repos) > 0 {
 		hasExtraBranches := false
-		for _, r := range ct.Repos {
+		for i := range ct.Repos {
+			r := &ct.Repos[i]
 			if len(r.Branches) > 1 {
 				hasExtraBranches = true
 				fmt.Printf("  > Repo %s on branch '%s' (+%s)\n", filepath.Base(r.MountedPath), r.Branches[0], strings.Join(r.Branches[1:], ", "))
@@ -626,6 +641,7 @@ func (a *app) cmdRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
 	cf := addContainerFlags(fs, true)
+	cf.tags = fs.String("tags", "", "Regular expression selecting Git tags to map; use .* to include all tags")
 	cacheSpecs := &stringSlice{}
 	fs.Var(cacheSpecs, "cache", "Add a cache: well-known name or host:container[:ro]; may be repeated")
 	mountSpecs := &stringSlice{}
@@ -936,7 +952,8 @@ func (a *app) cmdList(ctx context.Context, args []string) error {
 		rows[i].name = ct.Name
 		nameWidth = max(nameWidth, len(rows[i].name))
 		var parts []string
-		for _, r := range ct.Repos {
+		for i := range ct.Repos {
+			r := &ct.Repos[i]
 			parts = append(parts, filepath.Base(r.MountedPath)+":"+strings.Join(r.Branches, ","))
 		}
 		rows[i].repos = strings.Join(parts, ", ")
@@ -1219,7 +1236,8 @@ func (a *app) cmdDiff(ctx context.Context, args []string) error {
 func allocateForkBranch(ctx context.Context, gitRoot, primary string, existing []*md.Container) (string, error) {
 	used := map[string]struct{}{}
 	for _, ct := range existing {
-		for _, r := range ct.Repos {
+		for i := range ct.Repos {
+			r := &ct.Repos[i]
 			if r.GitRoot != gitRoot {
 				continue
 			}
@@ -1267,6 +1285,7 @@ func (a *app) cmdFork(ctx context.Context, args []string) error {
 	extraRepos := &stringSlice{}
 	fs.Var(extraRepos, "extra-repo", "Additional git repository path[:branch1[,branch2...]] to map; may be repeated")
 	fs.Var(extraRepos, "e", "Additional git repository path[:branch1[,branch2...]] to map; may be repeated")
+	tags := fs.String("tags", "", "Regular expression selecting Git tags to map for extra repositories; source repositories inherit their selection; use .* to include all tags")
 	labels := &stringSlice{}
 	fs.Var(labels, "label", "Set Docker container label (key=value); can be repeated")
 	fs.Var(labels, "l", "Set Docker container label (key=value); can be repeated")
@@ -1314,19 +1333,32 @@ func (a *app) cmdFork(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *tags != "" {
+		for i := range resolved {
+			resolved[i].TagRegexp = *tags
+		}
+	}
 	// Build the full fork repo set (source repos plus extra repos), allocating a
 	// unique destination primary branch for each. md.Fork consumes these verbatim.
 	existing, err := sourceCt.List(ctx)
 	if err != nil {
 		return fmt.Errorf("listing containers for fork branch allocation: %w", err)
 	}
-	forkRepos := make([]md.ForkRepo, 0, len(sourceCt.Repos)+len(resolved))
-	for _, r := range append(slices.Clone(sourceCt.Repos), resolved...) {
+	repos := append(slices.Clone(sourceCt.Repos), resolved...)
+	forkRepos := make([]md.ForkRepo, 0, len(repos))
+	for i := range repos {
+		r := &repos[i]
 		dest, err := allocateForkBranch(ctx, r.GitRoot, r.Branches[0], existing)
 		if err != nil {
 			return err
 		}
-		forkRepos = append(forkRepos, md.ForkRepo{GitRoot: r.GitRoot, SourceBranches: r.Branches, DestPrimary: dest})
+		forkRepos = append(forkRepos, md.ForkRepo{
+			GitRoot:        r.GitRoot,
+			SourceBranches: r.Branches,
+			MountedPath:    r.MountedPath,
+			TagRegexp:      r.TagRegexp,
+			DestPrimary:    dest,
+		})
 	}
 	opts := md.ForkOpts{
 		Repos:        forkRepos,

@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/caic-xyz/md/git"
 )
 
 func runTestGit(t *testing.T, ctx context.Context, wd string, args ...string) string {
@@ -358,13 +361,32 @@ func TestPlanFork(t *testing.T) {
 		t.Parallel()
 		// Extras keep caller order; source dests follow source order regardless
 		// of where they appear in the spec.
+		ctx := t.Context()
+		xDir := t.TempDir()
+		xRemote := filepath.Join(t.TempDir(), "x.git")
+		runTestGit(t, ctx, "", "init", "-q", "--bare", "--initial-branch=dev", xRemote)
+		runTestGit(t, ctx, xDir, "init", "-q", "--initial-branch=dev")
+		runTestGit(t, ctx, xDir, "commit", "-q", "--allow-empty", "-m", "dev")
+		runTestGit(t, ctx, xDir, "remote", "add", "origin", xRemote)
+		runTestGit(t, ctx, xDir, "remote", "add", "md-other", "user@md-other:/home/user/src/"+filepath.Base(xDir))
+		runTestGit(t, ctx, xDir, "push", "-q", "-u", "origin", "dev")
+		runTestGit(t, ctx, xDir, "config", "branch.dev.pushRemote", "md-other")
+		runTestGit(t, ctx, xDir, "remote", "set-head", "origin", "dev")
+		yDir := t.TempDir()
+		yRemote := filepath.Join(t.TempDir(), "y.git")
+		runTestGit(t, ctx, "", "init", "-q", "--bare", "--initial-branch=main", yRemote)
+		runTestGit(t, ctx, yDir, "init", "-q", "--initial-branch=main")
+		runTestGit(t, ctx, yDir, "commit", "-q", "--allow-empty", "-m", "main")
+		runTestGit(t, ctx, yDir, "branch", "topic")
+		runTestGit(t, ctx, yDir, "remote", "add", "origin", yRemote)
+		runTestGit(t, ctx, yDir, "push", "-q", "-u", "origin", "main", "topic")
 		spec := []ForkRepo{
-			{GitRoot: "/src/x", SourceBranches: []string{"dev"}, DestPrimary: "x0"},
+			{GitRoot: xDir, SourceBranches: []string{"dev"}, TagRegexp: "^v", DestPrimary: "x0"},
 			{GitRoot: "/src/b", SourceBranches: []string{"main"}, DestPrimary: "b0"},
 			{GitRoot: "/src/a", DestPrimary: "a0"}, // SourceBranches omitted: allowed for a source repo.
-			{GitRoot: "/src/y", SourceBranches: []string{"main", "topic"}, MountedPath: "/home/user/src/nested/y", DestPrimary: "y0"},
+			{GitRoot: yDir, SourceBranches: []string{"main", "topic"}, MountedPath: "/home/user/src/nested/y", DestPrimary: "y0"},
 		}
-		plan, err := planFork(t.Context(), testLogger(t), source, spec)
+		plan, err := planFork(ctx, testLogger(t), "", source, spec)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,8 +399,21 @@ func TestPlanFork(t *testing.T) {
 		if want := []string{"x0", "y0"}; !slices.Equal(plan.extraDest, want) {
 			t.Errorf("extraDest = %v, want %v", plan.extraDest, want)
 		}
-		if len(plan.extraRepos) != 2 || plan.extraRepos[0].GitRoot != "/src/x" || plan.extraRepos[1].GitRoot != "/src/y" {
-			t.Fatalf("extraRepos = %+v, want /src/x then /src/y", plan.extraRepos)
+		if len(plan.extraRepos) != 2 || plan.extraRepos[0].GitRoot != xDir || plan.extraRepos[1].GitRoot != yDir {
+			t.Fatalf("extraRepos = %+v, want x then y", plan.extraRepos)
+		}
+		if plan.extraRepos[0].TagRegexp != "^v" {
+			t.Errorf("extra x TagRegexp = %q, want ^v", plan.extraRepos[0].TagRegexp)
+		}
+		if want := []string{"origin"}; !slices.Equal(plan.extraRepos[0].Remotes, want) {
+			t.Errorf("extra x remotes = %v, want %v", plan.extraRepos[0].Remotes, want)
+		}
+		base, err := plan.extraRepos[0].resolveForkExtraBranchBase(ctx, testLogger(t), "dev", "x0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if base.pushRemote != "" {
+			t.Errorf("extra x push remote = %q, want empty", base.pushRemote)
 		}
 		if want := []string{"main", "topic"}; !slices.Equal(plan.extraRepos[1].Branches, want) {
 			t.Errorf("extra /src/y branches = %v, want %v", plan.extraRepos[1].Branches, want)
@@ -407,7 +442,7 @@ func TestPlanFork(t *testing.T) {
 	for _, tc := range errCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := planFork(t.Context(), testLogger(t), source, tc.spec); err == nil {
+			if _, err := planFork(t.Context(), testLogger(t), "", source, tc.spec); err == nil {
 				t.Fatal("planFork error = nil, want error")
 			}
 		})
@@ -415,6 +450,12 @@ func TestPlanFork(t *testing.T) {
 }
 
 func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with t.Setenv.
+	t.Run("pushContainerRefs_empty", func(t *testing.T) {
+		t.Parallel()
+		if err := (&Container{}).pushContainerRefs(t.Context(), &Repo{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("SyncDefaultBranch", func(t *testing.T) {
 		t.Parallel()
 		t.Run("local_only_default_branch", func(t *testing.T) {
@@ -454,6 +495,170 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			}
 			if got := runTestGit(t, ctx, remoteDir, "rev-parse", "refs/remotes/origin/migration"); got != migrationCommit {
 				t.Errorf("pushed origin/migration = %q, want %q", got, migrationCommit)
+			}
+		})
+		t.Run("all_remote_branches", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			dir := t.TempDir()
+			originDir := filepath.Join(t.TempDir(), "origin.git")
+			upstreamDir := filepath.Join(t.TempDir(), "upstream.git")
+			upstreamPushDir := filepath.Join(t.TempDir(), "upstream-push.git")
+			containerDir := filepath.Join(t.TempDir(), "container.git")
+
+			runTestGit(t, ctx, "", "init", "-q", "--bare", originDir)
+			runTestGit(t, ctx, "", "init", "-q", "--bare", upstreamDir)
+			runTestGit(t, ctx, "", "init", "-q", "--bare", upstreamPushDir)
+			runTestGit(t, ctx, "", "init", "-q", "--bare", containerDir)
+			runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+			runTestGit(t, ctx, dir, "config", "user.name", "Test")
+			runTestGit(t, ctx, dir, "config", "user.email", "test@test")
+			writeTestFile(t, filepath.Join(dir, "tracked.txt"), "main\n")
+			runTestGit(t, ctx, dir, "add", ".")
+			runTestGit(t, ctx, dir, "commit", "-q", "-m", "main")
+			runTestGit(t, ctx, dir, "remote", "add", "origin", originDir)
+			runTestGit(t, ctx, dir, "remote", "add", "upstream", upstreamDir)
+			runTestGit(t, ctx, dir, "push", "-q", "origin", "main", "main:maintenance")
+			runTestGit(t, ctx, dir, "remote", "set-head", "origin", "main")
+			runTestGit(t, ctx, dir, "checkout", "-q", "-b", "release")
+			writeTestFile(t, filepath.Join(dir, "release.txt"), "release\n")
+			runTestGit(t, ctx, dir, "add", ".")
+			runTestGit(t, ctx, dir, "commit", "-q", "-m", "release")
+			runTestGit(t, ctx, dir, "push", "-q", "upstream", "release")
+			runTestGit(t, ctx, dir, "remote", "set-url", "--push", "upstream", upstreamPushDir)
+			runTestGit(t, ctx, dir, "tag", "release-1")
+			runTestGit(t, ctx, dir, "tag", "internal-1", "main")
+			runTestGit(t, ctx, dir, "tag", "-a", "hidden-annotated", "-m", "hidden", "main")
+			runTestGit(t, ctx, dir, "config", "push.followTags", "true")
+			originCommit := runTestGit(t, ctx, dir, "rev-parse", "refs/remotes/origin/main")
+			maintenanceCommit := runTestGit(t, ctx, dir, "rev-parse", "refs/remotes/origin/maintenance")
+			upstreamCommit := runTestGit(t, ctx, dir, "rev-parse", "refs/remotes/upstream/release")
+			releaseTag := runTestGit(t, ctx, dir, "rev-parse", "refs/tags/release-1")
+
+			repo := Repo{GitRoot: dir, Branches: []string{"release"}, TagRegexp: "^release-"}
+			logger := testLogger(t)
+			if err := repo.resolveDefaults(ctx, logger); err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"origin", "upstream"}; !slices.Equal(repo.Remotes, want) {
+				t.Fatalf("remotes = %v, want %v", repo.Remotes, want)
+			}
+
+			containerWorktree := t.TempDir()
+			runTestGit(t, ctx, containerWorktree, "init", "-q")
+			runTestGit(t, ctx, dir, "push", "-q", containerWorktree,
+				"refs/remotes/origin/main:refs/remotes/origin/main",
+				"refs/remotes/upstream/release:refs/remotes/upstream/release")
+			repo.MountedPath = filepath.ToSlash(containerWorktree)
+			configs, err := repo.containerRemoteConfigs(ctx, logger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			commands := containerRemoteConfigCommands(&repo, configs, false)
+			commands = append(commands, containerBranchSetupCommands(
+				[]containerBranchBase{{branch: "release", ref: "upstream/release", pushRemote: "origin"}},
+			)...)
+			cmd := exec.CommandContext(ctx, "bash", "-c", strings.Join(commands, " && ")) //nolint:gosec // commands are generated from test temp paths
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("configure container remotes: %v\n%s", err, out)
+			}
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "origin"); got != originDir {
+				t.Errorf("container origin URL = %q, want %q", got, originDir)
+			}
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "upstream"); got != upstreamDir {
+				t.Errorf("container upstream URL = %q, want %q", got, upstreamDir)
+			}
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "--push", "upstream"); got != upstreamPushDir {
+				t.Errorf("container upstream push URL = %q, want %q", got, upstreamPushDir)
+			}
+			if got := runTestGit(t, ctx, containerWorktree, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); got != "upstream/release" {
+				t.Errorf("container upstream = %q, want upstream/release", got)
+			}
+			if got := runTestGit(t, ctx, containerWorktree, "for-each-ref", "--format=%(push:remotename)", "refs/heads/release"); got != "origin" {
+				t.Errorf("container push remote = %q, want origin", got)
+			}
+
+			// A removed host remote must not erase the usable container URL or
+			// prevent its cached refs from being synchronized.
+			runTestGit(t, ctx, dir, "config", "--remove-section", "remote.upstream")
+			configs, err = repo.containerRemoteConfigs(ctx, logger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd = exec.CommandContext(ctx, "bash", "-c", strings.Join(containerRemoteConfigCommands(&repo, configs, false), " && ")) //nolint:gosec // commands are generated from test temp paths
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("refresh container remotes: %v\n%s", err, out)
+			}
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "upstream"); got != upstreamDir {
+				t.Errorf("preserved upstream URL = %q, want %q", got, upstreamDir)
+			}
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "--push", "upstream"); got != upstreamPushDir {
+				t.Errorf("preserved upstream push URL = %q, want %q", got, upstreamPushDir)
+			}
+
+			ct := &Container{
+				Client: testClient(t),
+				Logger: testLogger(t),
+				Name:   containerDir,
+				Repos:  []Repo{repo},
+			}
+			if err := ct.SyncDefaultBranch(ctx, 0); err != nil {
+				t.Fatal(err)
+			}
+			if got := runTestGit(t, ctx, containerDir, "rev-parse", "refs/remotes/origin/main"); got != originCommit {
+				t.Errorf("pushed origin/main = %q, want %q", got, originCommit)
+			}
+			if got := runTestGit(t, ctx, containerDir, "rev-parse", "refs/remotes/origin/maintenance"); got != maintenanceCommit {
+				t.Errorf("pushed origin/maintenance = %q, want %q", got, maintenanceCommit)
+			}
+			if got := runTestGit(t, ctx, containerDir, "rev-parse", "refs/remotes/upstream/release"); got != upstreamCommit {
+				t.Errorf("pushed upstream/release = %q, want %q", got, upstreamCommit)
+			}
+			if _, err := (&git.Checkout{Root: containerDir, Logger: logger}).RevParse(ctx, "refs/remotes/origin/HEAD"); err == nil {
+				t.Error("container origin/HEAD exists, want it omitted")
+			}
+			if got := runTestGit(t, ctx, containerDir, "rev-parse", "refs/tags/release-1"); got != releaseTag {
+				t.Errorf("pushed release-1 tag = %q, want %q", got, releaseTag)
+			}
+			if _, err := (&git.Checkout{Root: containerDir, Logger: logger}).RevParse(ctx, "refs/tags/internal-1"); err == nil {
+				t.Error("container internal-1 tag exists, want it filtered out")
+			}
+			if _, err := (&git.Checkout{Root: containerDir, Logger: logger}).RevParse(ctx, "refs/tags/hidden-annotated"); err == nil {
+				t.Error("container hidden-annotated tag exists via push.followTags, want it filtered out")
+			}
+
+			noTagsDir := filepath.Join(t.TempDir(), "no-tags.git")
+			runTestGit(t, ctx, "", "init", "-q", "--bare", noTagsDir)
+			noTagsRepo := repo
+			noTagsRepo.TagRegexp = ""
+			noTagsContainer := &Container{
+				Client: testClient(t),
+				Logger: logger,
+				Name:   noTagsDir,
+				Repos:  []Repo{noTagsRepo},
+			}
+			if err := noTagsContainer.SyncDefaultBranch(ctx, 0); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := (&git.Checkout{Root: noTagsDir, Logger: logger}).RevParse(ctx, "refs/tags/hidden-annotated"); err == nil {
+				t.Error("default mapping included hidden-annotated tag, want no tags")
+			}
+
+			allTagsDir := filepath.Join(t.TempDir(), "all-tags.git")
+			runTestGit(t, ctx, "", "init", "-q", "--bare", allTagsDir)
+			allTagsRepo := repo
+			allTagsRepo.TagRegexp = ".*"
+			allTagsContainer := &Container{
+				Client: testClient(t),
+				Logger: logger,
+				Name:   allTagsDir,
+				Repos:  []Repo{allTagsRepo},
+			}
+			if err := allTagsContainer.SyncDefaultBranch(ctx, 0); err != nil {
+				t.Fatal(err)
+			}
+			if got := runTestGit(t, ctx, allTagsDir, "rev-parse", "refs/tags/internal-1"); got != originCommit {
+				t.Errorf("pushed all-tags internal-1 = %q, want %q", got, originCommit)
 			}
 		})
 		t.Run("default_branch_also_updates_origin_ref", func(t *testing.T) {
@@ -582,8 +787,10 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 		t.Parallel()
 		ctx := t.Context()
 		dir := t.TempDir()
+		originDir := filepath.Join(t.TempDir(), "origin.git")
 		upstreamDir := filepath.Join(t.TempDir(), "upstream.git")
 
+		runTestGit(t, ctx, "", "init", "-q", "--bare", originDir)
 		runTestGit(t, ctx, "", "init", "-q", "--bare", upstreamDir)
 		runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
 		runTestGit(t, ctx, dir, "config", "user.name", "Test")
@@ -591,20 +798,34 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 		writeTestFile(t, filepath.Join(dir, "tracked.txt"), "main\n")
 		runTestGit(t, ctx, dir, "add", ".")
 		runTestGit(t, ctx, dir, "commit", "-q", "-m", "main")
+		runTestGit(t, ctx, dir, "remote", "add", "origin", originDir)
 		runTestGit(t, ctx, dir, "remote", "add", "upstream", upstreamDir)
+		runTestGit(t, ctx, dir, "push", "-q", "origin", "main")
 		runTestGit(t, ctx, dir, "push", "-q", "-u", "upstream", "main")
+		runTestGit(t, ctx, dir, "config", "remote.pushDefault", "origin")
 
-		repo := Repo{GitRoot: dir, Branches: []string{"main"}}
+		// Simulate a persisted Repo label from before Remotes was added.
+		repo := Repo{GitRoot: dir, Branches: []string{"main"}, DefaultRemote: "origin", DefaultBranch: "main"}
 		logger := testLogger(t)
 		if err := repo.resolveDefaults(ctx, logger); err != nil {
 			t.Fatal(err)
+		}
+		if want := []string{"origin", "upstream"}; !slices.Equal(repo.Remotes, want) {
+			t.Fatalf("legacy remotes = %v, want %v", repo.Remotes, want)
 		}
 		base, err := repo.resolveContainerBranchBase(ctx, logger, "main")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if base.ref != "upstream/main" || base.useHost || base.destination != "refs/remotes/upstream/main" {
-			t.Fatalf("remote base = %+v, want upstream/main without host", base)
+		if base.ref != "upstream/main" || base.useHost || base.destination != "refs/remotes/upstream/main" || base.pushRemote != "origin" {
+			t.Fatalf("remote base = %+v, want upstream/main with origin push remote", base)
+		}
+		extraBase, err := repo.resolveForkExtraBranchBase(ctx, logger, "main", "main-0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if extraBase.branch != "main-0" || extraBase.ref != "host/main-0" || extraBase.upstreamRef != "upstream/main" || extraBase.pushRemote != "origin" {
+			t.Fatalf("fork extra base = %+v, want host/main-0 with upstream/main and origin push remote", extraBase)
 		}
 
 		writeTestFile(t, filepath.Join(dir, "tracked.txt"), "local main\n")
@@ -961,14 +1182,16 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 		t.Run("host_branch_tracks_source_upstream", func(t *testing.T) {
 			t.Parallel()
 			tests := []struct {
-				name           string
-				sourceRemote   string
-				sourceMergeRef string
-				wantRemote     string
-				wantMergeRef   string
+				name             string
+				sourceRemote     string
+				sourceMergeRef   string
+				sourcePushRemote string
+				wantRemote       string
+				wantMergeRef     string
+				wantPushRemote   string
 			}{
-				{name: "remote_branch", sourceRemote: "origin", sourceMergeRef: "refs/heads/main", wantRemote: "origin", wantMergeRef: "refs/heads/main"},
-				{name: "local_branch", sourceRemote: ".", sourceMergeRef: "refs/heads/main", wantRemote: ".", wantMergeRef: "refs/heads/main"},
+				{name: "remote_branch", sourceRemote: "fork", sourceMergeRef: "refs/heads/main", sourcePushRemote: "origin", wantRemote: "fork", wantMergeRef: "refs/heads/main", wantPushRemote: "origin"},
+				{name: "local_branch", sourceRemote: ".", sourceMergeRef: "refs/heads/main", wantRemote: ".", wantMergeRef: "refs/heads/main", wantPushRemote: "."},
 				{name: "no_upstream", wantRemote: "origin", wantMergeRef: "refs/heads/main"},
 			}
 			for _, tt := range tests {
@@ -992,6 +1215,9 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 						runTestGit(t, ctx, dir, "config", "branch.source.remote", tt.sourceRemote)
 						runTestGit(t, ctx, dir, "config", "branch.source.merge", tt.sourceMergeRef)
 					}
+					if tt.sourcePushRemote != "" {
+						runTestGit(t, ctx, dir, "config", "branch.source.pushRemote", tt.sourcePushRemote)
+					}
 
 					repo := &Repo{GitRoot: dir, DefaultRemote: "origin", DefaultBranch: "main"}
 					if err := repo.createForkHostBranch(ctx, testLogger(t), "source", "source-0", "fork/source"); err != nil {
@@ -1005,6 +1231,10 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 					}
 					if got := runTestGit(t, ctx, dir, "config", "--get", "branch.source-0.merge"); got != tt.wantMergeRef {
 						t.Errorf("fork merge ref = %q, want %q", got, tt.wantMergeRef)
+					}
+					gotPushRemote, _ := (&git.Checkout{Root: dir, Logger: testLogger(t)}).RunGit(ctx, "config", "--get", "branch.source-0.pushRemote")
+					if gotPushRemote != tt.wantPushRemote {
+						t.Errorf("fork push remote = %q, want %q", gotPushRemote, tt.wantPushRemote)
 					}
 				})
 			}
@@ -1266,7 +1496,16 @@ func TestUnmarshalContainer(t *testing.T) {
 	})
 	t.Run("legacy_branch_label", func(t *testing.T) {
 		t.Parallel()
-		reposData := []byte(`[{"git_root":"/home/user/repo","branch":"main"}]`)
+		dir := t.TempDir()
+		runTestGit(t, t.Context(), dir, "init", "-q", "--initial-branch=main")
+		runTestGit(t, t.Context(), dir, "remote", "add", "origin", "/dev/null")
+		runTestGit(t, t.Context(), dir, "remote", "add", "upstream", "/dev/null")
+		runTestGit(t, t.Context(), dir, "remote", "add", "md-repo-main", "/dev/null")
+		runTestGit(t, t.Context(), dir, "remote", "add", "md-other", "user@md-other:/home/user/src/"+filepath.Base(dir))
+		reposData, err := json.Marshal([]map[string]string{{"git_root": dir, "branch": "main"}})
+		if err != nil {
+			t.Fatal(err)
+		}
 		reposB64 := base64.StdEncoding.EncodeToString(reposData)
 		raw := `{"Names":"md-repo-main","State":"running","CreatedAt":"2025-06-15 10:30:00 +0000 UTC","Labels":"md.repos=` + reposB64 + `"}`
 		ct, err := unmarshalContainer(t.Context(), &Client{Logger: testLogger(t)}, []byte(raw))
@@ -1278,6 +1517,9 @@ func TestUnmarshalContainer(t *testing.T) {
 		}
 		if !slices.Equal(ct.Repos[0].Branches, []string{"main"}) {
 			t.Fatalf("Branches = %v, want [main]", ct.Repos[0].Branches)
+		}
+		if want := []string{"origin", "upstream"}; !slices.Equal(ct.Repos[0].Remotes, want) {
+			t.Fatalf("Remotes = %v, want %v", ct.Repos[0].Remotes, want)
 		}
 	})
 	t.Run("no_labels", func(t *testing.T) {
@@ -1610,7 +1852,15 @@ func TestFillFromInspect(t *testing.T) {
 	if ct.SSHPort != 32768 || ct.VNCPort != 32769 {
 		t.Errorf("ports = ssh %d vnc %d, want 32768/32769", ct.SSHPort, ct.VNCPort)
 	}
-	legacyReposData := []byte(`[{"git_root":"/home/user/repo","branch":"main"}]`)
+	legacyDir := t.TempDir()
+	runTestGit(t, t.Context(), legacyDir, "init", "-q", "--initial-branch=main")
+	runTestGit(t, t.Context(), legacyDir, "remote", "add", "origin", "/dev/null")
+	runTestGit(t, t.Context(), legacyDir, "remote", "add", "upstream", "/dev/null")
+	runTestGit(t, t.Context(), legacyDir, "remote", "add", "md-legacy", "/dev/null")
+	legacyReposData, err := json.Marshal([]map[string]string{{"git_root": legacyDir, "branch": "main"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	legacyReposB64 := base64.StdEncoding.EncodeToString(legacyReposData)
 	legacyInspect := `[{"Name":"/md-legacy","State":{"Status":"running"},"Created":"2025-06-15T10:30:00Z","Config":{"Labels":{"md.repos":"` + legacyReposB64 + `"}}}]`
 	ctLegacy := &Container{Client: &Client{Logger: testLogger(t)}, Logger: testLogger(t)}
@@ -1622,6 +1872,9 @@ func TestFillFromInspect(t *testing.T) {
 	}
 	if !slices.Equal(ctLegacy.Repos[0].Branches, []string{"main"}) {
 		t.Fatalf("legacy Branches = %v, want [main]", ctLegacy.Repos[0].Branches)
+	}
+	if want := []string{"origin", "upstream"}; !slices.Equal(ctLegacy.Repos[0].Remotes, want) {
+		t.Fatalf("legacy Remotes = %v, want %v", ctLegacy.Repos[0].Remotes, want)
 	}
 
 	// Name without leading slash (Docker sometimes omits it).
@@ -1693,8 +1946,287 @@ func TestParseCreatedAt(t *testing.T) {
 	}
 }
 
+func TestTagRefspecs(t *testing.T) {
+	t.Parallel()
+	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name   string
+			regexp string
+			tags   string
+			want   []string
+		}{
+			{name: "empty regexp", tags: "v1\nv2"},
+			{name: "selective", regexp: "^v", tags: "internal\nv1", want: []string{"refs/tags/v1:refs/tags/v1"}},
+			{name: "all", regexp: ".*", tags: "internal\nv1", want: []string{"refs/tags/internal:refs/tags/internal", "refs/tags/v1:refs/tags/v1"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				got, err := tagRefspecs(tt.regexp, tt.tags)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !slices.Equal(got, tt.want) {
+					t.Fatalf("tagRefspecs(%q, %q) = %v, want %v", tt.regexp, tt.tags, got, tt.want)
+				}
+			})
+		}
+	})
+	t.Run("large selection batches", func(t *testing.T) {
+		t.Parallel()
+		var tags strings.Builder
+		for i := range 2000 {
+			_, _ = fmt.Fprintf(&tags, "release-%04d-%s\n", i, strings.Repeat("x", 32))
+		}
+		tags.WriteString("internal\n")
+		refspecs, err := tagRefspecs("^release-", strings.TrimSuffix(tags.String(), "\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		batches := 0
+		for start := 0; start < len(refspecs); {
+			end := refspecBatchEnd(refspecs, start)
+			if end <= start {
+				t.Fatalf("batch did not advance from %d", start)
+			}
+			size := 0
+			for _, refspec := range refspecs[start:end] {
+				size += len(refspec) + 1
+			}
+			if size > maxPushRefspecBytes && end-start != 1 {
+				t.Fatalf("batch size = %d, limit = %d", size, maxPushRefspecBytes)
+			}
+			batches++
+			start = end
+		}
+		if batches < 2 {
+			t.Fatalf("batches = %d, want multiple", batches)
+		}
+	})
+}
+
 func TestRepo(t *testing.T) {
 	t.Parallel()
+	t.Run("resolveDefaults_tracked_default_branch_remote", func(t *testing.T) {
+		t.Parallel()
+		for _, branch := range []string{"main", "master"} {
+			t.Run(branch, func(t *testing.T) {
+				t.Parallel()
+				ctx := t.Context()
+				dir := t.TempDir()
+				originDir := filepath.Join(t.TempDir(), "origin.git")
+				upstreamDir := filepath.Join(t.TempDir(), "upstream.git")
+				runTestGit(t, ctx, "", "init", "-q", "--bare", "--initial-branch="+branch, originDir)
+				runTestGit(t, ctx, "", "init", "-q", "--bare", "--initial-branch="+branch, upstreamDir)
+				runTestGit(t, ctx, dir, "init", "-q", "--initial-branch="+branch)
+				runTestGit(t, ctx, dir, "config", "user.name", "Test")
+				runTestGit(t, ctx, dir, "config", "user.email", "test@test")
+				writeTestFile(t, filepath.Join(dir, "README.md"), branch+"\n")
+				runTestGit(t, ctx, dir, "add", ".")
+				runTestGit(t, ctx, dir, "commit", "-q", "-m", branch)
+				runTestGit(t, ctx, dir, "remote", "add", "origin", originDir)
+				runTestGit(t, ctx, dir, "remote", "add", "upstream", upstreamDir)
+				runTestGit(t, ctx, dir, "push", "-q", "origin", branch)
+				runTestGit(t, ctx, dir, "push", "-q", "-u", "upstream", branch)
+
+				repo := Repo{GitRoot: dir, Branches: []string{branch}}
+				if err := repo.resolveDefaults(ctx, testLogger(t)); err != nil {
+					t.Fatal(err)
+				}
+				if repo.DefaultRemote != "upstream" || repo.DefaultBranch != branch {
+					t.Fatalf("defaults = %s/%s, want upstream/%s", repo.DefaultRemote, repo.DefaultBranch, branch)
+				}
+			})
+		}
+		t.Run("main_precedes_master", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			dir := t.TempDir()
+			runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+			runTestGit(t, ctx, dir, "commit", "-q", "--allow-empty", "-m", "main")
+			runTestGit(t, ctx, dir, "branch", "master")
+			runTestGit(t, ctx, dir, "remote", "add", "origin", "/dev/null")
+			runTestGit(t, ctx, dir, "remote", "add", "upstream", "/dev/null")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/origin/master", "HEAD")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/upstream/main", "HEAD")
+			runTestGit(t, ctx, dir, "config", "branch.main.remote", "upstream")
+			runTestGit(t, ctx, dir, "config", "branch.main.merge", "refs/heads/main")
+			runTestGit(t, ctx, dir, "config", "branch.master.remote", "origin")
+			runTestGit(t, ctx, dir, "config", "branch.master.merge", "refs/heads/master")
+
+			repo := Repo{GitRoot: dir, Branches: []string{"main"}}
+			if err := repo.resolveDefaults(ctx, testLogger(t)); err != nil {
+				t.Fatal(err)
+			}
+			if repo.DefaultRemote != "upstream" {
+				t.Fatalf("default remote = %q, want upstream", repo.DefaultRemote)
+			}
+		})
+		t.Run("explicit_remote_is_authoritative", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			dir := t.TempDir()
+			runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+			runTestGit(t, ctx, dir, "commit", "-q", "--allow-empty", "-m", "main")
+			runTestGit(t, ctx, dir, "remote", "add", "origin", "/dev/null")
+			runTestGit(t, ctx, dir, "remote", "add", "upstream", "/dev/null")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/upstream/main", "HEAD")
+			runTestGit(t, ctx, dir, "config", "branch.main.remote", "upstream")
+			runTestGit(t, ctx, dir, "config", "branch.main.merge", "refs/heads/main")
+
+			repo := Repo{GitRoot: dir, Branches: []string{"main"}, DefaultRemote: "origin"}
+			if err := repo.resolveDefaults(ctx, testLogger(t)); err != nil {
+				t.Fatal(err)
+			}
+			if repo.DefaultRemote != "origin" || repo.DefaultBranch != "main" {
+				t.Fatalf("defaults = %s/%s, want origin/main", repo.DefaultRemote, repo.DefaultBranch)
+			}
+		})
+		t.Run("unmapped_upstream_is_ignored", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			dir := t.TempDir()
+			runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+			runTestGit(t, ctx, dir, "commit", "-q", "--allow-empty", "-m", "main")
+			runTestGit(t, ctx, dir, "remote", "add", "origin", "/dev/null")
+			runTestGit(t, ctx, dir, "remote", "add", "upstream", "/dev/null")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/upstream/main", "HEAD")
+			runTestGit(t, ctx, dir, "config", "branch.main.remote", "upstream")
+			runTestGit(t, ctx, dir, "config", "branch.main.merge", "refs/heads/main")
+
+			repo := Repo{GitRoot: dir, Branches: []string{"main"}, Remotes: []string{"origin"}}
+			if err := repo.resolveDefaults(ctx, testLogger(t)); err != nil {
+				t.Fatal(err)
+			}
+			if repo.DefaultRemote != "origin" {
+				t.Fatalf("default remote = %q, want origin", repo.DefaultRemote)
+			}
+		})
+		t.Run("local_and_synthetic_upstreams_are_ignored", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			dir := t.TempDir()
+			mountedPath := "/home/user/src/repo"
+			runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+			runTestGit(t, ctx, dir, "commit", "-q", "--allow-empty", "-m", "main")
+			runTestGit(t, ctx, dir, "branch", "master")
+			runTestGit(t, ctx, dir, "remote", "add", "origin", "/dev/null")
+			runTestGit(t, ctx, dir, "remote", "add", "md-task", "user@md-task:"+mountedPath)
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/md-task/master", "HEAD")
+			runTestGit(t, ctx, dir, "config", "branch.main.remote", ".")
+			runTestGit(t, ctx, dir, "config", "branch.main.merge", "refs/heads/main")
+			runTestGit(t, ctx, dir, "config", "branch.master.remote", "md-task")
+			runTestGit(t, ctx, dir, "config", "branch.master.merge", "refs/heads/master")
+
+			repo := Repo{
+				GitRoot:     dir,
+				Branches:    []string{"main", "master"},
+				MountedPath: mountedPath,
+			}
+			if err := repo.resolveDefaults(ctx, testLogger(t)); err != nil {
+				t.Fatal(err)
+			}
+			if repo.DefaultRemote != "origin" {
+				t.Fatalf("default remote = %q, want origin", repo.DefaultRemote)
+			}
+			if want := []string{"origin"}; !slices.Equal(repo.Remotes, want) {
+				t.Fatalf("remotes = %v, want %v", repo.Remotes, want)
+			}
+			base, err := repo.resolveContainerBranchBase(ctx, testLogger(t), "master")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if base.ref != "host/master" {
+				t.Fatalf("master base = %q, want host/master", base.ref)
+			}
+		})
+		t.Run("default_branch_comes_from_remote", func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			dir := t.TempDir()
+			runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+			runTestGit(t, ctx, dir, "commit", "-q", "--allow-empty", "-m", "main")
+			runTestGit(t, ctx, dir, "remote", "add", "origin", "/dev/null")
+			runTestGit(t, ctx, dir, "remote", "add", "upstream", "/dev/null")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/upstream/release", "HEAD")
+			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/upstream/trunk", "HEAD")
+			runTestGit(t, ctx, dir, "symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/trunk")
+			runTestGit(t, ctx, dir, "config", "branch.main.remote", "upstream")
+			runTestGit(t, ctx, dir, "config", "branch.main.merge", "refs/heads/release")
+
+			repo := Repo{GitRoot: dir, Branches: []string{"main"}}
+			if err := repo.resolveDefaults(ctx, testLogger(t)); err != nil {
+				t.Fatal(err)
+			}
+			if repo.DefaultRemote != "upstream" || repo.DefaultBranch != "trunk" {
+				t.Fatalf("defaults = %s/%s, want upstream/trunk", repo.DefaultRemote, repo.DefaultBranch)
+			}
+		})
+	})
+	t.Run("resolveDefaults_legacy_non_origin_remote", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+		dir := t.TempDir()
+		upstreamDir := filepath.Join(t.TempDir(), "upstream.git")
+		runTestGit(t, ctx, "", "init", "-q", "--bare", upstreamDir)
+		runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+		runTestGit(t, ctx, dir, "config", "user.name", "Test")
+		runTestGit(t, ctx, dir, "config", "user.email", "test@test")
+		writeTestFile(t, filepath.Join(dir, "README.md"), "main\n")
+		runTestGit(t, ctx, dir, "add", ".")
+		runTestGit(t, ctx, dir, "commit", "-q", "-m", "main")
+		runTestGit(t, ctx, dir, "remote", "add", "upstream", upstreamDir)
+		runTestGit(t, ctx, dir, "push", "-q", "-u", "upstream", "main")
+		mountedPath := "/home/user/src/repo"
+		runTestGit(t, ctx, dir, "remote", "add", "md-task-a", "user@md-task-a:"+mountedPath)
+		runTestGit(t, ctx, dir, "remote", "add", "md-task-b", "user@md-task-b:"+mountedPath)
+
+		logger := testLogger(t)
+		ct := &Container{
+			Logger: logger,
+			Name:   "md-task-a",
+			Repos:  []Repo{{GitRoot: dir, Branches: []string{"main"}, MountedPath: mountedPath}},
+		}
+		ct.migrateRepoRemotes(ctx)
+		repo := &ct.Repos[0]
+		if want := []string{"upstream"}; !slices.Equal(repo.Remotes, want) {
+			t.Fatalf("migrated remotes = %v, want %v", repo.Remotes, want)
+		}
+		if err := repo.resolveDefaults(ctx, logger); err != nil {
+			t.Fatal(err)
+		}
+		if repo.DefaultRemote != "upstream" || repo.DefaultBranch != "main" {
+			t.Fatalf("defaults = %s/%s, want upstream/main", repo.DefaultRemote, repo.DefaultBranch)
+		}
+	})
+	t.Run("migrateRepoRemotes_removed_default", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+		dir := t.TempDir()
+		runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
+		runTestGit(t, ctx, dir, "remote", "add", "backup", "/dev/null")
+		repo := Repo{
+			GitRoot:       dir,
+			Branches:      []string{"main"},
+			MountedPath:   "/home/user/src/repo",
+			DefaultRemote: "upstream",
+			DefaultBranch: "main",
+		}
+		ct := &Container{Logger: testLogger(t), Name: "md-task", Repos: []Repo{repo}}
+		ct.migrateRepoRemotes(ctx)
+		if want := []string{"backup", "upstream"}; !slices.Equal(ct.Repos[0].Remotes, want) {
+			t.Fatalf("migrated remotes = %v, want %v", ct.Repos[0].Remotes, want)
+		}
+		if err := ct.Repos[0].Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("resolveMountPaths", func(t *testing.T) {
 		t.Parallel()
 		t.Run("valid", func(t *testing.T) {
@@ -1756,6 +2288,7 @@ func TestRepo(t *testing.T) {
 				{"explicit absolute path", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "/home/user/src/custom"}},
 				{"tilde expansion", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "~/src/custom"}},
 				{"bare tilde", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "~"}},
+				{"multiple remotes", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"origin", "upstream"}, DefaultRemote: "origin"}},
 			}
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
@@ -1778,6 +2311,11 @@ func TestRepo(t *testing.T) {
 				{"empty branch", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main", ""}}, "empty branch"},
 				{"blank branch", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main", "  "}}, "with whitespace"},
 				{"duplicate branch", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main", "main"}}, "duplicate branch"},
+				{"empty remote", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"origin", ""}}, "empty remote"},
+				{"blank remote", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"origin", "  "}}, "with whitespace"},
+				{"duplicate remote", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"origin", "origin"}}, "duplicate remote"},
+				{"default remote missing", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"upstream"}, DefaultRemote: "origin"}, "is not in Repo.Remotes"},
+				{"invalid tag regexp", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, TagRegexp: "["}, "invalid tag regexp"},
 				{"relative MountedPath", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "custom"}, "must be an absolute POSIX path"},
 			}
 			for _, tt := range tests {

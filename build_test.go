@@ -871,10 +871,14 @@ func TestConvertGitURLToHTTPS(t *testing.T) {
 		want string
 	}{
 		{"https", "https://github.com/user/repo.git", "https://github.com/user/repo.git"},
+		{"https_credentials", "https://token:secret@github.com/user/repo.git", "https://github.com/user/repo.git"},
+		{"http_credentials", "http://token@example.com/repo.git", "http://example.com/repo.git"},
 		{"git_at", "git@github.com:user/repo.git", "https://github.com/user/repo.git"},
 		{"ssh_git", "ssh://git@github.com/user/repo.git", "https://github.com/user/repo.git"},
 		{"git_proto", "git://github.com/user/repo.git", "https://github.com/user/repo.git"},
 		{"unknown", "unknown://foo", "unknown://foo"},
+		{"local_path", "/tmp/repo.git", "/tmp/repo.git"},
+		{"invalid_url", "https://%zz", ""},
 		{"whitespace", "  git@github.com:user/repo.git  ", "https://github.com/user/repo.git"},
 	}
 	for _, tt := range tests {

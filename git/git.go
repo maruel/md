@@ -177,18 +177,29 @@ func (c *Checkout) RefExists(ctx context.Context, ref string) (bool, error) {
 	return true, nil
 }
 
+// Remotes returns the configured remote names sorted alphabetically.
+func (c *Checkout) Remotes(ctx context.Context) ([]string, error) {
+	out, err := c.RunGit(ctx, "remote")
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, errors.New("no git remotes configured")
+	}
+	return strings.Split(out, "\n"), nil
+}
+
 // DefaultRemote returns the default remote for Root.
 // If there is exactly one remote, it is returned. Otherwise "origin" is used.
 func (c *Checkout) DefaultRemote(ctx context.Context) (string, error) {
-	out, err := c.RunGit(ctx, "remote")
-	if err != nil || out == "" {
-		return "", errors.New("no git remotes configured")
+	remotes, err := c.Remotes(ctx)
+	if err != nil {
+		return "", err
 	}
-	lines := strings.Split(out, "\n")
-	if len(lines) == 1 {
-		return lines[0], nil
+	if len(remotes) == 1 {
+		return remotes[0], nil
 	}
-	if slices.Contains(lines, "origin") {
+	if slices.Contains(remotes, "origin") {
 		return "origin", nil
 	}
 	return "", fmt.Errorf("multiple remotes and no %q", "origin")

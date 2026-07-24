@@ -41,6 +41,28 @@ md diff
 md pull
 ```
 
+### Remote branches and fork workflows
+
+`md` mirrors every cached remote branch from the host into the container. A task
+without network or repository credentials can therefore run commands such as
+`git rebase origin/main` or `git rebase upstream/release`. The refs are only as
+fresh as the host checkout; fetch on the host before starting the task when the
+latest remote state is required.
+
+All host remotes are configured in the container. A branch's effective Git push
+remote is preserved independently from its upstream, so triangular workflows
+can rebase against `upstream` and push to `origin`. An actual network push from
+the container still requires repository access, such as `md start --github` for
+GitHub repositories.
+
+`md start` maps all host tags by default, equivalent to `--tags '.*'`. Use
+`md start --tags '<regexp>'` to limit mapped tags, for example
+`--tags '^v2\.'`, or `--tags ''` to map none. Quote the expression so the shell
+does not expand it. The same expression filters tags in initialized submodules.
+Selecting fewer tags avoids transferring old histories reachable only from tags
+in repositories with large tag sets. `md run` and the Go API retain opt-in
+semantics: an empty tag expression maps no tags.
+
 ### Multiple mapped branches
 
 `md start --extra-branch <branch>` maps additional branches into the same container. The first branch (`Branches[0]`: current branch or `-b`) remains the primary branch.

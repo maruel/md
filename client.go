@@ -675,17 +675,18 @@ func (c *Client) commandEnv(extra ...string) []string {
 // (core.worktree). dir is the working directory and also used as
 // GIT_WORK_TREE so git never tries to chdir to a non-existent
 // submodule worktree.
-func (c *Client) runGitDir(ctx context.Context, dir, gitDir string, args ...string) error {
+func (c *Client) runGitDir(ctx context.Context, dir, gitDir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // args are from trusted callers
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_DIR="+gitDir, "GIT_WORK_TREE="+dir, "LANG=C")
 	cmd.Env = append(cmd.Env, c.env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if _, err := cmd.Output(); err != nil {
-		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr.String())
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr.String())
 	}
-	return nil
+	return strings.TrimSpace(string(out)), nil
 }
 
 // cmdErrWithStderr wraps err with the captured stderr from an *exec.ExitError

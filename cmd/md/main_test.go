@@ -217,6 +217,48 @@ func TestSplitBranches(t *testing.T) {
 	})
 }
 
+func TestAllocateForkBranch(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	gitRoot := t.TempDir()
+	runMainTestGit(t, gitRoot, "init", "-q", "--initial-branch=main")
+	runMainTestGit(t, gitRoot, "config", "user.name", "Test")
+	runMainTestGit(t, gitRoot, "config", "user.email", "test@test")
+	if err := os.WriteFile(filepath.Join(gitRoot, "README.md"), []byte("main\n"), 0o644); err != nil { //nolint:gosec // test data.
+		t.Fatal(err)
+	}
+	runMainTestGit(t, gitRoot, "add", ".")
+	runMainTestGit(t, gitRoot, "commit", "-q", "-m", "main")
+
+	// main-0 is taken by an existing container mapping the same repo, so the next
+	// free name is main-1. A container mapping a different repo is ignored.
+	existing := []*md.Container{
+		{Repos: []md.Repo{{GitRoot: gitRoot, Branches: []string{"other", "main-0"}}}},
+		{Repos: []md.Repo{{GitRoot: t.TempDir(), Branches: []string{"main-1"}}}},
+	}
+	if got, err := allocateForkBranch(ctx, gitRoot, "main", existing); err != nil {
+		t.Fatal(err)
+	} else if got != "main-1" {
+		t.Fatalf("allocateForkBranch = %q, want main-1", got)
+	}
+
+	// With no existing containers, allocation starts at main-0.
+	if got, err := allocateForkBranch(ctx, gitRoot, "main", nil); err != nil {
+		t.Fatal(err)
+	} else if got != "main-0" {
+		t.Fatalf("allocateForkBranch = %q, want main-0", got)
+	}
+
+	// A local ref also blocks a candidate: after creating main-0, allocation
+	// skips to main-1.
+	runMainTestGit(t, gitRoot, "branch", "main-0")
+	if got, err := allocateForkBranch(ctx, gitRoot, "main", nil); err != nil {
+		t.Fatal(err)
+	} else if got != "main-1" {
+		t.Fatalf("allocateForkBranch = %q, want main-1", got)
+	}
+}
+
 func TestValidateBranchesExist(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

@@ -162,6 +162,21 @@ func (c *Checkout) CurrentBranch(ctx context.Context) (string, error) {
 	return out, nil
 }
 
+// RefExists reports whether the fully-qualified ref (e.g. "refs/heads/foo")
+// exists in Root.
+func (c *Checkout) RefExists(ctx context.Context, ref string) (bool, error) {
+	cmd := c.cmd(ctx, []string{"show-ref", "--verify", "--quiet", ref})
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("git show-ref --verify --quiet %s: %w: %s", ref, err, stderr.String())
+	}
+	return true, nil
+}
+
 // DefaultRemote returns the default remote for Root.
 // If there is exactly one remote, it is returned. Otherwise "origin" is used.
 func (c *Checkout) DefaultRemote(ctx context.Context) (string, error) {

@@ -459,17 +459,15 @@ type ProcessInfo struct {
 type ForkOpts struct {
 	// ExtraRepos are additional repos to map into the fork beyond the
 	// source container's repos. Branches are the source branches to push from
-	// the host; if empty, defaults to the repo's default upstream branch.
-	// Fork generates a unique destination for the primary branch only.
+	// the host; if empty, defaults to the repo's default upstream branch. Each
+	// entry must have a DestPrimaryBranches destination like any mapped repo.
 	ExtraRepos []Repo
-	// DestPrimaryBranches optionally names the destination primary branch for
-	// mapped repos, keyed by source repo GitRoot. When an entry is present,
-	// Fork uses that exact name verbatim for the repo's primary branch instead
-	// of generating a unique "<source>-<n>". The caller owns the name: Fork does
-	// not check it for collisions, so the caller must ensure it is unused (both
-	// as another container's branch and as a local ref). Repos absent from the
-	// map keep generated naming. Callers that need the destination branch known
-	// before Fork returns (e.g. to name a log file up front) supply it here.
+	// DestPrimaryBranches names the destination primary branch for every mapped
+	// repo, keyed by GitRoot. An entry is required for each source-container repo
+	// and each ExtraRepos entry; Fork fails if one is missing or empty. The name
+	// is used verbatim: Fork does not check it for collisions, so the caller owns
+	// uniqueness (both against other containers' branches and local refs).
+	// Additional (non-primary) branches keep their source names.
 	DestPrimaryBranches map[string]string
 	// Display enables X11/VNC virtual display on the forked container.
 	Display bool
@@ -1185,44 +1183,6 @@ func gitDiffCommand(repo, primaryBranch, defaultRemote, defaultBranch string, ex
 	return strings.Join(commands, "; ")
 }
 
-// forkRepoBranches resolves the fork's branch list for src. When dest is
-// non-empty it is used verbatim for the primary branch (the caller owns its
-// uniqueness); otherwise a unique "<source>-<n>" is generated. Extra branches
-// keep their source names either way.
-func forkRepoBranches(ctx context.Context, src *Repo, existing []*Container, dest string) ([]string, error) {
-	branches := slices.Clone(src.Branches)
-	if dest != "" {
-		branches[0] = dest
-		return branches, nil
-	}
-	usedBranches := map[string]struct{}{}
-	for _, ct := range existing {
-		for _, r := range ct.Repos {
-			if r.GitRoot != src.GitRoot {
-				continue
-			}
-			for _, branch := range r.Branches {
-				usedBranches[branch] = struct{}{}
-			}
-		}
-	}
-	primary := src.Branches[0]
-	for n := 0; ; n++ {
-		candidate := fmt.Sprintf("%s-%d", primary, n)
-		if _, ok := usedBranches[candidate]; ok {
-			continue
-		}
-		exists, err := gitRefExists(ctx, src.GitRoot, "refs/heads/"+candidate)
-		if err != nil {
-			return nil, fmt.Errorf("checking fork branch %q: %w", candidate, err)
-		}
-		if !exists {
-			branches[0] = candidate
-			return branches, nil
-		}
-	}
-}
-
 // Fork snapshots a running or stopped container and creates a new one where each mapped
 // repository is checked out on a new primary branch.
 //
@@ -1231,10 +1191,11 @@ func forkRepoBranches(ctx context.Context, src *Repo, existing []*Container, des
 // branch that diverges from the source container's working state. Extra mapped
 // branches keep their original names.
 //
-// Branch naming: the primary branch gets a unique destination branch derived
-// from its source branch (e.g. "main" → "main-0"), unless the caller pins it
-// via ForkOpts.DestPrimaryBranches (keyed by GitRoot), in which case that name
-// is used verbatim and the caller owns its uniqueness.
+// Branch naming: the caller supplies each repo's destination primary branch
+// via ForkOpts.DestPrimaryBranches (keyed by GitRoot). Fork uses those names
+// verbatim and does not allocate or check them for uniqueness — that policy
+// belongs to the caller, symmetric with Launch, where the caller owns branch
+// names too.
 func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *ForkOpts) (*Container, error) {
 	if err := c.checkContainerState(ctx); err != nil {
 		return nil, err
@@ -1250,7 +1211,9 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		}
 	}
 
-	// Resolve extra repos: default Branches to the repo's default upstream branch.
+	// Resolve extra repos: default the source Branches to the repo's default
+	// upstream branch (the branch to push from the host), matching how Launch
+	// resolves defaults for its repos.
 	extraRepos := slices.Clone(opts.ExtraRepos)
 	for i := range extraRepos {
 		if len(extraRepos[i].Branches) == 0 {
@@ -1264,18 +1227,17 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		}
 	}
 
-	// Generate a unique destination primary branch for each mapped repo.
+	// Apply the caller-supplied destination primary branch for each mapped repo.
+	// Additional (non-primary) branches keep their source names.
 	allSrc := append(slices.Clone(c.Repos), extraRepos...)
 	forkRepos := slices.Clone(allSrc)
-	existing, err := c.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing containers for fork branch allocation: %w", err)
-	}
 	for i := range allSrc {
-		branches, err := forkRepoBranches(ctx, &allSrc[i], existing, opts.DestPrimaryBranches[allSrc[i].GitRoot])
-		if err != nil {
-			return nil, fmt.Errorf("allocating fork branches for %s: %w", allSrc[i].GitRoot, err)
+		dest := opts.DestPrimaryBranches[allSrc[i].GitRoot]
+		if dest == "" {
+			return nil, fmt.Errorf("no destination branch for repo %s in DestPrimaryBranches", allSrc[i].GitRoot)
 		}
+		branches := slices.Clone(allSrc[i].Branches)
+		branches[0] = dest
 		forkRepos[i].Branches = branches
 	}
 
@@ -1802,8 +1764,9 @@ type containerBranchBase struct {
 }
 
 func defaultBranchPushSource(ctx context.Context, r *Repo) (src string, ok bool, err error) {
+	g := &git.Checkout{Root: r.GitRoot}
 	remoteRef := remoteTrackingRef(r.DefaultRemote, r.DefaultBranch)
-	ok, err = gitRefExists(ctx, r.GitRoot, remoteRef)
+	ok, err = g.RefExists(ctx, remoteRef)
 	if err != nil {
 		return "", false, err
 	}
@@ -1811,7 +1774,7 @@ func defaultBranchPushSource(ctx context.Context, r *Repo) (src string, ok bool,
 		return remoteRef, true, nil
 	}
 	localRef := "refs/heads/" + r.DefaultBranch
-	ok, err = gitRefExists(ctx, r.GitRoot, localRef)
+	ok, err = g.RefExists(ctx, localRef)
 	if err != nil {
 		return "", false, err
 	}
@@ -1819,22 +1782,6 @@ func defaultBranchPushSource(ctx context.Context, r *Repo) (src string, ok bool,
 		return localRef, true, nil
 	}
 	return "", false, nil
-}
-
-func gitRefExists(ctx context.Context, dir, ref string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", ref) //nolint:gosec // ref is passed as one argument.
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "LANG=C")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		exitErr, ok := errors.AsType[*exec.ExitError](err)
-		if ok && exitErr.ExitCode() == 1 {
-			return false, nil
-		}
-		return false, fmt.Errorf("git show-ref --verify --quiet %s: %w: %s", ref, err, stderr.String())
-	}
-	return true, nil
 }
 
 func remoteTrackingRef(remote, branch string) string {

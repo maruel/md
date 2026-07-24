@@ -1211,6 +1211,39 @@ func (a *app) cmdDiff(ctx context.Context, args []string) error {
 	return nil
 }
 
+// allocateForkBranch returns an unused "<primary>-<n>" branch name for the repo
+// at gitRoot. It skips names already used by an existing container mapping the
+// same repo and names that already exist as a local ref. This branch-naming
+// policy lives in the CLI: md.Fork takes destination names verbatim and does not
+// allocate them, symmetric with how the caller owns branch names for md launch.
+func allocateForkBranch(ctx context.Context, gitRoot, primary string, existing []*md.Container) (string, error) {
+	used := map[string]struct{}{}
+	for _, ct := range existing {
+		for _, r := range ct.Repos {
+			if r.GitRoot != gitRoot {
+				continue
+			}
+			for _, b := range r.Branches {
+				used[b] = struct{}{}
+			}
+		}
+	}
+	g := &git.Checkout{Root: gitRoot}
+	for n := 0; ; n++ {
+		candidate := fmt.Sprintf("%s-%d", primary, n)
+		if _, ok := used[candidate]; ok {
+			continue
+		}
+		exists, err := g.RefExists(ctx, "refs/heads/"+candidate)
+		if err != nil {
+			return "", fmt.Errorf("checking fork branch %q: %w", candidate, err)
+		}
+		if !exists {
+			return candidate, nil
+		}
+	}
+}
+
 func (a *app) cmdFork(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("fork", flag.ExitOnError)
 	verbose := addVerboseFlag(fs)
@@ -1281,18 +1314,36 @@ func (a *app) cmdFork(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Allocate a destination primary branch for every mapped repo (source repos
+	// plus extra repos). md.Fork consumes these verbatim.
+	existing, err := sourceCt.List(ctx)
+	if err != nil {
+		return fmt.Errorf("listing containers for fork branch allocation: %w", err)
+	}
+	destBranches := make(map[string]string)
+	for _, r := range append(slices.Clone(sourceCt.Repos), resolved...) {
+		if _, ok := destBranches[r.GitRoot]; ok {
+			continue
+		}
+		dest, err := allocateForkBranch(ctx, r.GitRoot, r.Branches[0], existing)
+		if err != nil {
+			return err
+		}
+		destBranches[r.GitRoot] = dest
+	}
 	opts := md.ForkOpts{
-		ExtraRepos:   resolved,
-		Display:      display.resolveForkCapability(sourceCt.Display),
-		Tailscale:    tailscale.resolveForkCapability(sourceCt.Tailscale),
-		USB:          usb.resolveForkCapability(sourceCt.USB),
-		Sudo:         sudoFlag.resolveForkCapability(sourceCt.Sudo),
-		Labels:       labels.values,
-		Quiet:        *quiet,
-		ExtraEnv:     extraEnv,
-		Mounts:       mounts,
-		MaxCPUs:      *cpus,
-		ExtraRunArgs: dockerFlags.values,
+		ExtraRepos:          resolved,
+		DestPrimaryBranches: destBranches,
+		Display:             display.resolveForkCapability(sourceCt.Display),
+		Tailscale:           tailscale.resolveForkCapability(sourceCt.Tailscale),
+		USB:                 usb.resolveForkCapability(sourceCt.USB),
+		Sudo:                sudoFlag.resolveForkCapability(sourceCt.Sudo),
+		Labels:              labels.values,
+		Quiet:               *quiet,
+		ExtraEnv:            extraEnv,
+		Mounts:              mounts,
+		MaxCPUs:             *cpus,
+		ExtraRunArgs:        dockerFlags.values,
 	}
 	fork, err := sourceCt.Fork(ctx, os.Stdout, os.Stderr, &opts)
 	if err != nil {

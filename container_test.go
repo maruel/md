@@ -891,46 +891,6 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 		})
 	})
 	t.Run("Fork", func(t *testing.T) {
-		t.Run("branch_names_fork_primary_branch_only", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			gitRoot := t.TempDir()
-			runTestGit(t, ctx, gitRoot, "init", "-q", "--initial-branch=main")
-			runTestGit(t, ctx, gitRoot, "config", "user.name", "Test")
-			runTestGit(t, ctx, gitRoot, "config", "user.email", "test@test")
-			writeTestFile(t, filepath.Join(gitRoot, "README.md"), "main\n")
-			runTestGit(t, ctx, gitRoot, "add", ".")
-			runTestGit(t, ctx, gitRoot, "commit", "-q", "-m", "main")
-			runTestGit(t, ctx, gitRoot, "checkout", "-q", "-b", "feature")
-			writeTestFile(t, filepath.Join(gitRoot, "README.md"), "feature\n")
-			runTestGit(t, ctx, gitRoot, "commit", "-q", "-am", "feature")
-
-			existing := []*Container{{Repos: []Repo{{GitRoot: gitRoot, Branches: []string{"other", "feature-0"}}}}}
-			repo := &Repo{GitRoot: gitRoot, Branches: []string{"main", "feature"}}
-			got, err := forkRepoBranches(ctx, repo, existing, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := []string{"main-0", "feature"}
-			if !slices.Equal(got, want) {
-				t.Fatalf("forkRepoBranches = %v, want %v", got, want)
-			}
-		})
-		t.Run("caller_supplied_dest_branch_used_verbatim", func(t *testing.T) {
-			t.Parallel()
-			ctx := t.Context()
-			// The caller owns the name: it is used verbatim with no uniqueness
-			// check, even when an existing container maps the same source repo.
-			repo := &Repo{GitRoot: t.TempDir(), Branches: []string{"main", "feature"}}
-			existing := []*Container{{Repos: []Repo{{GitRoot: repo.GitRoot, Branches: []string{"my-fork"}}}}}
-			got, err := forkRepoBranches(ctx, repo, existing, "my-fork")
-			if err != nil {
-				t.Fatalf("forkRepoBranches: %v", err)
-			}
-			if want := []string{"my-fork", "feature"}; !slices.Equal(got, want) {
-				t.Fatalf("forkRepoBranches = %v, want %v", got, want)
-			}
-		})
 		t.Run("host_branch_tracks_source_upstream", func(t *testing.T) {
 			t.Parallel()
 			tests := []struct {
@@ -980,13 +940,6 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 						t.Errorf("fork merge ref = %q, want %q", got, tt.wantMergeRef)
 					}
 				})
-			}
-		})
-		t.Run("error_git_check", func(t *testing.T) {
-			t.Parallel()
-			_, err := forkRepoBranches(t.Context(), &Repo{GitRoot: filepath.Join(t.TempDir(), "missing"), Branches: []string{"main"}}, nil, "")
-			if err == nil {
-				t.Fatal("forkRepoBranches error = nil, want git check error")
 			}
 		})
 	})

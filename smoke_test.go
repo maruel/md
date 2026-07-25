@@ -826,7 +826,7 @@ func TestSmoke(t *testing.T) {
 					if err != nil {
 						t.Fatalf("inspect fork: %v", err)
 					}
-					for _, want := range []string{"snapshot", "main-0", "origin/main", "fork-uncommitted"} {
+					for _, want := range []string{"snapshot", "main-0", "host/main", "fork-uncommitted"} {
 						if !strings.Contains(out, want) {
 							t.Fatalf("fork output missing %q:\n%s", want, out)
 						}

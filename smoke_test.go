@@ -767,9 +767,10 @@ func TestSmoke(t *testing.T) {
 						t.Fatalf("AgentMounts: %v", err)
 					}
 					fork, err := ct.Fork(t.Context(), &forkStdout, &forkStderr, &ForkOpts{
-						Quiet:   true,
-						Mounts:  mounts,
-						MaxCPUs: DefaultMaxCPUs(),
+						DestPrimaryBranches: map[string]string{repo: "main-0"},
+						Quiet:               true,
+						Mounts:              mounts,
+						MaxCPUs:             DefaultMaxCPUs(),
 					})
 					if err != nil {
 						state, stateErr := client.runCmd(t.Context(), "", []string{client.Runtime.Executable(), "inspect", "--format", "{{json .State}}", staleForkName})
@@ -825,7 +826,7 @@ func TestSmoke(t *testing.T) {
 					if err != nil {
 						t.Fatalf("inspect fork: %v", err)
 					}
-					for _, want := range []string{"snapshot", "main-0", "host/main", "fork-uncommitted"} {
+					for _, want := range []string{"snapshot", "main-0", "origin/main", "fork-uncommitted"} {
 						if !strings.Contains(out, want) {
 							t.Fatalf("fork output missing %q:\n%s", want, out)
 						}

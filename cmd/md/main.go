@@ -1314,36 +1314,32 @@ func (a *app) cmdFork(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	// Allocate a destination primary branch for every mapped repo (source repos
-	// plus extra repos). md.Fork consumes these verbatim.
+	// Build the full fork repo set (source repos plus extra repos), allocating a
+	// unique destination primary branch for each. md.Fork consumes these verbatim.
 	existing, err := sourceCt.List(ctx)
 	if err != nil {
 		return fmt.Errorf("listing containers for fork branch allocation: %w", err)
 	}
-	destBranches := make(map[string]string)
+	forkRepos := make([]md.ForkRepo, 0, len(sourceCt.Repos)+len(resolved))
 	for _, r := range append(slices.Clone(sourceCt.Repos), resolved...) {
-		if _, ok := destBranches[r.GitRoot]; ok {
-			continue
-		}
 		dest, err := allocateForkBranch(ctx, r.GitRoot, r.Branches[0], existing)
 		if err != nil {
 			return err
 		}
-		destBranches[r.GitRoot] = dest
+		forkRepos = append(forkRepos, md.ForkRepo{GitRoot: r.GitRoot, SourceBranches: r.Branches, DestPrimary: dest})
 	}
 	opts := md.ForkOpts{
-		ExtraRepos:          resolved,
-		DestPrimaryBranches: destBranches,
-		Display:             display.resolveForkCapability(sourceCt.Display),
-		Tailscale:           tailscale.resolveForkCapability(sourceCt.Tailscale),
-		USB:                 usb.resolveForkCapability(sourceCt.USB),
-		Sudo:                sudoFlag.resolveForkCapability(sourceCt.Sudo),
-		Labels:              labels.values,
-		Quiet:               *quiet,
-		ExtraEnv:            extraEnv,
-		Mounts:              mounts,
-		MaxCPUs:             *cpus,
-		ExtraRunArgs:        dockerFlags.values,
+		Repos:        forkRepos,
+		Display:      display.resolveForkCapability(sourceCt.Display),
+		Tailscale:    tailscale.resolveForkCapability(sourceCt.Tailscale),
+		USB:          usb.resolveForkCapability(sourceCt.USB),
+		Sudo:         sudoFlag.resolveForkCapability(sourceCt.Sudo),
+		Labels:       labels.values,
+		Quiet:        *quiet,
+		ExtraEnv:     extraEnv,
+		Mounts:       mounts,
+		MaxCPUs:      *cpus,
+		ExtraRunArgs: dockerFlags.values,
 	}
 	fork, err := sourceCt.Fork(ctx, os.Stdout, os.Stderr, &opts)
 	if err != nil {

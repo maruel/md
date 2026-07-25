@@ -347,6 +347,70 @@ func TestDiff(t *testing.T) {
 	})
 }
 
+func TestPlanFork(t *testing.T) {
+	t.Parallel()
+	source := []Repo{
+		{GitRoot: "/src/a", Branches: []string{"main", "feat"}},
+		{GitRoot: "/src/b", Branches: []string{"main"}},
+	}
+
+	t.Run("orders_source_then_extras", func(t *testing.T) {
+		t.Parallel()
+		// Extras keep caller order; source dests follow source order regardless
+		// of where they appear in the spec.
+		spec := []ForkRepo{
+			{GitRoot: "/src/x", SourceBranches: []string{"dev"}, DestPrimary: "x0"},
+			{GitRoot: "/src/b", SourceBranches: []string{"main"}, DestPrimary: "b0"},
+			{GitRoot: "/src/a", DestPrimary: "a0"}, // SourceBranches omitted: allowed for a source repo.
+			{GitRoot: "/src/y", SourceBranches: []string{"main", "topic"}, DestPrimary: "y0"},
+		}
+		plan, err := planFork(t.Context(), testLogger(t), source, spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"a0", "b0"}; !slices.Equal(plan.srcDest, want) {
+			t.Errorf("srcDest = %v, want %v", plan.srcDest, want)
+		}
+		if want := []string{"x0", "y0"}; !slices.Equal(plan.extraDest, want) {
+			t.Errorf("extraDest = %v, want %v", plan.extraDest, want)
+		}
+		if len(plan.extraRepos) != 2 || plan.extraRepos[0].GitRoot != "/src/x" || plan.extraRepos[1].GitRoot != "/src/y" {
+			t.Fatalf("extraRepos = %+v, want /src/x then /src/y", plan.extraRepos)
+		}
+		if want := []string{"main", "topic"}; !slices.Equal(plan.extraRepos[1].Branches, want) {
+			t.Errorf("extra /src/y branches = %v, want %v", plan.extraRepos[1].Branches, want)
+		}
+	})
+
+	errCases := []struct {
+		name string
+		spec []ForkRepo
+	}{
+		{"missing_source_repo", []ForkRepo{{GitRoot: "/src/a", SourceBranches: []string{"main", "feat"}, DestPrimary: "a0"}}}, // /src/b missing.
+		{"source_branch_mismatch", []ForkRepo{
+			{GitRoot: "/src/a", SourceBranches: []string{"other"}, DestPrimary: "a0"},
+			{GitRoot: "/src/b", DestPrimary: "b0"},
+		}},
+		{"empty_dest", []ForkRepo{
+			{GitRoot: "/src/a", DestPrimary: ""},
+			{GitRoot: "/src/b", DestPrimary: "b0"},
+		}},
+		{"duplicate_gitroot", []ForkRepo{
+			{GitRoot: "/src/a", DestPrimary: "a0"},
+			{GitRoot: "/src/a", DestPrimary: "a1"},
+			{GitRoot: "/src/b", DestPrimary: "b0"},
+		}},
+	}
+	for _, tc := range errCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := planFork(t.Context(), testLogger(t), source, tc.spec); err == nil {
+				t.Fatal("planFork error = nil, want error")
+			}
+		})
+	}
+}
+
 func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with t.Setenv.
 	t.Run("SyncDefaultBranch", func(t *testing.T) {
 		t.Parallel()

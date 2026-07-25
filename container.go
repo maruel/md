@@ -455,20 +455,32 @@ type ProcessInfo struct {
 	Command string
 }
 
+// ForkRepo describes one repository in a fork and the branches it carries.
+type ForkRepo struct {
+	// GitRoot is the absolute path of the host git repository. Fork matches it
+	// against the source container's repos: a match is re-branched from the
+	// snapshot, a non-match is initialized in the fork and pushed from the host.
+	GitRoot string
+	// SourceBranches are the branches to carry, primary first. For a repo present
+	// in the source container it must equal the branches recorded on that repo
+	// (Fork validates this). For a new repo it is the host branches to push; if
+	// empty, it defaults to the repo's default upstream branch.
+	SourceBranches []string
+	// DestPrimary is the fork's primary branch, created from SourceBranches[0].
+	// It is used verbatim: Fork does not check it for collisions, so the caller
+	// owns uniqueness (against other containers' branches and local refs).
+	// Additional (non-primary) branches keep their source names.
+	DestPrimary string
+}
+
 // ForkOpts configures a container fork operation.
 type ForkOpts struct {
-	// ExtraRepos are additional repos to map into the fork beyond the
-	// source container's repos. Branches are the source branches to push from
-	// the host; if empty, defaults to the repo's default upstream branch. Each
-	// entry must have a DestPrimaryBranches destination like any mapped repo.
-	ExtraRepos []Repo
-	// DestPrimaryBranches names the destination primary branch for every mapped
-	// repo, keyed by GitRoot. An entry is required for each source-container repo
-	// and each ExtraRepos entry; Fork fails if one is missing or empty. The name
-	// is used verbatim: Fork does not check it for collisions, so the caller owns
-	// uniqueness (both against other containers' branches and local refs).
-	// Additional (non-primary) branches keep their source names.
-	DestPrimaryBranches map[string]string
+	// Repos is the full set of repositories the fork should contain. It must
+	// include an entry for every repo in the source container (identified by
+	// GitRoot); additional entries are new repos initialized in the fork and
+	// pushed from the host. Fork fails if a source-container repo is missing, if
+	// GitRoots are duplicated, or if a DestPrimary is empty.
+	Repos []ForkRepo
 	// Display enables X11/VNC virtual display on the forked container.
 	Display bool
 	// Tailscale enables Tailscale networking on the forked container.
@@ -1183,6 +1195,72 @@ func gitDiffCommand(repo, primaryBranch, defaultRemote, defaultBranch string, ex
 	return strings.Join(commands, "; ")
 }
 
+// forkRepoPlan is the validated result of matching a fork spec against the
+// source container's repos: destination primaries for the source repos (in
+// source order) and the resolved new repos to add (in caller order).
+type forkRepoPlan struct {
+	srcDest    []string
+	extraRepos []Repo
+	extraDest  []string
+}
+
+// planFork validates spec against sourceRepos and resolves the new repos. Every
+// source repo must have a spec entry whose SourceBranches (when given) match the
+// recorded branches; entries for repos not in sourceRepos become new repos, with
+// their source branches defaulting to the repo's default upstream branch.
+func planFork(ctx context.Context, logger *slog.Logger, sourceRepos []Repo, spec []ForkRepo) (*forkRepoPlan, error) {
+	// Index the spec by GitRoot, rejecting duplicates and empty destinations.
+	byRoot := make(map[string]ForkRepo, len(spec))
+	for _, fr := range spec {
+		if fr.DestPrimary == "" {
+			return nil, fmt.Errorf("repo %s: empty DestPrimary in ForkOpts.Repos", fr.GitRoot)
+		}
+		if _, dup := byRoot[fr.GitRoot]; dup {
+			return nil, fmt.Errorf("repo %s listed twice in ForkOpts.Repos", fr.GitRoot)
+		}
+		byRoot[fr.GitRoot] = fr
+	}
+
+	// Every source-container repo must have a spec, and its carried branches must
+	// match what the snapshot recorded.
+	sourceRoots := make(map[string]struct{}, len(sourceRepos))
+	srcDest := make([]string, len(sourceRepos))
+	for i, r := range sourceRepos {
+		sourceRoots[r.GitRoot] = struct{}{}
+		fr, ok := byRoot[r.GitRoot]
+		if !ok {
+			return nil, fmt.Errorf("source-container repo %s missing from ForkOpts.Repos", r.GitRoot)
+		}
+		if len(fr.SourceBranches) != 0 && !slices.Equal(fr.SourceBranches, r.Branches) {
+			return nil, fmt.Errorf("repo %s: SourceBranches %v do not match the source container's %v", r.GitRoot, fr.SourceBranches, r.Branches)
+		}
+		srcDest[i] = fr.DestPrimary
+	}
+
+	// Remaining specs are new repos, kept in caller order. Default the source
+	// branches to the repo's default upstream branch (the branch to push from the
+	// host), matching how Launch resolves defaults for its repos.
+	plan := &forkRepoPlan{srcDest: srcDest}
+	for _, fr := range spec {
+		if _, isSource := sourceRoots[fr.GitRoot]; isSource {
+			continue
+		}
+		r := Repo{GitRoot: fr.GitRoot, Branches: slices.Clone(fr.SourceBranches)}
+		if len(r.Branches) == 0 {
+			if err := r.resolveDefaults(ctx, logger); err != nil {
+				return nil, fmt.Errorf("resolving defaults for extra repo %s: %w", r.GitRoot, err)
+			}
+			r.Branches = []string{r.DefaultBranch}
+		}
+		if err := r.Validate(); err != nil {
+			return nil, fmt.Errorf("extra repo %s: %w", r.GitRoot, err)
+		}
+		plan.extraRepos = append(plan.extraRepos, r)
+		plan.extraDest = append(plan.extraDest, fr.DestPrimary)
+	}
+	return plan, nil
+}
+
 // Fork snapshots a running or stopped container and creates a new one where each mapped
 // repository is checked out on a new primary branch.
 //
@@ -1191,53 +1269,30 @@ func gitDiffCommand(repo, primaryBranch, defaultRemote, defaultBranch string, ex
 // branch that diverges from the source container's working state. Extra mapped
 // branches keep their original names.
 //
-// Branch naming: the caller supplies each repo's destination primary branch
-// via ForkOpts.DestPrimaryBranches (keyed by GitRoot). Fork uses those names
-// verbatim and does not allocate or check them for uniqueness — that policy
-// belongs to the caller, symmetric with Launch, where the caller owns branch
-// names too.
+// Branch naming: the caller supplies the full repo set via ForkOpts.Repos, each
+// entry naming its DestPrimary. Fork uses those names verbatim and does not
+// allocate or check them for uniqueness — that policy belongs to the caller,
+// symmetric with Launch, where the caller owns branch names too.
 func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *ForkOpts) (*Container, error) {
 	if err := c.checkContainerState(ctx); err != nil {
 		return nil, err
 	}
-	// Validate that extra repos don't overlap with source repos.
-	sourceRoots := make(map[string]struct{}, len(c.Repos))
-	for _, r := range c.Repos {
-		sourceRoots[r.GitRoot] = struct{}{}
-	}
-	for _, r := range opts.ExtraRepos {
-		if _, ok := sourceRoots[r.GitRoot]; ok {
-			return nil, fmt.Errorf("extra repo %s already exists in source container", r.GitRoot)
-		}
-	}
 
-	// Resolve extra repos: default the source Branches to the repo's default
-	// upstream branch (the branch to push from the host), matching how Launch
-	// resolves defaults for its repos.
-	extraRepos := slices.Clone(opts.ExtraRepos)
-	for i := range extraRepos {
-		if len(extraRepos[i].Branches) == 0 {
-			if err := extraRepos[i].resolveDefaults(ctx, c.Logger); err != nil {
-				return nil, fmt.Errorf("resolving defaults for extra repo %s: %w", extraRepos[i].GitRoot, err)
-			}
-			extraRepos[i].Branches = []string{extraRepos[i].DefaultBranch}
-		}
-		if err := extraRepos[i].Validate(); err != nil {
-			return nil, fmt.Errorf("extra repo %s: %w", extraRepos[i].GitRoot, err)
-		}
+	plan, err := planFork(ctx, c.Logger, c.Repos, opts.Repos)
+	if err != nil {
+		return nil, err
 	}
+	extraRepos := plan.extraRepos
 
-	// Apply the caller-supplied destination primary branch for each mapped repo.
-	// Additional (non-primary) branches keep their source names.
+	// Build the destination repo list: source repos (c.Repos order) then extras,
+	// each with its primary renamed to the caller's DestPrimary. Non-primary
+	// branches keep their source names.
 	allSrc := append(slices.Clone(c.Repos), extraRepos...)
+	dests := append(slices.Clone(plan.srcDest), plan.extraDest...)
 	forkRepos := slices.Clone(allSrc)
 	for i := range allSrc {
-		dest := opts.DestPrimaryBranches[allSrc[i].GitRoot]
-		if dest == "" {
-			return nil, fmt.Errorf("no destination branch for repo %s in DestPrimaryBranches", allSrc[i].GitRoot)
-		}
 		branches := slices.Clone(allSrc[i].Branches)
-		branches[0] = dest
+		branches[0] = dests[i]
 		forkRepos[i].Branches = branches
 	}
 

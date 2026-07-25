@@ -389,7 +389,12 @@ func TestSmoke(t *testing.T) {
 							})
 
 							var forkStdout, forkStderr strings.Builder
+							forkRepos := make([]ForkRepo, len(ct.Repos))
+							for i, r := range ct.Repos {
+								forkRepos[i] = ForkRepo{GitRoot: r.GitRoot, SourceBranches: r.Branches, DestPrimary: r.Branches[0] + "-0"}
+							}
 							fork, err := ct.Fork(t.Context(), &forkStdout, &forkStderr, &ForkOpts{
+								Repos:   forkRepos,
 								Quiet:   true,
 								Sudo:    false,
 								MaxCPUs: DefaultMaxCPUs(),
@@ -767,10 +772,10 @@ func TestSmoke(t *testing.T) {
 						t.Fatalf("AgentMounts: %v", err)
 					}
 					fork, err := ct.Fork(t.Context(), &forkStdout, &forkStderr, &ForkOpts{
-						DestPrimaryBranches: map[string]string{repo: "main-0"},
-						Quiet:               true,
-						Mounts:              mounts,
-						MaxCPUs:             DefaultMaxCPUs(),
+						Repos:   []ForkRepo{{GitRoot: repo, SourceBranches: ct.Repos[0].Branches, DestPrimary: "main-0"}},
+						Quiet:   true,
+						Mounts:  mounts,
+						MaxCPUs: DefaultMaxCPUs(),
 					})
 					if err != nil {
 						state, stateErr := client.runCmd(t.Context(), "", []string{client.Runtime.Executable(), "inspect", "--format", "{{json .State}}", staleForkName})

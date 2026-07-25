@@ -27,7 +27,13 @@ import (
 func runTestGit(t *testing.T, ctx context.Context, wd string, args ...string) string {
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // args are from test code
 	cmd.Dir = wd
-	cmd.Env = append(os.Environ(), "LANG=C")
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+		"LANG=C",
+	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -35,6 +41,15 @@ func runTestGit(t *testing.T, ctx context.Context, wd string, args ...string) st
 		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, stderr.String())
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func sameTestPath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func writeTestFile(t *testing.T, name, content string) {
@@ -562,13 +577,13 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("configure container remotes: %v\n%s", err, out)
 			}
-			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "origin"); got != originDir {
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "origin"); !sameTestPath(got, originDir) {
 				t.Errorf("container origin URL = %q, want %q", got, originDir)
 			}
-			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "upstream"); got != upstreamDir {
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "upstream"); !sameTestPath(got, upstreamDir) {
 				t.Errorf("container upstream URL = %q, want %q", got, upstreamDir)
 			}
-			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "--push", "upstream"); got != upstreamPushDir {
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "--push", "upstream"); !sameTestPath(got, upstreamPushDir) {
 				t.Errorf("container upstream push URL = %q, want %q", got, upstreamPushDir)
 			}
 			if got := runTestGit(t, ctx, containerWorktree, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); got != "upstream/release" {
@@ -589,10 +604,10 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("refresh container remotes: %v\n%s", err, out)
 			}
-			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "upstream"); got != upstreamDir {
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "upstream"); !sameTestPath(got, upstreamDir) {
 				t.Errorf("preserved upstream URL = %q, want %q", got, upstreamDir)
 			}
-			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "--push", "upstream"); got != upstreamPushDir {
+			if got := runTestGit(t, ctx, containerWorktree, "remote", "get-url", "--push", "upstream"); !sameTestPath(got, upstreamPushDir) {
 				t.Errorf("preserved upstream push URL = %q, want %q", got, upstreamPushDir)
 			}
 

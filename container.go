@@ -466,6 +466,11 @@ type ForkRepo struct {
 	// (Fork validates this). For a new repo it is the host branches to push; if
 	// empty, it defaults to the repo's default upstream branch.
 	SourceBranches []string
+	// MountedPath is the absolute container path to mount a new repo at. It is
+	// used only for repos not already in the source container (existing repos
+	// keep the snapshot's mount path). When empty, it defaults to
+	// /home/user/src/<basename>.
+	MountedPath string
 	// DestPrimary is the fork's primary branch, created from SourceBranches[0].
 	// It is used verbatim: Fork does not check it for collisions, so the caller
 	// owns uniqueness (against other containers' branches and local refs).
@@ -1245,7 +1250,7 @@ func planFork(ctx context.Context, logger *slog.Logger, sourceRepos []Repo, spec
 		if _, isSource := sourceRoots[fr.GitRoot]; isSource {
 			continue
 		}
-		r := Repo{GitRoot: fr.GitRoot, Branches: slices.Clone(fr.SourceBranches)}
+		r := Repo{GitRoot: fr.GitRoot, Branches: slices.Clone(fr.SourceBranches), MountedPath: fr.MountedPath}
 		if len(r.Branches) == 0 {
 			if err := r.resolveDefaults(ctx, logger); err != nil {
 				return nil, fmt.Errorf("resolving defaults for extra repo %s: %w", r.GitRoot, err)

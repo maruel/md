@@ -771,8 +771,15 @@ func TestSmoke(t *testing.T) {
 					if err != nil {
 						t.Fatalf("AgentMounts: %v", err)
 					}
+					// Add a brand-new repo (not in the source container) at an explicit
+					// container path to exercise ForkRepo.MountedPath.
+					extraRepo := createSmokeGitRepo(t, "main", "main", false)
+					extraMountedPath := "/home/user/src/smoke-" + rt + "-fork-extra"
 					fork, err := ct.Fork(t.Context(), &forkStdout, &forkStderr, &ForkOpts{
-						Repos:   []ForkRepo{{GitRoot: repo, SourceBranches: ct.Repos[0].Branches, DestPrimary: "main-0"}},
+						Repos: []ForkRepo{
+							{GitRoot: repo, SourceBranches: ct.Repos[0].Branches, DestPrimary: "main-0"},
+							{GitRoot: extraRepo, SourceBranches: []string{"main"}, MountedPath: extraMountedPath, DestPrimary: "extra-0"},
+						},
 						Quiet:   true,
 						Mounts:  mounts,
 						MaxCPUs: DefaultMaxCPUs(),
@@ -818,11 +825,14 @@ func TestSmoke(t *testing.T) {
 						t.Fatalf("source start time changed from %q to %q", sourceStartedAt, got)
 					}
 
-					if len(fork.Repos) != 1 {
-						t.Fatalf("fork repos = %d, want 1", len(fork.Repos))
+					if len(fork.Repos) != 2 {
+						t.Fatalf("fork repos = %d, want 2", len(fork.Repos))
 					}
 					if fork.Repos[0].Branches[0] != "main-0" {
 						t.Fatalf("fork branch = %q, want main-0", fork.Repos[0].Branches[0])
+					}
+					if fork.Repos[1].MountedPath != extraMountedPath {
+						t.Fatalf("fork extra repo mount = %q, want %q", fork.Repos[1].MountedPath, extraMountedPath)
 					}
 					if got := runSmokeGit(t, t.Context(), repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "main-0@{upstream}"); got != "origin/main" {
 						t.Fatalf("host fork upstream = %q, want origin/main", got)
@@ -834,6 +844,17 @@ func TestSmoke(t *testing.T) {
 					for _, want := range []string{"snapshot", "main-0", "host/main", "fork-uncommitted"} {
 						if !strings.Contains(out, want) {
 							t.Fatalf("fork output missing %q:\n%s", want, out)
+						}
+					}
+					// The extra repo was initialized at its explicit MountedPath, on its
+					// own branch, with the pushed content.
+					extraOut, err := fork.runCmd(t.Context(), "", fork.SSHCommand(nil, "git -C "+shellQuote(extraMountedPath)+" branch --show-current && cat "+shellQuote(extraMountedPath+"/README.md")))
+					if err != nil {
+						t.Fatalf("inspect fork extra repo at %s: %v", extraMountedPath, err)
+					}
+					for _, want := range []string{"extra-0", "initial"} {
+						if !strings.Contains(extraOut, want) {
+							t.Fatalf("fork extra repo output missing %q:\n%s", want, extraOut)
 						}
 					}
 				})

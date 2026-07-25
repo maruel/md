@@ -362,11 +362,14 @@ func TestPlanFork(t *testing.T) {
 			{GitRoot: "/src/x", SourceBranches: []string{"dev"}, DestPrimary: "x0"},
 			{GitRoot: "/src/b", SourceBranches: []string{"main"}, DestPrimary: "b0"},
 			{GitRoot: "/src/a", DestPrimary: "a0"}, // SourceBranches omitted: allowed for a source repo.
-			{GitRoot: "/src/y", SourceBranches: []string{"main", "topic"}, DestPrimary: "y0"},
+			{GitRoot: "/src/y", SourceBranches: []string{"main", "topic"}, MountedPath: "/home/user/src/nested/y", DestPrimary: "y0"},
 		}
 		plan, err := planFork(t.Context(), testLogger(t), source, spec)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if got := plan.extraRepos[1].MountedPath; got != "/home/user/src/nested/y" {
+			t.Errorf("extra /src/y MountedPath = %q, want /home/user/src/nested/y", got)
 		}
 		if want := []string{"a0", "b0"}; !slices.Equal(plan.srcDest, want) {
 			t.Errorf("srcDest = %v, want %v", plan.srcDest, want)

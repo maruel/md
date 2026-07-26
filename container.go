@@ -375,8 +375,8 @@ func (r *Repo) containerSyncRefspecs(ctx context.Context, logger *slog.Logger) (
 		if err != nil {
 			return nil, fmt.Errorf("list branches for remote %q: %w", remote, err)
 		}
-		if len(branches) != 0 {
-			ref := remoteTrackingRef(remote, "*")
+		for _, branch := range branches {
+			ref := remoteTrackingRef(remote, branch[0])
 			refspecs = appendUniqueRefspecs(refspecs, ref+":"+ref)
 		}
 	}
@@ -1740,11 +1740,6 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		if err := c.pushRefspecs(ctx, src.GitRoot, fork.Name, refspecs, true, stdout, stderr); err != nil {
 			return nil, fmt.Errorf("push extra repo %s: %w", src.MountedPath, err)
 		}
-		if deleteRefspecs := containerRemoteHEADDeleteRefspecs(src); len(deleteRefspecs) != 0 {
-			if err := c.pushRefspecs(ctx, src.GitRoot, fork.Name, deleteRefspecs, false, stdout, stderr); err != nil {
-				return nil, fmt.Errorf("remove extra repo remote HEAD refs: %w", err)
-			}
-		}
 		if err := fork.configureContainerRemotes(ctx, stdout, stderr, nSrc+i, true, containerBranchSetupCommands(bases)...); err != nil {
 			return nil, fmt.Errorf("setting up extra repo %s: %w", src.MountedPath, err)
 		}
@@ -2007,14 +2002,7 @@ func (c *Container) pushContainerRefs(ctx context.Context, r *Repo, refspecs []s
 	if len(refspecs) == 0 {
 		return nil
 	}
-	if err := c.pushRefspecs(ctx, r.GitRoot, c.Name, refspecs, true, io.Discard, io.Discard); err != nil {
-		return err
-	}
-	deleteRefspecs := containerRemoteHEADDeleteRefspecs(r)
-	if len(deleteRefspecs) == 0 {
-		return nil
-	}
-	return c.pushRefspecs(ctx, r.GitRoot, c.Name, deleteRefspecs, false, io.Discard, io.Discard)
+	return c.pushRefspecs(ctx, r.GitRoot, c.Name, refspecs, true, io.Discard, io.Discard)
 }
 
 // pushRefspecs pushes refspecs in command-line-size-bounded batches. It
@@ -2048,14 +2036,6 @@ func refspecBatchEnd(refspecs []string, start int) int {
 		end++
 	}
 	return end
-}
-
-func containerRemoteHEADDeleteRefspecs(r *Repo) []string {
-	refspecs := make([]string, len(r.Remotes))
-	for i, remote := range r.Remotes {
-		refspecs[i] = ":" + remoteTrackingRef(remote, "HEAD")
-	}
-	return refspecs
 }
 
 func appendUniqueRefspecs(refspecs []string, more ...string) []string {
@@ -2111,11 +2091,6 @@ func (c *Container) pushMappedBranchRefs(ctx context.Context, stdout, stderr io.
 
 	if err := c.pushRefspecs(ctx, r.GitRoot, c.Name, refspecs, true, stdout, stderr); err != nil {
 		return nil, false, fmt.Errorf("push mapped branches: %w", err)
-	}
-	if deleteRefspecs := containerRemoteHEADDeleteRefspecs(r); len(deleteRefspecs) != 0 {
-		if err := c.pushRefspecs(ctx, r.GitRoot, c.Name, deleteRefspecs, false, stdout, stderr); err != nil {
-			return nil, false, fmt.Errorf("remove remote HEAD refs: %w", err)
-		}
 	}
 	return bases, includeHost, nil
 }

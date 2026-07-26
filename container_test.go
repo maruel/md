@@ -511,6 +511,13 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			if got := runTestGit(t, ctx, remoteDir, "rev-parse", "refs/remotes/origin/migration"); got != migrationCommit {
 				t.Errorf("pushed origin/migration = %q, want %q", got, migrationCommit)
 			}
+			var stdout, stderr bytes.Buffer
+			if _, _, err := ct.pushMappedBranchRefs(ctx, &stdout, &stderr, &ct.Repos[0]); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(stderr.String(), "deleting a non-existent ref") {
+				t.Errorf("push mapped branches emitted deletion warning:\n%s", stderr.String())
+			}
 		})
 		t.Run("all_remote_branches", func(t *testing.T) {
 			t.Parallel()

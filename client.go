@@ -637,56 +637,10 @@ func (c *Client) containerFromRuntime(ctx context.Context, raw containers.Contai
 	return ct, nil
 }
 
-// runCmd executes a command, captures its output, and returns (stdout, error).
-// If dir is non-empty, the command runs in that directory.
-func (c *Client) runCmd(ctx context.Context, dir string, args []string) (string, error) {
-	// Command arguments are redacted before logging.
-	// codeql[go/clear-text-logging]
-	c.Logger.Log(ctx, slog.LevelDebug, "exec", "cmd", containers.RedactCommandArgsForLog(args))
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // args are from trusted callers
-	cmd.Dir = dir
-	cmd.Env = c.commandEnv("LANG=C")
-	out, err := cmd.Output()
-	return strings.TrimSpace(string(out)), err
-}
-
-// runCmdOut executes a command, directing its stdout and stderr to the given writers.
-// If dir is non-empty, the command runs in that directory.
-func (c *Client) runCmdOut(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) error {
-	// Command arguments are redacted before logging.
-	// codeql[go/clear-text-logging]
-	c.Logger.Log(ctx, slog.LevelDebug, "exec", "cmd", containers.RedactCommandArgsForLog(args))
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // args are from trusted callers
-	cmd.Dir = dir
-	cmd.Env = c.commandEnv("LANG=C")
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	return cmd.Run()
-}
-
 func (c *Client) commandEnv(extra ...string) []string {
 	overrides := append([]string(nil), c.env...)
 	overrides = append(overrides, extra...)
 	return containers.EnvWithOverrides(os.Environ(), overrides)
-}
-
-// runGitDir runs a git command with GIT_DIR and GIT_WORK_TREE
-// explicitly set, fully decoupling git from the repository config
-// (core.worktree). dir is the working directory and also used as
-// GIT_WORK_TREE so git never tries to chdir to a non-existent
-// submodule worktree.
-func (c *Client) runGitDir(ctx context.Context, dir, gitDir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // args are from trusted callers
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_DIR="+gitDir, "GIT_WORK_TREE="+dir, "LANG=C")
-	cmd.Env = append(cmd.Env, c.env...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr.String())
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 // cmdErrWithStderr wraps err with the captured stderr from an *exec.ExitError

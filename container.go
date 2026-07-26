@@ -2406,6 +2406,48 @@ func tagRefspecs(tagRegexp, tagOutput string) ([]string, error) {
 	return refspecs, nil
 }
 
+// runCmd executes a command, captures its output, and returns (stdout, error).
+// If dir is non-empty, the command runs in that directory.
+func (c *Container) runCmd(ctx context.Context, dir string, args []string) (string, error) {
+	// Command arguments are redacted before logging.
+	// codeql[go/clear-text-logging]
+	c.Logger.Log(ctx, slog.LevelDebug, "exec", "cmd", containers.RedactCommandArgsForLog(args))
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // args are from trusted callers
+	cmd.Dir = dir
+	cmd.Env = c.commandEnv("LANG=C")
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// runCmdOut executes a command, directing its stdout and stderr to the given writers.
+// If dir is non-empty, the command runs in that directory.
+func (c *Container) runCmdOut(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) error {
+	// Command arguments are redacted before logging.
+	// codeql[go/clear-text-logging]
+	c.Logger.Log(ctx, slog.LevelDebug, "exec", "cmd", containers.RedactCommandArgsForLog(args))
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec // args are from trusted callers
+	cmd.Dir = dir
+	cmd.Env = c.commandEnv("LANG=C")
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
+}
+
+// runGitDir runs a git command with GIT_DIR and GIT_WORK_TREE explicitly set,
+// fully decoupling Git from the repository's core.worktree configuration.
+func (c *Container) runGitDir(ctx context.Context, dir, gitDir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // args are from trusted callers
+	cmd.Dir = dir
+	cmd.Env = c.commandEnv("GIT_DIR="+gitDir, "GIT_WORK_TREE="+dir, "LANG=C")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr.String())
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // pushSubmodules transfers submodule bare repos from hostGitRoot into the
 // container at containerRepoPath and initializes them at all nesting depths
 // without requiring network access. containerRepoPath is the absolute path

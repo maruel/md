@@ -60,7 +60,7 @@ func newSmokeClient(t *testing.T, rt string) *Client {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
 			defer cancel()
-			if _, err := client.runCmd(ctx, "", []string{rt, "system", "reset", "-f"}); err != nil {
+			if _, err := client.Runtime.Run(ctx, "", "system", "reset", "-f"); err != nil {
 				t.Errorf("podman system reset cleanup: %v", err)
 			}
 		})
@@ -70,12 +70,12 @@ func newSmokeClient(t *testing.T, rt string) *Client {
 
 // hasImage checks whether a container image exists in the local store.
 func hasImage(ctx context.Context, c *Client, name string) bool {
-	_, err := c.runCmd(ctx, "", []string{c.Runtime.Executable(), "image", "inspect", "--format", "{{.Id}}", name})
+	_, err := c.Runtime.Run(ctx, "", "image", "inspect", "--format", "{{.Id}}", name)
 	return err == nil
 }
 
 func removeSmokeContainerIfPresent(t testing.TB, ctx context.Context, c *Client, name string) {
-	out, err := c.runCmd(ctx, "", []string{c.Runtime.Executable(), "ps", "-a", "--format", "{{.Names}}", "--filter", "name=^" + name + "$"})
+	out, err := c.Runtime.Run(ctx, "", "ps", "-a", "--format", "{{.Names}}", "--filter", "name=^"+name+"$")
 	if err != nil {
 		t.Errorf("list container %s before cleanup: %v", name, err)
 		return
@@ -83,7 +83,7 @@ func removeSmokeContainerIfPresent(t testing.TB, ctx context.Context, c *Client,
 	if !slices.Contains(strings.Fields(out), name) {
 		return
 	}
-	if _, err := c.runCmd(ctx, "", []string{c.Runtime.Executable(), "rm", "-f", "-v", name}); err != nil {
+	if _, err := c.Runtime.Run(ctx, "", "rm", "-f", "-v", name); err != nil {
 		t.Errorf("remove container %s: %v", name, err)
 	}
 }
@@ -92,7 +92,7 @@ func removeSmokeImageIfPresent(t testing.TB, ctx context.Context, c *Client, nam
 	if !hasImage(ctx, c, name) {
 		return
 	}
-	if _, err := c.runCmd(ctx, "", []string{c.Runtime.Executable(), "rmi", "-f", name}); err != nil {
+	if _, err := c.Runtime.Run(ctx, "", "rmi", "-f", name); err != nil {
 		t.Errorf("remove image %s: %v", name, err)
 	}
 }
@@ -785,20 +785,20 @@ func TestSmoke(t *testing.T) {
 						MaxCPUs: DefaultMaxCPUs(),
 					})
 					if err != nil {
-						state, stateErr := client.runCmd(t.Context(), "", []string{client.Runtime.Executable(), "inspect", "--format", "{{json .State}}", staleForkName})
+						state, stateErr := client.Runtime.Run(t.Context(), "", "inspect", "--format", "{{json .State}}", staleForkName)
 						if stateErr != nil {
 							state = fmt.Sprintf("inspect state failed: %v", stateErr)
 						}
-						logs, logsErr := client.runCmd(t.Context(), "", []string{client.Runtime.Executable(), "logs", staleForkName})
+						logs, logsErr := client.Runtime.Run(t.Context(), "", "logs", staleForkName)
 						if logsErr != nil {
 							logs = fmt.Sprintf("logs failed: %v", logsErr)
 						}
-						sshDiag, sshDiagErr := client.runCmd(t.Context(), "", []string{client.Runtime.Executable(), "exec", staleForkName, "bash", "-lc", strings.Join([]string{
+						sshDiag, sshDiagErr := client.Runtime.Run(t.Context(), "", "exec", staleForkName, "bash", "-lc", strings.Join([]string{
 							"stat -c '%U:%G %a %n' /home/user /home/user/.ssh /home/user/.ssh/authorized_keys /etc/ssh/ssh_host_ed25519_key 2>&1",
 							"pgrep -a sshd 2>&1 || true",
 							"tail -120 /var/log/auth.log 2>&1 || true",
 							"/usr/sbin/sshd -T 2>&1 | head -80 || true",
-						}, "; ")})
+						}, "; "))
 						if sshDiagErr != nil {
 							sshDiag = fmt.Sprintf("ssh diagnostics failed: %v", sshDiagErr)
 						}
@@ -812,7 +812,7 @@ func TestSmoke(t *testing.T) {
 						}
 					})
 
-					if _, err := client.runCmd(t.Context(), "", []string{client.Runtime.Executable(), "image", "inspect", "md-fork-" + ct.Name}); err == nil {
+					if _, err := client.Runtime.Run(t.Context(), "", "image", "inspect", "md-fork-"+ct.Name); err == nil {
 						t.Fatalf("temporary fork snapshot tag md-fork-%s still exists", ct.Name)
 					}
 
@@ -1015,10 +1015,8 @@ func TestSmoke(t *testing.T) {
 					"org.opencontainers.image.licenses",
 				}
 				for _, label := range labels {
-					out, err := client.runCmd(subCtx, "", []string{
-						rt, "image", "inspect", "--format",
-						fmt.Sprintf("{{index .Config.Labels %q}}", label), "md-user-local",
-					})
+					out, err := client.Runtime.Run(subCtx, "", "image", "inspect", "--format",
+						fmt.Sprintf("{{index .Config.Labels %q}}", label), "md-user-local")
 					if err != nil {
 						t.Errorf("inspecting label %s: %v", label, err)
 					} else if out == "" || out == "<no value>" {

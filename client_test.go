@@ -56,7 +56,36 @@ func TestMain(m *testing.M) {
 	if os.Getenv(fakeRuntimeEnv) == "1" {
 		os.Exit(runFakeRuntime(os.Args[1:], os.Getenv(fakeRuntimeLogEnv), os.Getenv(fakeRuntimeLocalBaseEnv) == "1"))
 	}
-	os.Exit(m.Run())
+
+	dir, err := os.MkdirTemp("", "md-git-config-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	config := filepath.Join(dir, "config")
+	if err := os.WriteFile(config, nil, 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	for _, entry := range [][2]string{
+		{"GIT_CONFIG_COUNT", "0"},
+		{"GIT_CONFIG_GLOBAL", config},
+		{"GIT_CONFIG_NOSYSTEM", "1"},
+	} {
+		if err := os.Setenv(entry[0], entry[1]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+
+	exitCode := m.Run()
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		if exitCode == 0 {
+			exitCode = 1
+		}
+	}
+	os.Exit(exitCode)
 }
 
 func isFakeSSHExecutable(name string) bool {

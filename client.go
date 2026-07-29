@@ -1611,7 +1611,6 @@ const (
 	HarnessAndroid  Harness = "android"
 	HarnessClaude   Harness = "claude"
 	HarnessCodex    Harness = "codex"
-	HarnessGemini   Harness = "gemini"
 	HarnessGoose    Harness = "goose"
 	HarnessKilo     Harness = "kilo"
 	HarnessKimi     Harness = "kimi"
@@ -1649,7 +1648,6 @@ var HarnessMounts = map[Harness]AgentPaths{
 	HarnessAndroid:  {Description: "Android Studio", HomePaths: []string{".android"}},
 	HarnessClaude:   {Description: "Claude Code", HomePaths: []string{".claude"}},
 	HarnessCodex:    {Description: "Codex", HomePaths: []string{".codex"}},
-	HarnessGemini:   {Description: "Gemini CLI", HomePaths: []string{".gemini"}},
 	HarnessGoose:    {Description: "Goose", XDGConfigPaths: []string{"goose"}, LocalSharePaths: []string{"goose"}},
 	HarnessKilo:     {Description: "Kilo Code", HomePaths: []string{".kilocode"}},
 	HarnessKimi:     {Description: "Kimi", HomePaths: []string{".kimi"}},

@@ -1703,10 +1703,14 @@ func resolveCaches(customSpecs, excluded []string, noAll bool) ([]md.CacheMount,
 			return nil, fmt.Errorf("invalid --cache %q: use a well-known name (%s) or host:container[:ro]",
 				spec, wellKnownCacheList())
 		}
+		containerPath, err := md.ResolveMountTarget(parts[0], parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid --cache %q: %w", spec, err)
+		}
 		cm := md.CacheMount{
 			Name:          customCacheName(parts[0]),
 			HostPath:      parts[0],
-			ContainerPath: md.ResolveContainerPath(parts[1]),
+			ContainerPath: md.ResolveContainerPath(containerPath),
 		}
 		if len(parts) == 3 {
 			if parts[2] != "ro" {
@@ -1729,9 +1733,13 @@ func resolveMounts(specs []string) ([]md.Mount, error) {
 		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 			return nil, fmt.Errorf("invalid --mount %q: use host:container[:ro]", spec)
 		}
+		containerPath, err := md.ResolveMountTarget(parts[0], parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid --mount %q: %w", spec, err)
+		}
 		m := md.Mount{
 			HostPath:      parts[0],
-			ContainerPath: md.ResolveContainerPath(parts[1]),
+			ContainerPath: md.ResolveContainerPath(containerPath),
 		}
 		if len(parts) == 3 {
 			if parts[2] != "ro" {

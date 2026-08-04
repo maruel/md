@@ -30,6 +30,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -356,6 +357,9 @@ func (c *Client) Warmup(ctx context.Context, stdout, stderr io.Writer, opts *War
 	}
 	p := Platform(opts.Platform).Resolve()
 	if err := p.Validate(); err != nil {
+		return false, err
+	}
+	if err := validateCacheMounts(opts.Caches); err != nil {
 		return false, err
 	}
 	platform := p.String()
@@ -839,7 +843,7 @@ func (c *Client) cachedRemoteManifestDigest(ctx context.Context, image, arch str
 // activeCacheKey filters caches to those whose host directories exist and
 // returns the cache spec key for the active set.
 func activeCacheKey(caches []CacheMount, home string) string {
-	_, _, activeKey := resolveCaches(caches, home, nil)
+	_, _, activeKey, _ := resolveCaches(caches, home, nil)
 	return activeKey
 }
 
@@ -1104,14 +1108,18 @@ func (c *Client) untagSpecializedImageIfBasedOn(ctx context.Context, imageName, 
 // computes the set of container directories that need to be pre-created.
 // Returns the active caches (with resolved host paths), directories to
 // pre-create, and the cache spec key. Caches whose host path does not exist
-// are silently skipped.
-func resolveCaches(caches []CacheMount, home string, mountPaths []string) (active []activeCM, dirs []string, activeKey string) {
+// are silently skipped. The caller receives an error for invalid mappings.
+func resolveCaches(caches []CacheMount, home string, mountPaths []string) (active []activeCM, dirs []string, activeKey string, retErr error) {
 	for _, cm := range caches {
-		hostPath := resolveHostPath(cm.HostPath, home)
+		containerPath, err := ResolveMountTarget(cm.HostPath, cm.ContainerPath)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("cache mount %q: %w", cm.Name, err)
+		}
+		hostPath := ResolveHostPath(cm.HostPath, home)
 		if _, err := os.Stat(hostPath); err != nil {
 			continue
 		}
-		cm.ContainerPath = ResolveContainerPath(cm.ContainerPath)
+		cm.ContainerPath = ResolveContainerPath(containerPath)
 		a := activeCM{cm: cm, hostPath: hostPath}
 		if cm.Shallow {
 			entries, err := os.ReadDir(hostPath)
@@ -1160,7 +1168,7 @@ func resolveCaches(caches []CacheMount, home string, mountPaths []string) (activ
 		dirs = append(dirs, d)
 	}
 	sort.Strings(dirs)
-	return active, dirs, activeKey
+	return active, dirs, activeKey, nil
 }
 
 // generateDockerfile produces the Dockerfile content for a specialized image.
@@ -1366,7 +1374,10 @@ func (c *Client) buildSpecializedImage(ctx context.Context, stdout, stderr io.Wr
 		return "", fmt.Errorf("computing keys SHA: %w", err)
 	}
 
-	active, dirs, activeKey := resolveCaches(caches, c.Home, mountPaths)
+	active, dirs, activeKey, err := resolveCaches(caches, c.Home, mountPaths)
+	if err != nil {
+		return "", err
+	}
 
 	if !quiet {
 		_, _ = fmt.Fprintf(stdout, "- Building container image %s from %s ...\n", imageName, baseImage)
@@ -1377,7 +1388,7 @@ func (c *Client) buildSpecializedImage(ctx context.Context, stdout, stderr io.Wr
 		}
 		for _, cm := range caches {
 			if !slices.Contains(activeNames, cm.Name) {
-				_, _ = fmt.Fprintf(stdout, "  Cache %s: %s not found, skipping\n", cm.Name, resolveHostPath(cm.HostPath, c.Home))
+				_, _ = fmt.Fprintf(stdout, "  Cache %s: %s not found, skipping\n", cm.Name, ResolveHostPath(cm.HostPath, c.Home))
 			}
 		}
 		for _, a := range active {
@@ -1566,11 +1577,14 @@ func formatCount(n int64) string {
 }
 
 // ResolveContainerPath expands "~" or a leading "~/" to the container user's
-// home directory; absolute paths are returned unchanged.
+// home directory; other paths are returned unchanged.
 func ResolveContainerPath(p string) string {
+	if p == "" {
+		return ""
+	}
 	suffix, ok := homePathSuffix(p, false)
 	if !ok {
-		return p
+		return path.Clean(p)
 	}
 	if suffix == "" {
 		return "/home/user"
@@ -1578,14 +1592,70 @@ func ResolveContainerPath(p string) string {
 	return path.Join("/home/user", suffix)
 }
 
-// resolveHostPath expands "~" or a leading "~/" (or "~\" on Windows) to home;
-// absolute paths are returned unchanged.
-func resolveHostPath(p, home string) string {
+// ResolveHostPath expands "~" or a leading "~/" (or "~\" on Windows) to home;
+// other paths are returned unchanged.
+func ResolveHostPath(p, home string) string {
+	if p == "" {
+		return ""
+	}
+	if home == "" {
+		return filepath.ToSlash(filepath.Clean(p))
+	}
 	suffix, ok := homePathSuffix(p, true)
 	if !ok {
-		return p
+		return filepath.ToSlash(filepath.Clean(p))
 	}
 	return filepath.ToSlash(filepath.Join(home, suffix))
+}
+
+// IsHomeRelativeHostPath reports whether p is a path within the host user's
+// home directory using md's supported home-relative syntax.
+func IsHomeRelativeHostPath(p string) bool {
+	suffix, ok := homePathSuffix(p, true)
+	return ok && !escapesHome(filepath.ToSlash(filepath.Clean(suffix)))
+}
+
+// ResolveMountTarget validates a host-to-container mapping and returns its
+// effective container path. An empty container path mirrors a home-relative
+// host path. The returned path retains "~" notation so [ResolveContainerPath]
+// can expand it against the container user's home directory later.
+func ResolveMountTarget(hostPath, containerPath string) (string, error) {
+	if hostPath == "" {
+		return "", errors.New("host path is required")
+	}
+	hostSuffix, homeRelative := homePathSuffix(hostPath, true)
+	if !filepath.IsAbs(hostPath) && !homeRelative {
+		return "", errors.New("host path must be absolute or home-relative")
+	}
+	if homeRelative && escapesHome(filepath.ToSlash(filepath.Clean(hostSuffix))) {
+		return "", errors.New("host path must not escape home")
+	}
+	containerPath = defaultMountTarget(hostSuffix, homeRelative, containerPath)
+	if containerPath == "" {
+		return "", errors.New("container path is required")
+	}
+	containerSuffix, containerHomeRelative := homePathSuffix(containerPath, false)
+	if !path.IsAbs(containerPath) && !containerHomeRelative {
+		return "", errors.New("container path must be absolute or home-relative")
+	}
+	if containerHomeRelative && escapesHome(path.Clean(containerSuffix)) {
+		return "", errors.New("container path must not escape home")
+	}
+	return containerPath, nil
+}
+
+func defaultMountTarget(hostSuffix string, hostHomeRelative bool, containerPath string) string {
+	if containerPath != "" || !hostHomeRelative {
+		return containerPath
+	}
+	if hostSuffix == "" {
+		return "~"
+	}
+	return "~/" + path.Clean(filepath.ToSlash(hostSuffix))
+}
+
+func escapesHome(clean string) bool {
+	return clean == ".." || strings.HasPrefix(clean, "../")
 }
 
 func homePathSuffix(p string, windowsBackslash bool) (string, bool) {
@@ -1595,7 +1665,7 @@ func homePathSuffix(p string, windowsBackslash bool) (string, bool) {
 	if strings.HasPrefix(p, "~/") {
 		return p[2:], true
 	}
-	if windowsBackslash && strings.HasPrefix(p, `~\`) {
+	if windowsBackslash && runtime.GOOS == "windows" && strings.HasPrefix(p, `~\`) {
 		return p[2:], true
 	}
 	return "", false
@@ -1661,8 +1731,9 @@ type Mount struct {
 	// HostPath is the absolute path on the host. "~" and "~/" resolve to the
 	// host user's home directory.
 	HostPath string
-	// ContainerPath is the absolute path inside the container. "~" and "~/"
-	// resolve to the container user's home directory via [ResolveContainerPath].
+	// ContainerPath is the path inside the container. "~" and "~/" resolve to
+	// the container user's home directory via [ResolveContainerPath]. When empty,
+	// it mirrors a home-relative HostPath via [ResolveMountTarget].
 	ContainerPath string
 	// ReadOnly mounts the host path read-only.
 	ReadOnly bool
@@ -1673,10 +1744,11 @@ func (m *Mount) mountKey() string {
 }
 
 func (m *Mount) dockerArg(home string) (string, error) {
-	hostPath := resolveHostPath(m.HostPath, home)
-	if hostPath == "" {
-		return "", errors.New("mount host path is empty")
+	containerPath, err := ResolveMountTarget(m.HostPath, m.ContainerPath)
+	if err != nil {
+		return "", fmt.Errorf("mount paths: %w", err)
 	}
+	hostPath := ResolveHostPath(m.HostPath, home)
 	info, err := os.Stat(hostPath)
 	if err != nil {
 		return "", fmt.Errorf("mount host path %q: %w", hostPath, err)
@@ -1684,13 +1756,7 @@ func (m *Mount) dockerArg(home string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("mount host path %q is not a directory", hostPath)
 	}
-	containerPath := ResolveContainerPath(m.ContainerPath)
-	if containerPath == "" {
-		return "", errors.New("mount container path is empty")
-	}
-	if !path.IsAbs(containerPath) {
-		return "", fmt.Errorf("mount container path %q is not absolute", containerPath)
-	}
+	containerPath = ResolveContainerPath(containerPath)
 	arg := filepath.ToSlash(hostPath) + ":" + containerPath
 	if m.ReadOnly {
 		arg += ":ro"
@@ -1711,8 +1777,9 @@ type CacheMount struct {
 	// HostPath is the absolute path on the host. "~" and "~/" resolve to the
 	// host user's home directory.
 	HostPath string
-	// ContainerPath is the absolute path inside the container. "~" and "~/"
-	// resolve to the container user's home directory via [ResolveContainerPath].
+	// ContainerPath is the path inside the container. "~" and "~/" resolve to
+	// the container user's home directory via [ResolveContainerPath]. When empty,
+	// it mirrors a home-relative HostPath via [ResolveMountTarget].
 	ContainerPath string
 	// ReadOnly copies the cache into the image as root-owned, non-writable files.
 	ReadOnly bool
@@ -1730,6 +1797,9 @@ func validateCacheMounts(caches []CacheMount) error {
 	for _, c := range caches {
 		if !reCacheMountName.MatchString(c.Name) {
 			return fmt.Errorf("cache mount name %q is invalid; use [a-z0-9][a-z0-9-]*", c.Name)
+		}
+		if _, err := ResolveMountTarget(c.HostPath, c.ContainerPath); err != nil {
+			return fmt.Errorf("cache mount %q: %w", c.Name, err)
 		}
 	}
 	return nil

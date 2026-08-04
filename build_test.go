@@ -128,7 +128,9 @@ func TestResolveHostPath(t *testing.T) {
 	tests := []struct {
 		path, home, want string
 	}{
+		{"", "/home/alice", ""},
 		{"~/go/pkg/mod", "/home/alice", "/home/alice/go/pkg/mod"},
+		{"~/go/pkg/mod", "", "~/go/pkg/mod"},
 		{"~/.cargo/registry", "/home/alice", "/home/alice/.cargo/registry"},
 		{"~", "/home/alice", "/home/alice"},
 		{"/absolute/path", "/home/alice", "/absolute/path"},
@@ -138,8 +140,8 @@ func TestResolveHostPath(t *testing.T) {
 		tests = append(tests, struct{ path, home, want string }{`~\go\pkg\mod`, `C:\Users\alice`, `C:/Users/alice/go/pkg/mod`})
 	}
 	for _, tt := range tests {
-		if got := resolveHostPath(tt.path, tt.home); got != tt.want {
-			t.Errorf("resolveHostPath(%q, %q) = %q, want %q", tt.path, tt.home, got, tt.want)
+		if got := ResolveHostPath(tt.path, tt.home); got != tt.want {
+			t.Errorf("ResolveHostPath(%q, %q) = %q, want %q", tt.path, tt.home, got, tt.want)
 		}
 	}
 }
@@ -150,6 +152,7 @@ func TestResolveContainerPath(t *testing.T) {
 		path string
 		want string
 	}{
+		{"", ""},
 		{"~", "/home/user"},
 		{"~/src/project", "/home/user/src/project"},
 		{"/home/user/src/project", "/home/user/src/project"},
@@ -160,6 +163,81 @@ func TestResolveContainerPath(t *testing.T) {
 			t.Errorf("ResolveContainerPath(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
+}
+
+func TestIsHomeRelativeHostPath(t *testing.T) {
+	t.Parallel()
+	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
+		for _, p := range []string{"~", "~/.cache/tool", "~//tool"} {
+			if !IsHomeRelativeHostPath(p) {
+				t.Errorf("IsHomeRelativeHostPath(%q) = false, want true", p)
+			}
+		}
+	})
+	t.Run("error", func(t *testing.T) {
+		t.Parallel()
+		for _, p := range []string{"", "cache/tool", "~/../../etc"} {
+			if IsHomeRelativeHostPath(p) {
+				t.Errorf("IsHomeRelativeHostPath(%q) = true, want false", p)
+			}
+		}
+	})
+}
+
+func TestResolveMountTarget(t *testing.T) {
+	t.Parallel()
+	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
+		cases := []struct {
+			hostPath      string
+			containerPath string
+			want          string
+		}{
+			{"~/.cache/tool", "", "~/.cache/tool"},
+			{"~", "", "~"},
+			{"/var/cache/tool", "/cache/tool", "/cache/tool"},
+			{"/var/cache/tool", "~/cache/tool", "~/cache/tool"},
+		}
+		if runtime.GOOS == "windows" {
+			cases = append(cases, struct {
+				hostPath      string
+				containerPath string
+				want          string
+			}{`~\Documents`, "", "~/Documents"})
+		}
+		for _, tc := range cases {
+			got, err := ResolveMountTarget(tc.hostPath, tc.containerPath)
+			if err != nil {
+				t.Fatalf("ResolveMountTarget(%q, %q): %v", tc.hostPath, tc.containerPath, err)
+			}
+			if got != tc.want {
+				t.Errorf("ResolveMountTarget(%q, %q) = %q, want %q", tc.hostPath, tc.containerPath, got, tc.want)
+			}
+		}
+	})
+	t.Run("error", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			hostPath      string
+			containerPath string
+			want          string
+		}{
+			{"", "/cache/tool", "host path is required"},
+			{"cache/tool", "/cache/tool", "host path must be absolute or home-relative"},
+			{"~/../../etc", "/cache/tool", "host path must not escape home"},
+			{"/var/cache/tool", "", "container path is required"},
+			{"/var/cache/tool", "cache/tool", "container path must be absolute or home-relative"},
+			{"/var/cache/tool", "~/../../etc", "container path must not escape home"},
+		} {
+			t.Run(tc.want, func(t *testing.T) {
+				t.Parallel()
+				if _, err := ResolveMountTarget(tc.hostPath, tc.containerPath); err == nil || err.Error() != tc.want {
+					t.Errorf("ResolveMountTarget(%q, %q) error = %v, want %q", tc.hostPath, tc.containerPath, err, tc.want)
+				}
+			})
+		}
+	})
 }
 
 func TestDirStats(t *testing.T) {
@@ -425,9 +503,9 @@ func TestValidateCacheMounts(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Parallel()
 		if err := validateCacheMounts([]CacheMount{
-			{Name: "go-mod"},
-			{Name: "custom-mount-0"},
-			{Name: "a1"},
+			{Name: "go-mod", HostPath: "~/go/pkg/mod", ContainerPath: "~/go/pkg/mod"},
+			{Name: "custom-mount-0", HostPath: "/var/cache/custom", ContainerPath: "/cache/custom"},
+			{Name: "a1", HostPath: "~", ContainerPath: "~"},
 		}); err != nil {
 			t.Fatalf("validateCacheMounts: %v", err)
 		}
@@ -448,6 +526,13 @@ func TestValidateCacheMounts(t *testing.T) {
 
 func TestResolveCaches(t *testing.T) {
 	t.Parallel()
+	t.Run("invalid_mapping_error", func(t *testing.T) {
+		t.Parallel()
+		_, _, _, err := resolveCaches([]CacheMount{{Name: "bad", HostPath: "cache", ContainerPath: "/cache"}}, "/home/user", nil)
+		if err == nil || !strings.Contains(err.Error(), "host path must be absolute or home-relative") {
+			t.Fatalf("resolveCaches() error = %v, want invalid host path", err)
+		}
+	})
 	t.Run("existing_cache_resolved", func(t *testing.T) {
 		t.Parallel()
 		cacheDir := t.TempDir()
@@ -460,7 +545,10 @@ func TestResolveCaches(t *testing.T) {
 			HostPath:      cacheDir,
 			ContainerPath: "/home/user/.cache/myapp",
 		}}
-		active, dirs, activeKey := resolveCaches(caches, "/home/user", nil)
+		active, dirs, activeKey, err := resolveCaches(caches, "/home/user", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		if len(active) != 1 || active[0].cm.Name != "mycache" {
 			t.Errorf("active = %v, want 1 entry for mycache", active)
@@ -485,7 +573,10 @@ func TestResolveCaches(t *testing.T) {
 			HostPath:      cacheDir,
 			ContainerPath: "~/.cache/myapp",
 		}}
-		active, dirs, activeKey := resolveCaches(caches, "/home/user", nil)
+		active, dirs, activeKey, err := resolveCaches(caches, "/home/user", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(active) != 1 || active[0].cm.ContainerPath != "/home/user/.cache/myapp" {
 			t.Errorf("active = %v, want resolved container path", active)
 		}
@@ -504,7 +595,10 @@ func TestResolveCaches(t *testing.T) {
 			HostPath:      "/nonexistent/path/that/does/not/exist",
 			ContainerPath: "/home/user/.cache/missing",
 		}}
-		active, _, activeKey := resolveCaches(caches, "/home/user", nil)
+		active, _, activeKey, err := resolveCaches(caches, "/home/user", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		if len(active) != 0 {
 			t.Errorf("active = %v, want empty", active)
@@ -517,7 +611,10 @@ func TestResolveCaches(t *testing.T) {
 	t.Run("mount_paths_included", func(t *testing.T) {
 		t.Parallel()
 		mountPaths := []string{"/home/user/.amp", "/home/user/.local/share/amp"}
-		_, dirs, activeKey := resolveCaches(nil, "/home/user", mountPaths)
+		_, dirs, activeKey, err := resolveCaches(nil, "/home/user", mountPaths)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		if activeKey != "" {
 			t.Errorf("activeKey = %q, want \"\" when no caches", activeKey)
@@ -536,7 +633,10 @@ func TestResolveCaches(t *testing.T) {
 
 	t.Run("no_caches_no_mount_paths", func(t *testing.T) {
 		t.Parallel()
-		active, dirs, activeKey := resolveCaches(nil, "/home/user", nil)
+		active, dirs, activeKey, err := resolveCaches(nil, "/home/user", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(active) != 0 {
 			t.Errorf("active = %v, want empty", active)
 		}
@@ -571,7 +671,10 @@ func TestResolveCaches(t *testing.T) {
 			ContainerPath: "/home/user/.android",
 			Shallow:       true,
 		}}
-		active, _, activeKey := resolveCaches(caches, "/home/user", nil)
+		active, _, activeKey, err := resolveCaches(caches, "/home/user", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		if len(active) != 1 {
 			t.Fatalf("active = %d, want 1", len(active))
@@ -605,7 +708,10 @@ func TestResolveCaches(t *testing.T) {
 			ContainerPath: "/home/user/.android",
 			Shallow:       true,
 		}}
-		active, _, _ := resolveCaches(caches, "/home/user", nil)
+		active, _, _, err := resolveCaches(caches, "/home/user", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(active) != 0 {
 			t.Errorf("active = %d, want 0 (no top-level files)", len(active))
 		}
@@ -618,7 +724,10 @@ func TestResolveCaches(t *testing.T) {
 			HostPath:      "/nonexistent/path",
 			ContainerPath: "/home/user/.cache/missing",
 		}}
-		_, _, activeKey := resolveCaches(requested, "/home/user", nil)
+		_, _, activeKey, err := resolveCaches(requested, "/home/user", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		requestedKey := cacheSpecKey(requested)
 		if activeKey == requestedKey {
 			t.Errorf("activeKey %q should differ from requestedKey %q when host dir is missing", activeKey, requestedKey)
@@ -638,7 +747,10 @@ func TestResolveCaches(t *testing.T) {
 			ContainerPath: "/home/user/.cache/tool",
 		}}
 
-		_, _, activeKey := resolveCaches(caches, home, nil)
+		_, _, activeKey, err := resolveCaches(caches, home, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		resolved := caches[0]
 		resolved.HostPath = filepath.ToSlash(hostPath)
 		if want := cacheSpecKey([]CacheMount{resolved}); activeKey != want {

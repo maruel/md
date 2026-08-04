@@ -1624,7 +1624,7 @@ func ResolveMountTarget(hostPath, containerPath string) (string, error) {
 		return "", errors.New("host path is required")
 	}
 	hostSuffix, homeRelative := homePathSuffix(hostPath, true)
-	if !filepath.IsAbs(hostPath) && !homeRelative {
+	if !filepath.IsAbs(hostPath) && !path.IsAbs(hostPath) && !homeRelative {
 		return "", errors.New("host path must be absolute or home-relative")
 	}
 	if homeRelative && escapesHome(filepath.ToSlash(filepath.Clean(hostSuffix))) {

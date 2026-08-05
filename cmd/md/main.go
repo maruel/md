@@ -607,9 +607,9 @@ func printContainerSummary(ctx context.Context, ct *md.Container, r *md.StartRes
 			r := &ct.Repos[i]
 			if len(r.Branches) > 1 {
 				hasExtraBranches = true
-				fmt.Printf("  > Repo %s on branch '%s' (+%s)\n", filepath.Base(r.MountedPath), r.Branches[0], strings.Join(r.Branches[1:], ", "))
+				fmt.Printf("  > Repo %s on branch '%s' (+%s)\n", filepath.Base(r.ContainerPath), r.Branches[0], strings.Join(r.Branches[1:], ", "))
 			} else {
-				fmt.Printf("  > Repo %s on branch '%s'\n", filepath.Base(r.MountedPath), r.Branches[0])
+				fmt.Printf("  > Repo %s on branch '%s'\n", filepath.Base(r.ContainerPath), r.Branches[0])
 			}
 		}
 		fmt.Println("  > Host state is mapped to the branch upstream")
@@ -746,7 +746,7 @@ func runTemporaryContainer(ctx context.Context, c *md.Container, stdout, stderr 
 	if applyPatch {
 		for i := range tmp.Repos {
 			if pullErr := tmp.Pull(ctx, stdout, stderr, i, nil); pullErr != nil {
-				err = errors.Join(err, fmt.Errorf("applying patch for %s: %w", tmp.Repos[i].MountedPath, pullErr))
+				err = errors.Join(err, fmt.Errorf("applying patch for %s: %w", tmp.Repos[i].ContainerPath, pullErr))
 				if exitCode == 0 {
 					exitCode = 1
 				}
@@ -771,7 +771,7 @@ func newRunContainer(c *md.Container) (*md.Container, error) {
 	repos := slices.Clone(c.Repos)
 	name := "md-run-" + hex.EncodeToString(suffix[:])
 	if len(c.Repos) > 0 {
-		repoName := runContainerNameComponent(filepath.Base(c.Repos[0].MountedPath))
+		repoName := runContainerNameComponent(filepath.Base(c.Repos[0].ContainerPath))
 		name = "md-" + repoName + "-run-" + hex.EncodeToString(suffix[:])
 	}
 	return &md.Container{
@@ -785,7 +785,7 @@ func newRunContainer(c *md.Container) (*md.Container, error) {
 func runTemporaryCommand(ctx context.Context, c *md.Container, stdout, stderr io.Writer, command []string) (int, error) {
 	sshCommand := shellQuoteArgs(command)
 	if len(c.Repos) > 0 {
-		sshCommand = "cd " + shellQuote(c.Repos[0].MountedPath) + " && " + sshCommand
+		sshCommand = "cd " + shellQuote(c.Repos[0].ContainerPath) + " && " + sshCommand
 	}
 	sshArgs := c.SSHCommand(nil, sshCommand)
 	c.Logger.DebugContext(ctx, "ssh", "cmd", sshArgs)
@@ -954,7 +954,7 @@ func (a *app) cmdList(ctx context.Context, args []string) error {
 		var parts []string
 		for i := range ct.Repos {
 			r := &ct.Repos[i]
-			parts = append(parts, filepath.Base(r.MountedPath)+":"+strings.Join(r.Branches, ","))
+			parts = append(parts, filepath.Base(r.ContainerPath)+":"+strings.Join(r.Branches, ","))
 		}
 		rows[i].repos = strings.Join(parts, ", ")
 		repoWidth = max(repoWidth, len(rows[i].repos))
@@ -1104,7 +1104,7 @@ func (a *app) cmdPush(ctx context.Context, args []string) error {
 	}
 	var mu sync.Mutex
 	printBackup := func(i int, backup string) {
-		repoName := filepath.Base(ct.Repos[i].MountedPath)
+		repoName := filepath.Base(ct.Repos[i].ContainerPath)
 		mu.Lock()
 		fmt.Printf("- %s: previous state saved as git branch: %s\n", repoName, backup)
 		mu.Unlock()
@@ -1355,7 +1355,7 @@ func (a *app) cmdFork(ctx context.Context, args []string) error {
 		forkRepos = append(forkRepos, md.ForkRepo{
 			GitRoot:        r.GitRoot,
 			SourceBranches: r.Branches,
-			MountedPath:    r.MountedPath,
+			ContainerPath:  r.ContainerPath,
 			TagRegexp:      r.TagRegexp,
 			DestPrimary:    dest,
 		})

@@ -180,15 +180,15 @@ func (c *Client) Close() error {
 }
 
 // Container returns a Container handle for the given repos.
-// It populates MountedPath on each repo from GitRoot if not already set
+// It populates ContainerPath on each repo from GitRoot if not already set
 // (repos is mutated in place). The first repo is the primary. When called
 // with no repos, the container has no associated git repository and a
 // random name is generated automatically.
 // It doesn't start it, it is just a reference.
 func (c *Client) Container(repos ...Repo) (*Container, error) {
-	// Set MountedPath from GitRoot (base name), disambiguating repos
+	// Set ContainerPath from GitRoot (base name), disambiguating repos
 	// with the same basename using relative paths.
-	if err := resolveMountPaths(repos); err != nil {
+	if err := resolveContainerPaths(repos); err != nil {
 		return nil, err
 	}
 	for i := range repos {
@@ -206,7 +206,7 @@ func (c *Client) Container(repos ...Repo) (*Container, error) {
 			Name:   name,
 		}, nil
 	}
-	name := containerName(sanitizeDockerName(filepath.Base(repos[0].MountedPath)), repos[0].Branches[0])
+	name := containerName(sanitizeDockerName(filepath.Base(repos[0].ContainerPath)), repos[0].Branches[0])
 	return &Container{
 		Client: c,
 		Logger: c.Logger.With(slog.String("cntr", name)),

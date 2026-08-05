@@ -682,20 +682,20 @@ func TestSmoke(t *testing.T) {
 
 			t.Run("repo_workflow", func(t *testing.T) {
 				repo := createSmokeGitRepo(t, "main", "main", false)
-				mountedPath := "/home/user/src/smoke-" + rt + "-repo"
+				cp := "/home/user/src/smoke-" + rt + "-repo"
 				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, &Repo{
-					GitRoot:     repo,
-					Branches:    []string{"main"},
-					MountedPath: mountedPath,
+					GitRoot:       repo,
+					Branches:      []string{"main"},
+					ContainerPath: cp,
 				})
 
 				t.Run("origin_refs", func(t *testing.T) {
 					mainCommit := runSmokeGit(t, t.Context(), repo, "rev-parse", "refs/remotes/origin/main")
-					assertSmokeContainerGitRef(t, ct, mountedPath, "refs/remotes/origin/main", mainCommit)
-					assertSmokeContainerGitRefMissing(t, ct, mountedPath, "refs/remotes/host/main")
-					assertSmokeContainerGitRefMissing(t, ct, mountedPath, "base")
-					assertSmokeContainerGitRefMissing(t, ct, mountedPath, "refs/remotes/origin/HEAD")
-					assertSmokeContainerGitRefMissing(t, ct, mountedPath, "refs/remotes/host/HEAD")
+					assertSmokeContainerGitRef(t, ct, cp, "refs/remotes/origin/main", mainCommit)
+					assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/host/main")
+					assertSmokeContainerGitRefMissing(t, ct, cp, "base")
+					assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/origin/HEAD")
+					assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/host/HEAD")
 				})
 
 				t.Run("push_pull", func(t *testing.T) {
@@ -711,16 +711,16 @@ func TestSmoke(t *testing.T) {
 					if !strings.HasPrefix(backupBranch, "backup-") {
 						t.Fatalf("backup branch = %q, want backup-*", backupBranch)
 					}
-					out, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, "cat "+shellQuote(mountedPath+"/README.md")))
+					out, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, "cat "+shellQuote(cp+"/README.md")))
 					if err != nil {
 						t.Fatalf("read pushed README.md: %v", err)
 					}
 					if got := strings.TrimSpace(out); got != "local-push" {
 						t.Fatalf("container README.md = %q, want local-push", got)
 					}
-					assertSmokeContainerNoDiff(t, ct, mountedPath)
+					assertSmokeContainerNoDiff(t, ct, cp)
 
-					if _, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, "printf 'container-pull\n' > "+shellQuote(mountedPath+"/README.md"))); err != nil {
+					if _, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, "printf 'container-pull\n' > "+shellQuote(cp+"/README.md"))); err != nil {
 						t.Fatalf("write container README.md: %v", err)
 					}
 					if err := ct.Pull(t.Context(), io.Discard, io.Discard, 0, nil); err != nil {
@@ -736,11 +736,11 @@ func TestSmoke(t *testing.T) {
 					if got := runSmokeGit(t, t.Context(), repo, "status", "--short"); got != "" {
 						t.Fatalf("local repo is dirty after Pull:\n%s", got)
 					}
-					assertSmokeContainerNoDiff(t, ct, mountedPath)
+					assertSmokeContainerNoDiff(t, ct, cp)
 				})
 
 				t.Run("fork", func(t *testing.T) {
-					staleForkName := containerName(sanitizeDockerName(filepath.Base(mountedPath)), "main-0")
+					staleForkName := containerName(sanitizeDockerName(filepath.Base(cp)), "main-0")
 					removeSmokeContainerIfPresent(t, t.Context(), client, staleForkName)
 					removeSmokeImageIfPresent(t, t.Context(), client, "md-fork-"+ct.Name)
 					t.Cleanup(func() {
@@ -750,7 +750,7 @@ func TestSmoke(t *testing.T) {
 					})
 
 					prepareForkCmd := "printf snapshot > /tmp/fork-marker" +
-						" && printf 'fork-uncommitted\n' > " + shellQuote(mountedPath+"/README.md")
+						" && printf 'fork-uncommitted\n' > " + shellQuote(cp+"/README.md")
 					if _, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, prepareForkCmd)); err != nil {
 						t.Fatalf("prepare source for Fork: %v", err)
 					}
@@ -772,13 +772,13 @@ func TestSmoke(t *testing.T) {
 						t.Fatalf("AgentMounts: %v", err)
 					}
 					// Add a brand-new repo (not in the source container) at an explicit
-					// container path to exercise ForkRepo.MountedPath.
+					// container path to exercise ForkRepo.ContainerPath.
 					extraRepo := createSmokeGitRepo(t, "main", "main", false)
 					extraMountedPath := "/home/user/src/smoke-" + rt + "-fork-extra"
 					fork, err := ct.Fork(t.Context(), &forkStdout, &forkStderr, &ForkOpts{
 						Repos: []ForkRepo{
 							{GitRoot: repo, SourceBranches: ct.Repos[0].Branches, DestPrimary: "main-0"},
-							{GitRoot: extraRepo, SourceBranches: []string{"main"}, MountedPath: extraMountedPath, DestPrimary: "extra-0"},
+							{GitRoot: extraRepo, SourceBranches: []string{"main"}, ContainerPath: extraMountedPath, DestPrimary: "extra-0"},
 						},
 						Quiet:   true,
 						Mounts:  mounts,
@@ -831,13 +831,13 @@ func TestSmoke(t *testing.T) {
 					if fork.Repos[0].Branches[0] != "main-0" {
 						t.Fatalf("fork branch = %q, want main-0", fork.Repos[0].Branches[0])
 					}
-					if fork.Repos[1].MountedPath != extraMountedPath {
-						t.Fatalf("fork extra repo mount = %q, want %q", fork.Repos[1].MountedPath, extraMountedPath)
+					if fork.Repos[1].ContainerPath != extraMountedPath {
+						t.Fatalf("fork extra repo path = %q, want %q", fork.Repos[1].ContainerPath, extraMountedPath)
 					}
 					if got := runSmokeGit(t, t.Context(), repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "main-0@{upstream}"); got != "origin/main" {
 						t.Fatalf("host fork upstream = %q, want origin/main", got)
 					}
-					out, err := fork.runCmd(t.Context(), "", fork.SSHCommand(nil, "cat /tmp/fork-marker && printf '\n' && git -C "+shellQuote(mountedPath)+" branch --show-current && git -C "+shellQuote(mountedPath)+" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' && cat "+shellQuote(mountedPath+"/README.md")))
+					out, err := fork.runCmd(t.Context(), "", fork.SSHCommand(nil, "cat /tmp/fork-marker && printf '\n' && git -C "+shellQuote(cp)+" branch --show-current && git -C "+shellQuote(cp)+" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' && cat "+shellQuote(cp+"/README.md")))
 					if err != nil {
 						t.Fatalf("inspect fork: %v", err)
 					}
@@ -846,7 +846,7 @@ func TestSmoke(t *testing.T) {
 							t.Fatalf("fork output missing %q:\n%s", want, out)
 						}
 					}
-					// The extra repo was initialized at its explicit MountedPath, on its
+					// The extra repo was initialized at its explicit ContainerPath, on its
 					// own branch, with the pushed content.
 					extraOut, err := fork.runCmd(t.Context(), "", fork.SSHCommand(nil, "git -C "+shellQuote(extraMountedPath)+" branch --show-current && cat "+shellQuote(extraMountedPath+"/README.md")))
 					if err != nil {
@@ -885,15 +885,15 @@ func TestSmoke(t *testing.T) {
 
 			t.Run("diff_rebase_in_progress", func(t *testing.T) {
 				repo := createSmokeGitRepo(t, "main", "main", false)
-				mountedPath := "/home/user/src/smoke-" + rt + "-rebase"
+				cp := "/home/user/src/smoke-" + rt + "-rebase"
 				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, &Repo{
-					GitRoot:     repo,
-					Branches:    []string{"main"},
-					MountedPath: mountedPath,
+					GitRoot:       repo,
+					Branches:      []string{"main"},
+					ContainerPath: cp,
 				})
 
 				prepareRebaseCmd := strings.Join([]string{
-					"cd " + shellQuote(mountedPath),
+					"cd " + shellQuote(cp),
 					"git config user.name 'Smoke Test'",
 					"git config user.email smoke@example.invalid",
 					"git checkout -q -b rebase-target",
@@ -922,28 +922,28 @@ func TestSmoke(t *testing.T) {
 
 			t.Run("repo_remote_refs_non_default_base_branch", func(t *testing.T) {
 				repo := createSmokeGitRepoWithRemote(t, "upstream", "release", "feature", true)
-				mountedPath := "/home/user/src/smoke-" + rt + "-non-default-base"
+				cp := "/home/user/src/smoke-" + rt + "-non-default-base"
 				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, &Repo{
-					GitRoot:     repo,
-					Branches:    []string{"feature"},
-					MountedPath: mountedPath,
+					GitRoot:       repo,
+					Branches:      []string{"feature"},
+					ContainerPath: cp,
 				})
 
 				releaseCommit := runSmokeGit(t, t.Context(), repo, "rev-parse", "refs/remotes/upstream/release")
 				upstreamFeatureCommit := runSmokeGit(t, t.Context(), repo, "rev-parse", "refs/remotes/upstream/feature")
 				localFeatureCommit := runSmokeGit(t, t.Context(), repo, "rev-parse", "feature")
-				assertSmokeContainerGitRef(t, ct, mountedPath, "refs/remotes/upstream/release", releaseCommit)
-				assertSmokeContainerGitRef(t, ct, mountedPath, "refs/remotes/upstream/feature", upstreamFeatureCommit)
-				assertSmokeContainerGitRefMissing(t, ct, mountedPath, "refs/remotes/host/release")
-				assertSmokeContainerGitRef(t, ct, mountedPath, "refs/remotes/host/feature", localFeatureCommit)
-				assertSmokeContainerGitRef(t, ct, mountedPath, "feature", localFeatureCommit)
-				assertSmokeContainerGitRefMissing(t, ct, mountedPath, "base")
+				assertSmokeContainerGitRef(t, ct, cp, "refs/remotes/upstream/release", releaseCommit)
+				assertSmokeContainerGitRef(t, ct, cp, "refs/remotes/upstream/feature", upstreamFeatureCommit)
+				assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/host/release")
+				assertSmokeContainerGitRef(t, ct, cp, "refs/remotes/host/feature", localFeatureCommit)
+				assertSmokeContainerGitRef(t, ct, cp, "feature", localFeatureCommit)
+				assertSmokeContainerGitRefMissing(t, ct, cp, "base")
 				if upstreamFeatureCommit == localFeatureCommit {
 					t.Fatal("test setup error: upstream feature equals local feature; expected an unpushed commit")
 				}
-				assertSmokeContainerGitRefMissing(t, ct, mountedPath, "refs/remotes/upstream/HEAD")
-				assertSmokeContainerGitRefMissing(t, ct, mountedPath, "refs/remotes/origin/release")
-				assertSmokeContainerGitRefMissing(t, ct, mountedPath, "refs/remotes/host/HEAD")
+				assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/upstream/HEAD")
+				assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/origin/release")
+				assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/host/HEAD")
 			})
 
 			if rootlessRuntime {

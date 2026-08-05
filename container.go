@@ -154,13 +154,13 @@ type Repo struct {
 	// used for container naming). Branches[1:] are also available as
 	// local branches in the container, tracked from the fake "host" remote.
 	Branches []string `json:"branches"`
-	// MountedPath is the absolute destination path inside the
+	// ContainerPath is the absolute destination path inside the
 	// container, e.g. "/home/user/src/github/caic". When empty,
-	// populateMountPath fills it from filepath.Base(GitRoot).
-	// When two repos share the same basename, resolveMountPaths
+	// populateContainerPath fills it from filepath.Base(GitRoot).
+	// When two repos share the same basename, resolveContainerPaths
 	// disambiguates using relative paths from /home/user/src.
 	// Callers may set it explicitly to override.
-	MountedPath string `json:"mounted_path,omitempty"`
+	ContainerPath string `json:"container_path,omitempty"`
 	// Remotes lists the host remotes whose cached branches are mirrored into the container.
 	Remotes []string `json:"remotes,omitempty"`
 	// TagRegexp selects host tags to mirror into the container. Empty selects no tags.
@@ -197,8 +197,8 @@ func (r *Repo) UnmarshalJSON(data []byte) error {
 
 // Validate returns an error for invalid repo fields.
 func (r *Repo) Validate() error {
-	r.populateMountPath()
-	r.MountedPath = ResolveContainerPath(r.MountedPath)
+	r.populateContainerPath()
+	r.ContainerPath = ResolveContainerPath(r.ContainerPath)
 	if r.GitRoot == "" {
 		return errors.New("Repo.GitRoot is empty")
 	}
@@ -235,11 +235,11 @@ func (r *Repo) Validate() error {
 			return fmt.Errorf("Repo.Branches contains duplicate branch %q", branch)
 		}
 	}
-	if r.MountedPath == "" {
-		return errors.New("Repo.MountedPath could not be determined from GitRoot")
+	if r.ContainerPath == "" {
+		return errors.New("Repo.ContainerPath could not be determined from GitRoot")
 	}
-	if !path.IsAbs(r.MountedPath) {
-		return fmt.Errorf("Repo.MountedPath must be an absolute POSIX path, got %q", r.MountedPath)
+	if !path.IsAbs(r.ContainerPath) {
+		return fmt.Errorf("Repo.ContainerPath must be an absolute POSIX path, got %q", r.ContainerPath)
 	}
 	return nil
 }
@@ -274,7 +274,7 @@ func (r *Repo) isMDTransportRemote(ctx context.Context, g *git.Checkout, remote 
 		return false
 	}
 	remoteURL, err := g.RunGit(ctx, "remote", "get-url", remote)
-	return err == nil && remoteURL == "user@"+remote+":"+r.MountedPath
+	return err == nil && remoteURL == "user@"+remote+":"+r.ContainerPath
 }
 
 // resolveDefaults populates Remotes, DefaultRemote, and DefaultBranch if not already set.
@@ -341,10 +341,10 @@ func (r *Repo) resolveDefaults(ctx context.Context, logger *slog.Logger) error {
 	return nil
 }
 
-// populateMountPath sets MountedPath from GitRoot if not already set.
-func (r *Repo) populateMountPath() {
-	if r.MountedPath == "" {
-		r.MountedPath = "/home/user/src/" + strings.TrimSuffix(filepath.Base(r.GitRoot), ".git")
+// populateContainerPath sets ContainerPath from GitRoot if not already set.
+func (r *Repo) populateContainerPath() {
+	if r.ContainerPath == "" {
+		r.ContainerPath = "/home/user/src/" + strings.TrimSuffix(filepath.Base(r.GitRoot), ".git")
 	}
 }
 
@@ -669,11 +669,11 @@ type ForkRepo struct {
 	// (Fork validates this). For a new repo it is the host branches to push; if
 	// empty, it defaults to the repo's default upstream branch.
 	SourceBranches []string
-	// MountedPath is the absolute container path to mount a new repo at. It is
+	// ContainerPath is the absolute container path to mount a new repo at. It is
 	// used only for repos not already in the source container (existing repos
 	// keep the snapshot's mount path). When empty, it defaults to
 	// /home/user/src/<basename>.
-	MountedPath string
+	ContainerPath string
 	// TagRegexp selects tags for a new repo. Existing source repos retain their
 	// persisted tag selection.
 	TagRegexp string
@@ -772,7 +772,7 @@ type Container struct {
 	// Logger receives logs for this container. It includes the cntr attribute.
 	Logger *slog.Logger
 	// Repos are the git repositories in this container. Repos[0] is the
-	// primary; the rest are pushed alongside it. Each repo's MountedPath
+	// primary; the rest are pushed alongside it. Each repo's ContainerPath
 	// gives the absolute destination path.
 	// Label: md.repos (base64-encoded JSON)
 	Repos []Repo
@@ -862,28 +862,27 @@ func (c *Container) Signal(ctx context.Context, pid int, sig string) error {
 	return nil
 }
 
-// resolveMountPaths sets MountedPath for any repo that doesn't have one,
+// resolveContainerPaths sets ContainerPath for any repo that doesn't have one,
 // using filepath.Base(GitRoot) by default. When any two repos share the
 // same basename, all auto-populated repos switch to paths relative to the
 // common parent directory of their GitRoots.
-func resolveMountPaths(repos []Repo) error {
-	// Track which repos were auto-populated (no explicit MountedPath).
+func resolveContainerPaths(repos []Repo) error {
+	// Track which repos were auto-populated (no explicit ContainerPath).
 	auto := make([]bool, len(repos))
 	for i := range repos {
-		auto[i] = repos[i].MountedPath == ""
-		repos[i].populateMountPath()
+		auto[i] = repos[i].ContainerPath == ""
+		repos[i].populateContainerPath()
 	}
 
 	// Detect basename conflicts.
 	seen := make(map[string]struct{}, len(repos))
 	hasConflict := false
 	for i := range repos {
-		mountedPath := repos[i].MountedPath
-		if _, dup := seen[mountedPath]; dup {
+		if _, dup := seen[repos[i].ContainerPath]; dup {
 			hasConflict = true
 			break
 		}
-		seen[mountedPath] = struct{}{}
+		seen[repos[i].ContainerPath] = struct{}{}
 	}
 	if !hasConflict {
 		return nil
@@ -906,17 +905,16 @@ func resolveMountPaths(repos []Repo) error {
 		if err != nil {
 			return fmt.Errorf("repos[%d]: cannot compute relative path from %q: %w", i, base, err)
 		}
-		repos[i].MountedPath = "/home/user/src/" + filepath.ToSlash(rel)
+		repos[i].ContainerPath = "/home/user/src/" + filepath.ToSlash(rel)
 	}
 
 	// Final validation: check for remaining duplicate mount paths.
 	final := make(map[string]int, len(repos))
 	for i := range repos {
-		mountedPath := repos[i].MountedPath
-		if j, dup := final[mountedPath]; dup {
-			return fmt.Errorf("repos[%d] and repos[%d] both mount as %q; set MountedPath to disambiguate", j, i, mountedPath)
+		if j, dup := final[repos[i].ContainerPath]; dup {
+			return fmt.Errorf("repos[%d] and repos[%d] both mount as %q; set ContainerPath to disambiguate", j, i, repos[i].ContainerPath)
 		}
-		final[mountedPath] = i
+		final[repos[i].ContainerPath] = i
 	}
 	return nil
 }
@@ -961,17 +959,17 @@ func commonPrefix(a, b string) string {
 func (c *Container) Launch(ctx context.Context, stdout, stderr io.Writer, opts *StartOpts) (retErr error) {
 	// Resolve mount paths, disambiguating repos with the same basename
 	// using relative paths. After this, all MountedPaths are unique.
-	if err := resolveMountPaths(c.Repos); err != nil {
+	if err := resolveContainerPaths(c.Repos); err != nil {
 		return err
 	}
 	for i := range c.Repos {
 		if len(c.Repos[i].Remotes) == 0 {
 			if err := c.Repos[i].resolveRemotes(ctx, c.Logger, ""); err != nil {
-				return fmt.Errorf("resolve remotes for %s: %w", c.Repos[i].MountedPath, err)
+				return fmt.Errorf("resolve remotes for %s: %w", c.Repos[i].ContainerPath, err)
 			}
 		}
 		if err := c.Repos[i].resolveDefaults(ctx, c.Logger); err != nil {
-			return fmt.Errorf("resolve defaults for %s: %w", c.Repos[i].MountedPath, err)
+			return fmt.Errorf("resolve defaults for %s: %w", c.Repos[i].ContainerPath, err)
 		}
 	}
 
@@ -1034,7 +1032,7 @@ func (c *Container) Revive(ctx context.Context, stdout, stderr io.Writer) error 
 	// pointing elsewhere indicates a name collision — fail early.
 	for i := range c.Repos {
 		r := &c.Repos[i]
-		rPath := r.MountedPath
+		rPath := r.ContainerPath
 		wantURL := "user@" + c.Name + ":" + rPath
 		got, err := c.runCmd(ctx, r.GitRoot, []string{"git", "remote", "get-url", c.Name})
 		if err == nil {
@@ -1214,7 +1212,7 @@ func (c *Container) Push(ctx context.Context, stdout, stderr io.Writer, repoIdx 
 	}
 	r := &c.Repos[repoIdx]
 	g := &git.Checkout{Root: r.GitRoot, Logger: c.Logger}
-	mp := shellQuote(r.MountedPath)
+	mp := shellQuote(r.ContainerPath)
 	backupBranch := "backup-" + time.Now().Format("20060102-150405")
 	// Do the dirty check, optional commit, and backup branch creation in one
 	// remote shell so every step observes the same index and HEAD.
@@ -1270,7 +1268,7 @@ func (c *Container) Fetch(ctx context.Context, stdout, stderr io.Writer, repoIdx
 	}
 	r := &c.Repos[repoIdx]
 	g := &git.Checkout{Root: r.GitRoot, Logger: c.Logger}
-	mp := shellQuote(r.MountedPath)
+	mp := shellQuote(r.ContainerPath)
 	if err := c.SyncDefaultBranch(ctx, repoIdx); err != nil {
 		return err
 	}
@@ -1373,7 +1371,7 @@ func (c *Container) Diff(ctx context.Context, stdout, stderr io.Writer, repoIdx 
 		isTTY = true
 	}
 	exitOnDiff := slices.Contains(extraArgs, "--exit-code") || slices.Contains(extraArgs, "--quiet")
-	sshArgs := c.SSHCommand(opts, gitDiffCommand(repo.MountedPath, repo.Branches[0], repo.DefaultRemote, repo.DefaultBranch, extraArgs, exitOnDiff))
+	sshArgs := c.SSHCommand(opts, gitDiffCommand(repo.ContainerPath, repo.Branches[0], repo.DefaultRemote, repo.DefaultBranch, extraArgs, exitOnDiff))
 	c.Logger.Log(ctx, slog.LevelDebug, "ssh", "cmd", sshArgs)
 	cmd := exec.CommandContext(ctx, sshArgs[0]) //nolint:gosec // args are from trusted SSH config
 	cmd.Env = c.commandEnv()
@@ -1476,13 +1474,13 @@ func planFork(ctx context.Context, logger *slog.Logger, excludedRemote string, s
 			continue
 		}
 		r := Repo{
-			GitRoot:     fr.GitRoot,
-			Branches:    slices.Clone(fr.SourceBranches),
-			MountedPath: fr.MountedPath,
-			TagRegexp:   fr.TagRegexp,
+			GitRoot:       fr.GitRoot,
+			Branches:      slices.Clone(fr.SourceBranches),
+			ContainerPath: fr.ContainerPath,
+			TagRegexp:     fr.TagRegexp,
 		}
-		r.populateMountPath()
-		r.MountedPath = ResolveContainerPath(r.MountedPath)
+		r.populateContainerPath()
+		r.ContainerPath = ResolveContainerPath(r.ContainerPath)
 		if err := r.resolveRemotes(ctx, logger, excludedRemote); err != nil {
 			return nil, fmt.Errorf("resolving remotes for extra repo %s: %w", r.GitRoot, err)
 		}
@@ -1642,12 +1640,12 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 	for i := range c.Repos {
 		r := &c.Repos[i]
 		if err := c.runCmdOut(ctx, r.GitRoot, append([]string{"git", "fetch", "-q", fork.Name}, r.Branches...), stdout, stderr); err != nil {
-			return nil, fmt.Errorf("fetching %s from forked container: %w", r.MountedPath, err)
+			return nil, fmt.Errorf("fetching %s from forked container: %w", r.ContainerPath, err)
 		}
 		fetchedRef := fork.Name + "/" + r.Branches[0]
 		newBranch := fork.Repos[i].Branches[0]
 		if err := r.createForkHostBranch(ctx, c.Logger, r.Branches[0], newBranch, fetchedRef); err != nil {
-			return nil, fmt.Errorf("creating host branch for %s: %w", r.MountedPath, err)
+			return nil, fmt.Errorf("creating host branch for %s: %w", r.ContainerPath, err)
 		}
 	}
 
@@ -1703,9 +1701,9 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		newPrimary := fork.Repos[i].Branches[0]
 		// The snapshot already has the source branch's upstream configuration.
 		// Renaming the branch preserves it, including its original diff base.
-		setup := "cd " + shellQuote(r.MountedPath) + " && " + forkPrimaryBranchSetupCommand(oldPrimary, newPrimary)
+		setup := "cd " + shellQuote(r.ContainerPath) + " && " + forkPrimaryBranchSetupCommand(oldPrimary, newPrimary)
 		if err := c.runCmdOut(ctx, "", fork.SSHCommand(nil, setup), stdout, stderr); err != nil {
-			return nil, fmt.Errorf("renaming branch for %s: %w", r.MountedPath, err)
+			return nil, fmt.Errorf("renaming branch for %s: %w", r.ContainerPath, err)
 		}
 		if err := c.runCmdOut(ctx, fork.Repos[i].GitRoot, []string{"git", "fetch", "-q", fork.Name, newPrimary}, stdout, stderr); err != nil {
 			return nil, fmt.Errorf("fetching %s from fork: %w", newPrimary, err)
@@ -1717,10 +1715,10 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 	for i := range extraRepos {
 		src := &extraRepos[i]
 		dst := &forkRepos[nSrc+i]
-		mp := shellQuote(src.MountedPath)
+		mp := shellQuote(src.ContainerPath)
 
 		if err := c.runCmdOut(ctx, "", fork.SSHCommand(nil, "git init -q "+mp+" && git -C "+mp+" remote add host /dev/null"), stdout, stderr); err != nil {
-			return nil, fmt.Errorf("init extra repo %s in container: %w", src.MountedPath, err)
+			return nil, fmt.Errorf("init extra repo %s in container: %w", src.ContainerPath, err)
 		}
 		refspecs := make([]string, len(src.Branches))
 		bases := make([]containerBranchBase, len(dst.Branches))
@@ -1734,14 +1732,14 @@ func (c *Container) Fork(ctx context.Context, stdout, stderr io.Writer, opts *Fo
 		}
 		syncRefspecs, err := src.containerSyncRefspecs(ctx, c.Logger)
 		if err != nil {
-			return nil, fmt.Errorf("sync extra repo %s remote branches: %w", src.MountedPath, err)
+			return nil, fmt.Errorf("sync extra repo %s remote branches: %w", src.ContainerPath, err)
 		}
 		refspecs = appendUniqueRefspecs(refspecs, syncRefspecs...)
 		if err := c.pushRefspecs(ctx, src.GitRoot, fork.Name, refspecs, true, stdout, stderr); err != nil {
-			return nil, fmt.Errorf("push extra repo %s: %w", src.MountedPath, err)
+			return nil, fmt.Errorf("push extra repo %s: %w", src.ContainerPath, err)
 		}
 		if err := fork.configureContainerRemotes(ctx, stdout, stderr, nSrc+i, true, containerBranchSetupCommands(bases)...); err != nil {
-			return nil, fmt.Errorf("setting up extra repo %s: %w", src.MountedPath, err)
+			return nil, fmt.Errorf("setting up extra repo %s: %w", src.ContainerPath, err)
 		}
 	}
 
@@ -1947,8 +1945,8 @@ func (c *Container) loadMDLabels(ctx context.Context, labels map[string]string) 
 func (c *Container) migrateRepoRemotes(ctx context.Context) {
 	for i := range c.Repos {
 		r := &c.Repos[i]
-		r.populateMountPath()
-		r.MountedPath = ResolveContainerPath(r.MountedPath)
+		r.populateContainerPath()
+		r.ContainerPath = ResolveContainerPath(r.ContainerPath)
 		if len(r.Remotes) == 0 {
 			if err := r.resolveRemotes(ctx, c.Logger, c.Name); err != nil {
 				c.Logger.WarnContext(ctx, "failed to migrate repo remotes", "repo", r.GitRoot, "err", err)
@@ -1972,13 +1970,13 @@ func (c *Container) configureContainerRemotes(ctx context.Context, stdout, stder
 	commands := containerRemoteConfigCommands(r, configs, includeHost)
 	commands = append(commands, postCommands...)
 	if err := c.runCmdOut(ctx, "", c.SSHCommand(nil, strings.Join(commands, " && ")), stdout, stderr); err != nil {
-		return fmt.Errorf("configuring remotes for %s: %w", r.MountedPath, err)
+		return fmt.Errorf("configuring remotes for %s: %w", r.ContainerPath, err)
 	}
 	return nil
 }
 
 func containerRemoteConfigCommands(r *Repo, configs []containerRemoteConfig, includeHost bool) []string {
-	commands := []string{"cd " + shellQuote(r.MountedPath)}
+	commands := []string{"cd " + shellQuote(r.ContainerPath)}
 	if includeHost {
 		commands = append(commands, hostRemoteSetupCommand)
 	}
@@ -2292,7 +2290,7 @@ func (c *Container) waitForSSH(ctx context.Context, deadline time.Time) error {
 // gatherGitMetadata runs SSH commands to collect branch, stat, and log from
 // the container. This data is always small.
 func (c *Container) gatherGitMetadata(ctx context.Context, r *Repo) string {
-	repo := shellQuote(r.MountedPath)
+	repo := shellQuote(r.ContainerPath)
 	cmd := "cd " + repo + " && " + gitBaseRefCommand() + " && echo '=== Branch ===' && git rev-parse --abbrev-ref HEAD && echo && echo '=== Files Changed ===' && git diff --stat --cached \"$diff_base_ref\" -- . && echo && echo '=== Recent Commits ===' && git log -5 \"$base_ref\" -- ."
 	out, _ := c.runCmd(ctx, "", c.SSHCommand(nil, cmd))
 	return out
@@ -2300,7 +2298,7 @@ func (c *Container) gatherGitMetadata(ctx context.Context, r *Repo) string {
 
 // gatherGitDiff runs SSH to get the full patience diff from the container.
 func (c *Container) gatherGitDiff(ctx context.Context, r *Repo) string {
-	repo := shellQuote(r.MountedPath)
+	repo := shellQuote(r.ContainerPath)
 	cmd := "cd " + repo + " && " + gitBaseRefCommand() + " && git diff --patience -U10 --cached \"$diff_base_ref\" -- ."
 	out, _ := c.runCmd(ctx, "", c.SSHCommand(nil, cmd))
 	return out
@@ -2834,7 +2832,7 @@ func (c *Container) launchContainer(ctx context.Context, stdout, stderr io.Write
 	if len(c.Repos) > 0 {
 		for i := range c.Repos {
 			r := &c.Repos[i]
-			rPath := r.MountedPath
+			rPath := r.ContainerPath
 			_, _ = c.runCmd(ctx, r.GitRoot, []string{"git", "remote", "rm", c.Name})
 			if err := c.runCmdOut(ctx, r.GitRoot, []string{"git", "remote", "add", c.Name, "user@" + c.Name + ":" + rPath}, stdout, stderr); err != nil {
 				return fmt.Errorf("adding git remote for %s: %w", rPath, err)
@@ -2941,29 +2939,29 @@ func (c *Container) provisionContainer(ctx context.Context, stdout, stderr io.Wr
 		for repoIdx := range c.Repos {
 			eg.Go(func() error {
 				r := &c.Repos[repoIdx]
-				mp := shellQuote(r.MountedPath)
+				mp := shellQuote(r.ContainerPath)
 
 				if err := c.runCmdOut(egCtx, "", c.SSHCommand(nil, "git init -q "+mp+" && git -C "+mp+" remote add host /dev/null"), stdout, stderr); err != nil {
-					return fmt.Errorf("init repo %s in container: %w", r.MountedPath, err)
+					return fmt.Errorf("init repo %s in container: %w", r.ContainerPath, err)
 				}
 				if err := r.resolveDefaults(egCtx, c.Logger); err != nil {
-					return fmt.Errorf("resolve defaults for %s: %w", r.MountedPath, err)
+					return fmt.Errorf("resolve defaults for %s: %w", r.ContainerPath, err)
 				}
 				bases, includeHost, err := c.pushMappedBranchRefs(egCtx, stdout, stderr, r)
 				if err != nil {
-					return fmt.Errorf("push repo %s: %w", r.MountedPath, err)
+					return fmt.Errorf("push repo %s: %w", r.ContainerPath, err)
 				}
 				remoteURL, _ := c.runCmd(egCtx, r.GitRoot, []string{"git", "remote", "get-url", r.DefaultRemote})
 				httpsURL := convertGitURLToHTTPS(remoteURL)
 				if !opts.Quiet && httpsURL != "" {
-					_, _ = fmt.Fprintf(stdout, "- Set %s %s to %s\n", r.MountedPath, r.DefaultRemote, httpsURL)
+					_, _ = fmt.Fprintf(stdout, "- Set %s %s to %s\n", r.ContainerPath, r.DefaultRemote, httpsURL)
 				}
 				if err := c.configureContainerRemotes(egCtx, stdout, stderr, repoIdx, includeHost, containerBranchSetupCommands(bases)...); err != nil {
 					return err
 				}
 
-				if err := c.pushSubmodules(egCtx, stdout, stderr, r.MountedPath, r.GitRoot, r.TagRegexp, opts.Quiet); err != nil {
-					return fmt.Errorf("push submodules for %s: %w", r.MountedPath, err)
+				if err := c.pushSubmodules(egCtx, stdout, stderr, r.ContainerPath, r.GitRoot, r.TagRegexp, opts.Quiet); err != nil {
+					return fmt.Errorf("push submodules for %s: %w", r.ContainerPath, err)
 				}
 				return nil
 			})

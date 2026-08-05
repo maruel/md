@@ -401,14 +401,14 @@ func TestPlanFork(t *testing.T) {
 			{GitRoot: xDir, SourceBranches: []string{"dev"}, TagRegexp: "^v", DestPrimary: "x0"},
 			{GitRoot: "/src/b", SourceBranches: []string{"main"}, DestPrimary: "b0"},
 			{GitRoot: "/src/a", DestPrimary: "a0"}, // SourceBranches omitted: allowed for a source repo.
-			{GitRoot: yDir, SourceBranches: []string{"main", "topic"}, MountedPath: "/home/user/src/nested/y", DestPrimary: "y0"},
+			{GitRoot: yDir, SourceBranches: []string{"main", "topic"}, ContainerPath: "/home/user/src/nested/y", DestPrimary: "y0"},
 		}
 		plan, err := planFork(ctx, testLogger(t), "", source, spec)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := plan.extraRepos[1].MountedPath; got != "/home/user/src/nested/y" {
-			t.Errorf("extra /src/y MountedPath = %q, want /home/user/src/nested/y", got)
+		if got := plan.extraRepos[1].ContainerPath; got != "/home/user/src/nested/y" {
+			t.Errorf("extra /src/y ContainerPath = %q, want /home/user/src/nested/y", got)
 		}
 		if want := []string{"a0", "b0"}; !slices.Equal(plan.srcDest, want) {
 			t.Errorf("srcDest = %v, want %v", plan.srcDest, want)
@@ -648,7 +648,7 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			runTestGit(t, ctx, dir, "push", "-q", containerWorktree,
 				"refs/remotes/origin/main:refs/remotes/origin/main",
 				"refs/remotes/upstream/release:refs/remotes/upstream/release")
-			repo.MountedPath = filepath.ToSlash(containerWorktree)
+			repo.ContainerPath = filepath.ToSlash(containerWorktree)
 			configs, err := repo.containerRemoteConfigs(ctx, logger)
 			if err != nil {
 				t.Fatal(err)
@@ -977,7 +977,7 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 				Repos: []Repo{{
 					GitRoot:       hostDir,
 					Branches:      []string{"main"},
-					MountedPath:   containerPath,
+					ContainerPath: containerPath,
 					DefaultRemote: "origin",
 					DefaultBranch: "main",
 				}},
@@ -1054,7 +1054,7 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 				Repos: []Repo{{
 					GitRoot:       hostDir,
 					Branches:      []string{"main"},
-					MountedPath:   filepath.ToSlash(containerDir),
+					ContainerPath: filepath.ToSlash(containerDir),
 					DefaultRemote: "origin",
 					DefaultBranch: "main",
 				}},
@@ -1124,7 +1124,7 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 				Repos: []Repo{{
 					GitRoot:       hostDir,
 					Branches:      []string{"main", "feature"},
-					MountedPath:   filepath.ToSlash(containerDir),
+					ContainerPath: filepath.ToSlash(containerDir),
 					DefaultRemote: "origin",
 					DefaultBranch: "main",
 				}},
@@ -1186,7 +1186,7 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 				Repos: []Repo{{
 					GitRoot:       hostDir,
 					Branches:      []string{branch},
-					MountedPath:   filepath.ToSlash(containerDir),
+					ContainerPath: filepath.ToSlash(containerDir),
 					DefaultRemote: "origin",
 					DefaultBranch: branch,
 				}},
@@ -1260,7 +1260,7 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 				Repos: []Repo{{
 					GitRoot:       hostDir,
 					Branches:      []string{"main", "feature"},
-					MountedPath:   containerPath,
+					ContainerPath: containerPath,
 					DefaultRemote: "origin",
 					DefaultBranch: "main",
 				}},
@@ -2211,12 +2211,12 @@ func TestRepo(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			dir := t.TempDir()
-			mountedPath := "/home/user/src/repo"
+			cp := "/home/user/src/repo"
 			runTestGit(t, ctx, dir, "init", "-q", "--initial-branch=main")
 			runTestGit(t, ctx, dir, "commit", "-q", "--allow-empty", "-m", "main")
 			runTestGit(t, ctx, dir, "branch", "master")
 			runTestGit(t, ctx, dir, "remote", "add", "origin", "/dev/null")
-			runTestGit(t, ctx, dir, "remote", "add", "md-task", "user@md-task:"+mountedPath)
+			runTestGit(t, ctx, dir, "remote", "add", "md-task", "user@md-task:"+cp)
 			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
 			runTestGit(t, ctx, dir, "update-ref", "refs/remotes/md-task/master", "HEAD")
 			runTestGit(t, ctx, dir, "config", "branch.main.remote", ".")
@@ -2225,9 +2225,9 @@ func TestRepo(t *testing.T) {
 			runTestGit(t, ctx, dir, "config", "branch.master.merge", "refs/heads/master")
 
 			repo := Repo{
-				GitRoot:     dir,
-				Branches:    []string{"main", "master"},
-				MountedPath: mountedPath,
+				GitRoot:       dir,
+				Branches:      []string{"main", "master"},
+				ContainerPath: cp,
 			}
 			if err := repo.resolveDefaults(ctx, testLogger(t)); err != nil {
 				t.Fatal(err)
@@ -2284,15 +2284,15 @@ func TestRepo(t *testing.T) {
 		runTestGit(t, ctx, dir, "commit", "-q", "-m", "main")
 		runTestGit(t, ctx, dir, "remote", "add", "upstream", upstreamDir)
 		runTestGit(t, ctx, dir, "push", "-q", "-u", "upstream", "main")
-		mountedPath := "/home/user/src/repo"
-		runTestGit(t, ctx, dir, "remote", "add", "md-task-a", "user@md-task-a:"+mountedPath)
-		runTestGit(t, ctx, dir, "remote", "add", "md-task-b", "user@md-task-b:"+mountedPath)
+		cp := "/home/user/src/repo"
+		runTestGit(t, ctx, dir, "remote", "add", "md-task-a", "user@md-task-a:"+cp)
+		runTestGit(t, ctx, dir, "remote", "add", "md-task-b", "user@md-task-b:"+cp)
 
 		logger := testLogger(t)
 		ct := &Container{
 			Logger: logger,
 			Name:   "md-task-a",
-			Repos:  []Repo{{GitRoot: dir, Branches: []string{"main"}, MountedPath: mountedPath}},
+			Repos:  []Repo{{GitRoot: dir, Branches: []string{"main"}, ContainerPath: cp}},
 		}
 		ct.migrateRepoRemotes(ctx)
 		repo := &ct.Repos[0]
@@ -2315,7 +2315,7 @@ func TestRepo(t *testing.T) {
 		repo := Repo{
 			GitRoot:       dir,
 			Branches:      []string{"main"},
-			MountedPath:   "/home/user/src/repo",
+			ContainerPath: "/home/user/src/repo",
 			DefaultRemote: "upstream",
 			DefaultBranch: "main",
 		}
@@ -2348,18 +2348,18 @@ func TestRepo(t *testing.T) {
 					"/home/user/src/myrepo",
 				},
 				{
-					"MountedPath overrides basename",
-					Repo{GitRoot: "/home/user/src/myrepo", MountedPath: "/home/user/src/custom-name"},
+					"ContainerPath overrides basename",
+					Repo{GitRoot: "/home/user/src/myrepo", ContainerPath: "/home/user/src/custom-name"},
 					"/home/user/src/custom-name",
 				},
 				{
-					"MountedPath preserves slashes",
-					Repo{GitRoot: "/home/user/src/projects/foo/website", MountedPath: "/home/user/src/foo/website"},
+					"ContainerPath preserves slashes",
+					Repo{GitRoot: "/home/user/src/projects/foo/website", ContainerPath: "/home/user/src/foo/website"},
 					"/home/user/src/foo/website",
 				},
 				{
-					"empty MountedPath falls back to basename",
-					Repo{GitRoot: "/home/user/src/myrepo", MountedPath: ""},
+					"empty ContainerPath falls back to basename",
+					Repo{GitRoot: "/home/user/src/myrepo", ContainerPath: ""},
 					"/home/user/src/myrepo",
 				},
 			}
@@ -2367,11 +2367,11 @@ func TestRepo(t *testing.T) {
 				t.Run(tt.name, func(t *testing.T) {
 					t.Parallel()
 					repos := []Repo{tt.r}
-					if err := resolveMountPaths(repos); err != nil {
+					if err := resolveContainerPaths(repos); err != nil {
 						t.Fatal(err)
 					}
-					if got := repos[0].MountedPath; got != tt.want {
-						t.Errorf("MountedPath = %q, want %q", got, tt.want)
+					if got := repos[0].ContainerPath; got != tt.want {
+						t.Errorf("ContainerPath = %q, want %q", got, tt.want)
 					}
 				})
 			}
@@ -2386,9 +2386,9 @@ func TestRepo(t *testing.T) {
 				r    Repo
 			}{
 				{"from basename", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}}},
-				{"explicit absolute path", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "/home/user/src/custom"}},
-				{"tilde expansion", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "~/src/custom"}},
-				{"bare tilde", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "~"}},
+				{"explicit absolute path", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, ContainerPath: "/home/user/src/custom"}},
+				{"tilde expansion", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, ContainerPath: "~/src/custom"}},
+				{"bare tilde", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, ContainerPath: "~"}},
 				{"multiple remotes", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"origin", "upstream"}, DefaultRemote: "origin"}},
 			}
 			for _, tt := range tests {
@@ -2417,7 +2417,7 @@ func TestRepo(t *testing.T) {
 				{"duplicate remote", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"origin", "origin"}}, "duplicate remote"},
 				{"default remote missing", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, Remotes: []string{"upstream"}, DefaultRemote: "origin"}, "is not in Repo.Remotes"},
 				{"invalid tag regexp", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, TagRegexp: "["}, "invalid tag regexp"},
-				{"relative MountedPath", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, MountedPath: "custom"}, "must be an absolute POSIX path"},
+				{"relative ContainerPath", Repo{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}, ContainerPath: "custom"}, "must be an absolute POSIX path"},
 			}
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
@@ -2458,10 +2458,10 @@ func TestResolveMountPaths(t *testing.T) {
 				[]string{"/home/user/src/foo", "/home/user/src/bar"},
 			},
 			{
-				"same basename but different MountedPath",
+				"same basename but different ContainerPath",
 				[]Repo{
-					{GitRoot: "/home/user/src/foo/website", MountedPath: "/home/user/src/foo/website"},
-					{GitRoot: "/home/user/src/bar/website", MountedPath: "/home/user/src/bar/website"},
+					{GitRoot: "/home/user/src/foo/website", ContainerPath: "/home/user/src/foo/website"},
+					{GitRoot: "/home/user/src/bar/website", ContainerPath: "/home/user/src/bar/website"},
 				},
 				[]string{"/home/user/src/foo/website", "/home/user/src/bar/website"},
 			},
@@ -2493,12 +2493,12 @@ func TestResolveMountPaths(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
-				if err := resolveMountPaths(tt.repos); err != nil {
+				if err := resolveContainerPaths(tt.repos); err != nil {
 					t.Fatal(err)
 				}
 				for i, r := range tt.repos {
-					if r.MountedPath != tt.want[i] {
-						t.Errorf("repos[%d].MountedPath = %q, want %q", i, r.MountedPath, tt.want[i])
+					if r.ContainerPath != tt.want[i] {
+						t.Errorf("repos[%d].ContainerPath = %q, want %q", i, r.ContainerPath, tt.want[i])
 					}
 				}
 			})
@@ -2513,7 +2513,7 @@ func TestResolveMountPaths(t *testing.T) {
 				{GitRoot: "/home/user/src/myrepo", Branches: []string{"main"}},
 				{GitRoot: "/home/user/src/myrepo", Branches: []string{"feature"}},
 			}
-			err := resolveMountPaths(repos)
+			err := resolveContainerPaths(repos)
 			if err == nil {
 				t.Fatal("expected error for same GitRoot after relative resolution")
 			}

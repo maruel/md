@@ -352,8 +352,8 @@ func TestClient(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if ct.Repos[0].MountedPath != tt.wantRepo {
-					t.Errorf("MountedPath = %q, want %q", ct.Repos[0].MountedPath, tt.wantRepo)
+				if ct.Repos[0].ContainerPath != tt.wantRepo {
+					t.Errorf("ContainerPath = %q, want %q", ct.Repos[0].ContainerPath, tt.wantRepo)
 				}
 				if ct.Name != tt.wantName {
 					t.Errorf("Name = %q, want %q", ct.Name, tt.wantName)

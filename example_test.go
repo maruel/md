@@ -42,7 +42,7 @@ func ExampleContainer() {
 		return
 	}
 	if _, err = run.Connect(ctx, os.Stdout, os.Stderr, opts); err == nil {
-		sshArgs := run.SSHCommand(nil, "cd "+shellQuote(run.Repos[0].MountedPath)+" && go test ./...")
+		sshArgs := run.SSHCommand(nil, "cd "+shellQuote(run.Repos[0].ContainerPath)+" && go test ./...")
 		cmd := exec.CommandContext(ctx, sshArgs[0], sshArgs[1:]...) //nolint:gosec // SSH target and command are built from md container state.
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

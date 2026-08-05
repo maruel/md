@@ -91,8 +91,8 @@ func TestNewRunContainer(t *testing.T) {
 		Client: client,
 		Logger: logger.With(slog.String("cntr", "source")),
 		Repos: []md.Repo{
-			{GitRoot: "/src/one", Branches: []string{"main"}, MountedPath: "/home/user/src/one"},
-			{GitRoot: "/src/two", Branches: []string{"feature"}, MountedPath: "/home/user/src/two"},
+			{GitRoot: "/src/one", Branches: []string{"main"}, ContainerPath: "/home/user/src/one"},
+			{GitRoot: "/src/two", Branches: []string{"feature"}, ContainerPath: "/home/user/src/two"},
 		},
 	}
 	got, err := newRunContainer(source)

@@ -172,7 +172,7 @@ type Repo struct {
 	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
-// UnmarshalJSON decodes Repo, including legacy labels that used "branch".
+// UnmarshalJSON decodes Repo, including legacy persisted labels.
 func (r *Repo) UnmarshalJSON(data []byte) error {
 	type repoJSON Repo
 	var raw repoJSON
@@ -180,6 +180,15 @@ func (r *Repo) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*r = Repo(raw)
+	if r.ContainerPath == "" {
+		var legacy struct {
+			MountedPath string `json:"mounted_path"`
+		}
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			return err
+		}
+		r.ContainerPath = legacy.MountedPath
+	}
 	if len(r.Branches) == 0 {
 		// TODO: Remove legacy branch label support by 2026-09-01.
 		var legacy struct {

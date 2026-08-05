@@ -1595,6 +1595,19 @@ func TestUnmarshalContainer(t *testing.T) {
 			t.Errorf("Repos[0].Branches = %v, want [main]", ct.Repos[0].Branches)
 		}
 	})
+	t.Run("legacy_mounted_path_label", func(t *testing.T) {
+		t.Parallel()
+		reposData := []byte(`[{"git_root":"/home/user/repo","branches":["main"],"mounted_path":"/home/user/src/org/repo"}]`)
+		reposB64 := base64.StdEncoding.EncodeToString(reposData)
+		raw := `{"Names":"md-repo-main","State":"running","CreatedAt":"2025-06-15 10:30:00 +0000 UTC","Labels":"md.repos=` + reposB64 + `"}`
+		ct, err := unmarshalContainer(t.Context(), testClient(t), []byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := ct.Repos[0].ContainerPath; got != "/home/user/src/org/repo" {
+			t.Errorf("ContainerPath = %q, want /home/user/src/org/repo", got)
+		}
+	})
 	t.Run("legacy_branch_label", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()

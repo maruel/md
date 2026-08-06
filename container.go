@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"math/big"
@@ -2729,15 +2730,19 @@ func (c *Container) launchContainer(ctx context.Context, stdout, stderr io.Write
 	}
 
 	// USB passthrough (Linux only; Docker Desktop on macOS/Windows runs in a
-	// VM that cannot access host USB devices). Use a bind mount + cgroup
-	// rule so that devices plugged in after container start are visible.
+	// VM that cannot access host USB devices). Use a bind mount + cgroup rule
+	// so raw USB devices plugged in after container start are visible. USB
+	// serial adapters are separate character devices, so attach the adapters
+	// present at container start as well.
 	if opts.USB {
 		if runtime.GOOS != "linux" {
 			return fmt.Errorf("--usb requires Linux; Docker Desktop on %s cannot pass through host USB devices", runtime.GOOS)
 		}
-		runArgs = append(runArgs,
-			"-v", "/dev/bus/usb:/dev/bus/usb",
-			"--device-cgroup-rule=c 189:* rwm")
+		serialDevices, err := hostUSBSerialDevices()
+		if err != nil {
+			return err
+		}
+		runArgs = append(runArgs, usbRunArgs(serialDevices)...)
 	}
 
 	home := c.Home
@@ -2849,6 +2854,46 @@ func (c *Container) launchContainer(ctx context.Context, stdout, stderr io.Write
 		}
 	}
 	return nil
+}
+
+// hostUSBSerialDevices returns the USB serial device nodes currently attached
+// to the host. They must be added individually because they are separate from
+// the raw USB bus device hierarchy.
+func hostUSBSerialDevices() ([]string, error) {
+	var paths []string
+	for _, pattern := range []string{"/dev/ttyACM*", "/dev/ttyUSB*"} {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("finding USB serial devices with %q: %w", pattern, err)
+		}
+		for _, path := range matches {
+			info, err := os.Stat(path)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("checking USB serial device %q: %w", path, err)
+			}
+			if info.Mode()&os.ModeCharDevice != 0 {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths, nil
+}
+
+// usbRunArgs returns runtime arguments that expose raw USB and the specified
+// USB serial device nodes to a container.
+func usbRunArgs(serialDevices []string) []string {
+	args := make([]string, 0, 3+len(serialDevices))
+	args = append(args,
+		"-v", "/dev/bus/usb:/dev/bus/usb",
+		"--device-cgroup-rule=c 189:* rwm",
+	)
+	for _, path := range serialDevices {
+		args = append(args, "--device="+path)
+	}
+	return args
 }
 
 func hostUserEnv() []string {

@@ -458,7 +458,7 @@ func (a *app) cmdStart(ctx context.Context, args []string) error {
 	display := fs.Bool("display", false, "Enable X11/VNC display")
 	fs.BoolVar(display, "d", false, "Enable X11/VNC display")
 	tailscale := fs.Bool("tailscale", false, "Enable Tailscale networking")
-	usb := fs.Bool("usb", false, "Pass through USB devices (/dev/bus/usb)")
+	usb := fs.Bool("usb", false, "Pass through USB devices and attached serial adapters")
 	sudoFlag := fs.Bool("sudo", false, "Enable root access via sudo (random per-container password)")
 	cf := addContainerFlags(fs, true)
 	cf.tags = fs.String("tags", ".*", "Regular expression selecting Git tags to map; use an empty expression to map none")

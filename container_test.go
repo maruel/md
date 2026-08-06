@@ -2015,6 +2015,20 @@ func TestFillFromInspect(t *testing.T) {
 	}
 }
 
+func TestUSBRunArgs(t *testing.T) {
+	t.Parallel()
+	got := usbRunArgs([]string{"/dev/ttyACM0", "/dev/ttyUSB0"})
+	want := []string{
+		"-v", "/dev/bus/usb:/dev/bus/usb",
+		"--device-cgroup-rule=c 189:* rwm",
+		"--device=/dev/ttyACM0",
+		"--device=/dev/ttyUSB0",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("USB run arguments = %v, want %v", got, want)
+	}
+}
+
 func TestParsePSOutput(t *testing.T) {
 	t.Parallel()
 	out := `    1     0 root     Ss    0.0  0.1 00:00:01 /sbin/init

@@ -15,7 +15,7 @@ Notable executables available in the container:
 - Browsers: google-chrome (amd64), chromium (arm64 fallback), chrome-devtools-mcp
 - Compression: brotli, zstd, unzip
 - Development: build-essential, git, actionlint, shellcheck, shfmt, golangci-lint, cmake, ninja-build, ccache, make, gcc, g++, cargo-binstall, pylint, ruff, uv, asciinema
-- Embedded: flex, bison, gperf, dfu-util, libusb-1.0-0
+- Embedded: flex, bison, gperf, dfu-util, libusb-1.0-0. When md starts with `-usb`, it maps currently attached `/dev/ttyUSB*` and `/dev/ttyACM*` serial adapters; restart the container after attaching another adapter.
 - Languages: go, python3, java, R, rust (cargo, rustc)
 - Languages (web): node (v24), npm, npx, pnpm, bun, typescript, bun, eslint, tsx
 - AI Tools: claude, gemini, codex, kilo, qwen-code, kimi, opencode, amp, pi, agent-browser

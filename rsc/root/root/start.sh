@@ -255,6 +255,28 @@ if [ -d /dev/bus/usb ]; then
 	fi
 fi
 
+# If USB serial adapters are mapped, grant access through the group that owns
+# the device nodes. USB serial adapters normally use the host's dialout GID.
+host_dialout_gid=
+for serial_device in /dev/ttyACM* /dev/ttyUSB*; do
+	if [ -c "$serial_device" ]; then
+		host_dialout_gid=$(stat -c %g "$serial_device")
+		break
+	fi
+done
+if [ -n "$host_dialout_gid" ]; then
+	usermod -aG dialout user
+	current_dialout_gid=$(getent group dialout | cut -d: -f3)
+	if [ "$host_dialout_gid" != "$current_dialout_gid" ]; then
+		existing=$(getent group "$host_dialout_gid" | cut -d: -f1)
+		if [ -n "$existing" ]; then
+			usermod -aG "$existing" user
+		else
+			groupmod -g "$host_dialout_gid" dialout
+		fi
+	fi
+fi
+
 # When -sudo was passed (MD_SUDO_PASSWORD is set), grant sudo access and
 # fix /proc so rootless Podman can mount a new /proc inside nested user
 # namespaces. /proc must not be nosuid (breaks newuidmap), and Docker's

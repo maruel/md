@@ -1,9 +1,9 @@
-# Decoupling start.sh from the base image
+# Bring your own image
 
 Goal: make it possible to run `md start -image <anything>` against a base image md did not
-build, instead of requiring the `ghcr.io/caic-xyz/md-*` images. Today `start.sh` and the
-whole runtime contract are baked into `md-root`; this document plans the decoupling and
-records the pitfalls and trade-offs found while investigating.
+build, instead of requiring the `ghcr.io/caic-xyz/md-*` images. Startup-script delivery is
+already decoupled from the base image; this document records the remaining runtime-contract
+and portability work.
 
 ## Motivation — this is really about a runtime-agnostic contract
 
@@ -13,9 +13,8 @@ machines (QEMU as one example, not exclusively: cloud-hypervisor, Firecracker, a
 etc.).** A VM is not a container, and that difference is what should color the solution choices:
 
 - **No container injection primitives.** A VM has no `docker exec`, no `docker cp`, no image
-  layers, no `COPY --from` build context. Every Layer A delivery mechanism that leans on those
-  (exec injection, cp-before-start, COPY-into-specialized-image) and the entire BuildKit
-  **cache-injection** model are Docker-only. They do not port to a VM.
+  layers, no `COPY --from` build context. The BuildKit **cache-injection** model is Docker-only
+  and does not port to a VM.
 - **A VM boots a real init.** You don't "override `CMD`"; the kernel starts systemd/openrc.
   Provisioning happens via cloud-init / ignition / a seed disk / first-boot SSH — i.e. *an init
   the system already runs a hook for*. This **inverts** the container trade-off: systemd's
@@ -35,171 +34,19 @@ mechanism; (3) keep `start.sh` robust and capability-guarded (Layer B3) so the *
 runs unmodified in a VM, where the container-only blocks simply don't trigger. See
 "Implications of the VM target" before the recommendations for how this re-weights each choice.
 
-## Current coupling (where we are)
+## Current state
 
-- `start.sh` and the VNC/XFCE monitor scripts are being migrated to `rsc/specialized/root/`.
-  For compatibility, `rsc/root/root/` still carries a legacy copy for old md clients and existing
-  root/user image builds. New md binaries copy the `rsc/specialized/` seed into generated
-  specialized images, so runtime script changes do not have to wait for the remote base image to be
-  rebuilt.
+- Startup scripts live exclusively in `rsc/specialized/root/`; generated specialized images copy
+  that seed and set `CMD ["/root/start.sh"]`. Base images carry no md entrypoint.
 - The `rsc/` tree is embedded in the binary (`//go:embed all:rsc`, `build.go`), so the script
-  bytes are already available host-side at runtime — this is the lever for moving them.
+  bytes are available host-side at runtime.
 - md connects by SSH as `user` to a published `127.0.0.1::22` (`launchContainer`,
   `container.go`; `ssh.go` hardcodes `User user`). `start.sh` is also pid-1 keep-alive
   (`service ssh start` then `sleep infinity`).
 
-The problem splits into three layers of increasing difficulty. Treat "any image" as **"any
+The remaining work is in the runtime contract and SSH model. Treat "any image" as **"any
 conforming glibc Debian/Ubuntu-family bash image"** — musl/alpine and distroless break the
 Go/Rust/node tooling and the `service`/`/etc/init.d` assumptions regardless of this work.
-
----
-
-## Layer A — script delivery (mechanical, low risk)
-
-Stop relying on the base to carry stale script bytes. Keep startup files under
-`rsc/specialized/`, then recursively copy that seed into generated specialized images, setting
-`CMD` there. Keep the old `rsc/root/root/` copies during the migration window, and remove them only
-after deployed md clients no longer rely on scripts baked into the base image.
-
-Tasks:
-- [x] In `generateDockerfile`, emit a recursive `COPY` for the specialized seed and
-      `CMD ["/root/start.sh"]`.
-- [x] In `buildSpecializedImage`, write the `rsc/specialized/` tree into `tmpDir` alongside the
-      SSH keys.
-- [x] Update Dockerfile and staging assertions for the recursive seed copy.
-
-Trade-offs:
-- COPY-into-specialized: a `start.sh` edit now invalidates every specialized image instead of
-  the rarely-rebuilt base. Acceptable.
-- Alternative — bind-mount (`-v <extracted>:/root/<script>:ro` + `--entrypoint`): zero rebuild
-  on script change, but the extracted temp dir must outlive the container, not just the run
-  command, and Windows/Docker-Desktop path translation applies (`filepath.ToSlash`). More
-  moving parts; prefer COPY unless rebuild latency proves painful.
-
-This removes the script from the base. It does **not** deliver "any image" on its own.
-
-### A' — how the script is delivered and how pid 1 stays alive
-
-Layer A is really one axis ("get the script bytes into a runnable place") crossed with a
-second, independent axis: **what runs as pid 1**. The current design fuses them — `start.sh`
-*is* both the baked script and pid 1 (it ends in `sleep infinity`). Splitting them opens
-several startup mechanisms. The user-raised `docker exec` idea lives here.
-
-The pivotal constraint: **reviving a stopped container is `docker start` (`Container.Revive`,
-`container.go`),
-which only re-runs the image `CMD`.** Anything injected after run (exec/cp-after-start) is in
-the writable layer or process tree, not the `CMD`, so it must be re-applied on every `md start`,
-not just at create. So evaluate each mechanism on *two* events: first boot and revive.
-
-| Mechanism | Script in image? | pid 1 | First boot | Revive (`docker start`) | Honors foreign CMD? |
-|---|---|---|---|---|---|
-| **Baked CMD** (today) | yes (COPY) | start.sh | CMD runs | CMD re-runs ✓ | no |
-| **A: COPY into specialized** | yes (COPY, not base) | start.sh | CMD runs | CMD re-runs ✓ | no |
-| **cp-before-start** | no | start.sh | `create` w/ cmd `bash /tmp/start.sh`, `cp` script, `start` | file persists in layer, CMD re-runs ✓ | no |
-| **exec, imperative** | no | `sleep infinity` (override) | run keep-alive, then `exec` setup | keep-alive re-runs but setup is **gone** — must re-`exec` | no (unless image is long-lived) |
-| **exec, self-installing** | no | init / generic stub | run init, `exec` setup that registers itself | init re-runs the registered unit ✓ | depends on init |
-| **exec onto foreign CMD** | no | image's own CMD | run image, then `exec` setup | image CMD re-runs, setup **gone** — re-`exec` | **yes** |
-
-#### docker exec injection — the trade-offs
-
-Concretely: `docker run -d <img> sleep infinity` (or keep the image's own long-lived CMD),
-then `docker exec -i -u 0 <name> bash -s -- <args> < start.sh`. The script is piped over stdin,
-never entering the image or a host bind mount. `start.sh` must be split so the setup half
-returns (sshd backgrounded) instead of ending in `sleep infinity` — pid 1 is now the keep-alive.
-
-Upsides:
-- **Directly serves "any image"** — delivers the script without `COPY`, with no host temp-file
-  lifetime or Windows path-translation concern (stdin pipe, not a mount).
-- **Better failure visibility** — a setup failure is a synchronous non-zero exec exit code
-  captured in `md start` output, instead of a died container you diagnose via `docker logs`.
-  This actually improves on `start.sh`'s "fail-fast" intent.
-- **Secrets off the persistent container** — `MD_SUDO_PASSWORD` can pass via `docker exec -e`
-  instead of `docker run -e`, keeping it out of `docker inspect`'s env (it's still in the
-  `md.sudo-password` label today, but this removes one copy).
-- **Privileges intact** — caps are granted at run (`--cap-add`), so the exec'd setup can still
-  remount `/proc`, `groupmod`, etc.
-
-Downsides / pitfalls:
-- **Revive re-injection — mandatory only for the *imperative* variant.** `docker start` replays
-  the image `CMD`, not the exec. If the exec'd setup is imperative and ephemeral, md must re-run
-  it after every `docker start` (`Container.Revive`); miss it and a revived container has no sshd.
-  This is removable — see "self-installing" below — but it is the default failure mode if you
-  do the naive thing.
-- **Keep-alive pid 1 still required** → still replaces the foreign `CMD` (Layer C unchanged),
-  unless you trust the image's own process to stay alive (the "exec onto foreign CMD" row,
-  which *is* the only mechanism that honors a foreign entrypoint — at the cost of betting the
-  image never exits and is exec-able).
-- **Two-phase orchestration in Go**: run → wait running → exec setup → wait sshd. More steps
-  than the current single `docker run` + readiness wait.
-- **Delivers the script, not its dependencies.** Exec injection is an alternative to Layer A
-  only. The image still must satisfy the Layer B contract (sshd, `user`, bash, …). Orthogonal.
-
-#### Self-installing — removing the revive-reinjection requirement
-
-The re-injection burden is not inherent to exec; it is a property of doing imperative setup that
-lives only in the process tree. Make the *first* injection **register a persistent boot hook**
-that the container's own pid 1 replays on `docker start`, and revive costs nothing. What plays
-pid 1 is a choice with a spectrum of how much we depend on it — systemd is **one** option, and
-not necessarily the one we want to force. Ordered from least to most dependency:
-
-1. **Generic pid-1 stub (no new dependency).** You cannot change an existing container's `CMD`,
-   but you *choose* it at `docker create` (as run args, not baked in the image). Set it to a
-   tiny image-independent loop, e.g. `bash -c 'for f in /etc/md/init.d/*; do . "$f"; done; exec
-   sleep infinity'`. The first exec/cp drops `start.sh` into `/etc/md/init.d/`; on revive the
-   stub (pid 1, fixed at create) re-runs it. No extra packages, no extra caps, only the `bash`
-   the Layer B contract already assumes. Cost: you own a small bespoke init and keep the
-   hand-rolled `xfce-monitor.sh`/`xvnc-monitor.sh` supervision.
-
-2. **Image's own entrypoint drop-in (no new dependency, image-dependent).** Some base images
-   already run a hook directory on boot (`/docker-entrypoint.d`, `/etc/cont-init.d`). If present,
-   drop the bootstrap there and inherit the image's restart behaviour. Free where it exists, but
-   not universal — can't be relied on for "any image".
-
-3. **Container-native supervisor (small dependency).** A lightweight init/supervisor as pid 1 —
-   `s6-overlay`, `runit`, `dumb-init`/`tini`+a supervisor, or `supervisord` — gives real
-   service supervision and restart-on-revive without systemd's weight. Adds one small package to
-   the contract; replaces the monitor scripts; no special caps or cgroup mounts. The pragmatic
-   middle if we want supervision but not systemd.
-
-4. **systemd as pid 1 (heavy dependency + posture).** Set the container command to `/sbin/init`,
-   drop `md-bootstrap.service` (`Type=oneshot`) + sshd/dbus units, `systemctl enable` them;
-   revive replays enabled units and `Restart=always` retires the monitor scripts entirely. The
-   most "standard" supervision, but the strongest coupling:
-   - **Base contract (Layer B):** the image must ship systemd and be bootable as init.
-     `debian:stable`, `golang`, `node`, ubuntu-minimal, alpine do **not** by default — excluding
-     most off-the-shelf images unless md installs+configures systemd at specialized-build time
-     (back to B1's cost).
-   - **Runtime posture:** needs a properly mounted `/sys/fs/cgroup`, cgroup namespace, writable
-     `/run` tmpfs, and typically `CAP_SYS_ADMIN` (granted today only under `-sudo`). Docker
-     needs explicit mounts/caps (or `--privileged`); podman has `--systemd=always`. New
-     Docker-vs-podman divergence.
-
-Guidance: default to **(1)** — it removes re-injection within the existing contract and keeps
-"any image" honest. Reach for **(3)** if we decide supervision is worth one small dependency.
-Treat **(4)** as available, not assumed: pick it only if standard-systemd integration is an
-explicit goal, since it is the one option that materially narrows which images can be used.
-
-#### cp-before-start — the quiet middle ground
-
-`docker create <img> bash /tmp/start.sh` → `docker cp <hosttmp>/start.sh <name>:/tmp/start.sh`
-→ `docker start`. Here **pid 1 is start.sh again**, so revive semantics are identical to today
-(CMD re-runs, file persists in the writable layer) — no re-injection logic needed — *and* the
-script never enters the image. CLAUDE.md flags `docker cp` as slower than COPY because the cost
-is per-API-round-trip; that matters for multi-GB cache trees, but one small script is one cheap
-call. The only cross-
-platform note is `filepath.ToSlash` on the host source path. This is arguably the lowest-risk
-way to get the script out of the base while preserving every current behavior.
-
-**Recommendation for Layer A:** prefer **cp-before-start** if the only goal is decoupling the
-script while keeping today's restart model (pid 1 stays start.sh, revive is free, no new
-contract). Reach for **exec injection** when you want the failure-visibility / secret-handling
-wins; pair it with a self-installing pid 1 so revive stays free without re-injection — default
-to the **generic stub (option 1)**, which adds no dependency. A **container-native supervisor
-(option 3)** or **systemd (option 4)** are alternatives if supervision is worth a dependency,
-but systemd is the only one that narrows which images work, so don't force it. Use **exec onto
-foreign CMD** only if honoring a foreign entrypoint (Layer C) becomes a hard requirement.
-
----
 
 ## Layer B — the runtime contract start.sh assumes (hard)
 
@@ -317,22 +164,15 @@ supplies keep-alive + sshd independently of the base — out of scope here.
   non-Debian means rewriting these, not just installing packages.
 - **Privileged first boot**: `groupmod` (kvm/plugdev GID match), `/proc` remount (nested
   podman), `chpasswd` (sudo) all need root + caps even if the image's default USER is non-root.
-- **Tests pin the layout**: `docker_test.go` asserts the `CMD` line and the four executable
+- **Tests pin the layout**: build tests assert the specialized image `CMD` and staged startup
   scripts. Any move updates these.
 
 ---
 
 ## Implications of the VM target (re-weighting the choices)
 
-Holding the runtime-agnostic goal next to the per-layer analysis above shifts the verdicts:
+Holding the runtime-agnostic goal next to the remaining analysis shifts the verdicts:
 
-- **Layer A — the "best" container mechanism is a dead end for VMs.** cp-before-start and exec
-  injection were attractive *because* they exploit Docker primitives; none exist in a VM. The
-  portable shape is "the target's init runs a hook that runs `start.sh`." For containers that
-  hook is the generic pid-1 stub or `CMD`; for VMs it is a systemd unit / cloud-init. So pick a
-  container mechanism for its container merits, but know it is a leaf, not the trunk — the trunk
-  is the init-run hook. This *raises* the standing of the **self-installing-via-init** family
-  (previously down-weighted for containers) because it is the one shape common to both worlds.
 - **Layer B — the contract is the trunk.** B2 stops being merely "recommended" and becomes the
   abstraction that makes a container image and a VM image interchangeable. Write it
   runtime-neutrally (bash, sshd, `user`@1000, an init that runs our bootstrap, root-at-first-
@@ -358,19 +198,14 @@ Holding the runtime-agnostic goal next to the per-layer analysis above shifts th
 Ordered so the runtime-agnostic trunk (the contract + an init-run hook + a portable `start.sh`)
 lands first, and container-only conveniences stay leaves:
 
-1. **Layer A** — get the script out of the base. Default to **cp-before-start** (keeps today's
-   restart model, lowest risk); choose **exec injection** instead if you want the failure-
-   visibility / secret wins and will own revive re-injection. See A' for the comparison. Treat
-   the chosen mechanism as a container leaf over the init-run hook, which is the VM-portable
-   shape (see "Implications of the VM target").
-2. **Layer B3** — make `start.sh` degrade-and-self-provision, gating container-only blocks on
+1. **Layer B3** — make `start.sh` degrade-and-self-provision, gating container-only blocks on
    the condition that makes them necessary so the same script runs in a VM. Do this *before* B2,
    because it shrinks the contract B2 has to validate down to roughly `bash` + `sshd` +
    root-at-boot. Incremental and testable per optional subsystem; biggest leverage per unit work.
-3. **Layer B2** — write the (now-smaller) contract doc + add the pre-flight probe. Makes "bring
+2. **Layer B2** — write the (now-smaller) contract doc + add the pre-flight probe. Makes "bring
    your own image" real and safe with no per-image install cost.
-4. **Layer B1** — only if minimal bases are genuinely needed; opt-in flag, accept build cost.
-5. **Layer C** — leave as a documented invariant: md owns pid 1 and replaces the base `CMD`.
+3. **Layer B1** — only if minimal bases are genuinely needed; opt-in flag, accept build cost.
+4. **Layer C** — leave as a documented invariant: md owns pid 1 and replaces the base `CMD`.
 
 ## Observations for later
 

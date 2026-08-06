@@ -2,6 +2,8 @@
 // source code is governed by the Apache v2 license that can be found in the
 // LICENSE file.
 
+// Tests for container runtime creation and shared helpers.
+
 package containers
 
 import (

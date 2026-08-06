@@ -63,9 +63,6 @@ RUN measure_exec.sh 'Version Report' /home/user/setup/generate_version_report.sh
 USER root
 SHELL ["/bin/bash", "-c"]
 
-# Start SSH server by default
-CMD ["/root/start.sh"]
-
 # Stage to export reports
 FROM scratch AS reports
 COPY --from=final /home/user/src/tool_versions.md /

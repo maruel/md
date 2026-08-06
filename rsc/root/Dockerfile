@@ -46,8 +46,6 @@ RUN --mount=type=secret,id=github_token \
     measure_exec.sh "radare2" /root/setup/6_radare2.sh
 RUN measure_exec.sh "Podman" /root/setup/7_podman.sh
 
-CMD ["/root/start.sh"]
-
 # Stage to export root build timings
 FROM scratch AS reports
 COPY --from=final /var/log/build_timings.md /

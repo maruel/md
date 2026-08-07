@@ -80,10 +80,12 @@
 	check_version "SQLite" "sqlite3" "--version"
 	check_version "sudo" "sudo" "--version"
 	check_version "asciinema" "asciinema" "--version"
+	check_version "binwalk" "binwalk" "--version"
 	check_version "FFmpeg" "ffmpeg" "-hide_banner -version"
 	check_version "ImageMagick" "magick" "--version"
 	check_version "man" "man" "--version"
 	check_version "tmux" "tmux" "-V"
+	check_version "virt-inspector" "virt-inspector" "--version"
 
 	# Editors / Tools
 	check_version "Neovim" "nvim" "--version"

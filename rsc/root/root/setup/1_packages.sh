@@ -15,6 +15,7 @@ apt-get install -qq -y --no-install-recommends \
 	bash-completion \
 	bind9-dnsutils \
 	binutils \
+	binwalk \
 	bison \
 	breeze-cursor-theme \
 	brotli \
@@ -59,6 +60,7 @@ apt-get install -qq -y --no-install-recommends \
 	libfreetype-dev \
 	libfribidi-dev \
 	libgl1 \
+	libguestfs-tools \
 	libharfbuzz-dev \
 	libjpeg-dev \
 	libopenblas-dev \

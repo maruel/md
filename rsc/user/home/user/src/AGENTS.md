@@ -4,6 +4,14 @@ You are running inside a docker container.
 
 Subdirectories from the current working directory are the projects (as git repositories) the user wants to work on.
 
+## Installing a missing tool
+
+When a tool is missing, tell the user to run:
+
+```bash
+docker exec -it -u root <container> bash -lc 'apt-get install -y <package>'
+```
+
 ## Preinstalled Tools
 
 The complete list of tool versions is at `tool_versions.md`
@@ -20,12 +28,12 @@ Notable executables available in the container:
 - Languages (web): node (v24), npm, npx, pnpm, bun, typescript, bun, eslint, tsx
 - AI Tools: claude, gemini, codex, kilo, qwen-code, kimi, opencode, amp, pi, agent-browser
 - Containers: podman (rootless, requires -sudo for nested containers)
-- Virtualization: qemu-kvm, libvirt-clients
+- Virtualization: qemu-kvm, libvirt-clients, libguestfs-tools (guestfish, guestmount, virt-inspector)
 - Media: ffmpeg, imagemagick
 - Android: android-sdk, gradle, adb, sdkmanager
 - Database: sqlite3
 - Network: curl, wget, net-tools, iproute2, ping, fping, traceroute, tcptraceroute, nmap, tcpdump, dig, host, nslookup, whois, tailscale
 - GitHub: gh
-- Debugging: strace, lsof, dlv (Go), lldb/rust-lldb (Rust), objdump, radare2 (r2)
+- Debugging: binwalk, strace, lsof, dlv (Go), lldb/rust-lldb (Rust), objdump, radare2 (r2)
 
 Web Remote Debugging: `google-chrome --remote-debugging-port` requires `--user-data-dir` pointing to a non-default directory.

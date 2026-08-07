@@ -33,6 +33,7 @@ apt-get install -qq -y --no-install-recommends \
 	crun \
 	curl \
 	dbus-x11 \
+	dwarves \
 	dfu-util \
 	extrepo \
 	ffmpeg \
@@ -42,6 +43,7 @@ apt-get install -qq -y --no-install-recommends \
 	fping \
 	fuse-overlayfs \
 	g++-arm-linux-gnueabihf \
+	gcc-arm-linux-gnueabi \
 	git \
 	gperf \
 	gpg \
@@ -56,6 +58,7 @@ apt-get install -qq -y --no-install-recommends \
 	libc6-dev \
 	libcairo2-dev \
 	libcurl4-openssl-dev \
+	libelf-dev \
 	libffi-dev \
 	libfontconfig1-dev \
 	libfreetype-dev \

@@ -57,6 +57,7 @@
 	check_version "Clang" "clang" "--version"
 	check_version "GCC" "gcc" "--version"
 	check_version "G++" "g++" "--version"
+	check_version "ARM GCC (EABI)" "arm-linux-gnueabi-gcc" "--version"
 
 	# Utilities
 	check_version "bc" "bc" "--version"
@@ -82,6 +83,7 @@
 	check_version "sudo" "sudo" "--version"
 	check_version "asciinema" "asciinema" "--version"
 	check_version "binwalk" "binwalk" "--version"
+	check_version "pahole" "pahole" "--version"
 	check_version "FFmpeg" "ffmpeg" "-hide_banner -version"
 	check_version "ImageMagick" "magick" "--version"
 	check_version "man" "man" "--version"

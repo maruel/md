@@ -26,6 +26,7 @@ Notable executables available in the container:
 - Embedded: flex, bison, gperf, dfu-util, libusb-1.0-0. When md starts with `-usb`, it maps currently attached `/dev/ttyUSB*` and `/dev/ttyACM*` serial adapters; restart the container after attaching another adapter.
 - Languages: go, python3, java, R, rust (cargo, rustc)
 - Languages (web): node (v24), npm, npx, pnpm, bun, typescript, bun, eslint, tsx
+- Math: bc
 - AI Tools: claude, gemini, codex, kilo, qwen-code, kimi, opencode, amp, pi, agent-browser
 - Containers: podman (rootless, requires -sudo for nested containers)
 - Virtualization: qemu-kvm, libvirt-clients, libguestfs-tools (guestfish, guestmount, virt-inspector)

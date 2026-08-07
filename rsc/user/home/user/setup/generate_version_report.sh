@@ -59,6 +59,7 @@
 	check_version "G++" "g++" "--version"
 
 	# Utilities
+	check_version "bc" "bc" "--version"
 	check_version "shellcheck" "shellcheck" "--version" "^version:"
 	check_version "tokei" "tokei" "--version"
 	check_version "shfmt" "shfmt" "--version"

@@ -13,6 +13,7 @@ echo "- apt-get install"
 # Keep the list of packages sorted!
 apt-get install -qq -y --no-install-recommends \
 	bash-completion \
+	bc \
 	bind9-dnsutils \
 	binutils \
 	binwalk \

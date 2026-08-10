@@ -80,6 +80,7 @@
 	check_version "curl" "curl" "--version"
 	check_version "xxd" "xxd" "-v"
 	check_version "SQLite" "sqlite3" "--version"
+	check_version "sshpass" "sshpass" "-V"
 	check_version "sudo" "sudo" "--version"
 	check_version "asciinema" "asciinema" "--version"
 	check_version "binwalk" "binwalk" "--version"

@@ -33,7 +33,7 @@ Notable executables available in the container:
 - Media: ffmpeg, imagemagick
 - Android: android-sdk, gradle, adb, sdkmanager
 - Database: sqlite3
-- Network: curl, wget, net-tools, iproute2, ping, fping, traceroute, tcptraceroute, nmap, tcpdump, dig, host, nslookup, whois, tailscale
+- Network: curl, wget, net-tools, iproute2, ping, fping, traceroute, tcptraceroute, nmap, tcpdump, dig, host, nslookup, whois, sshpass, tailscale
 - GitHub: gh
 - Debugging: binwalk, strace, lsof, dlv (Go), lldb/rust-lldb (Rust), objdump, radare2 (r2)
 

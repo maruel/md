@@ -106,6 +106,7 @@ apt-get install -qq -y --no-install-recommends \
 	shellcheck \
 	slirp4netns \
 	sqlite3 \
+	sshpass \
 	strace \
 	sudo \
 	tcpdump \

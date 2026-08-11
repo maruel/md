@@ -656,18 +656,6 @@ type StartResult struct {
 	TailscaleAuthURL string
 }
 
-// ProcessInfo describes a single process running inside a container.
-type ProcessInfo struct {
-	PID     int
-	PPID    int
-	User    string
-	State   string
-	CPU     float64
-	Mem     float64
-	Time    string
-	Command string
-}
-
 // ForkRepo describes one repository in a fork and the branches it carries.
 type ForkRepo struct {
 	// GitRoot is the absolute path of the host git repository. Fork matches it
@@ -839,37 +827,6 @@ func (c *Container) SSHCommand(opts []string, cmd string) []string {
 		args = append(args, cmd)
 	}
 	return args
-}
-
-// Processes returns the running processes inside the container.
-func (c *Container) Processes(ctx context.Context) ([]ProcessInfo, error) {
-	cmd := "ps -eo pid,ppid,user,stat,%cpu,%mem,time,args --no-headers"
-	sshArgs := c.SSHCommand(nil, cmd)
-	c.Logger.Log(ctx, slog.LevelDebug, "ssh", "cmd", sshArgs)
-	ec := exec.CommandContext(ctx, sshArgs[0], sshArgs[1:]...) //nolint:gosec // SSH target is an md container name; command is a constant literal.
-	ec.Env = c.commandEnv()
-	out, err := ec.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("ps in container %s: %w (output: %s)", c.Name, err, string(out))
-	}
-	return parsePSOutput(string(out))
-}
-
-// Signal sends sig to pid inside the container.
-func (c *Container) Signal(ctx context.Context, pid int, sig string) error {
-	if pid <= 0 {
-		return fmt.Errorf("pid must be positive, got %d", pid)
-	}
-	cmd := fmt.Sprintf("kill -s %s %d", shellQuote(sig), pid)
-	sshArgs := c.SSHCommand(nil, cmd)
-	c.Logger.Log(ctx, slog.LevelDebug, "ssh", "cmd", sshArgs)
-	ec := exec.CommandContext(ctx, sshArgs[0], sshArgs[1:]...) //nolint:gosec // SSH target is an md container name; pid is an integer and sig is shell-quoted.
-	ec.Env = c.commandEnv()
-	out, err := ec.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("signal %s pid %d in container %s: %w (output: %s)", sig, pid, c.Name, err, string(out))
-	}
-	return nil
 }
 
 // resolveContainerPaths sets ContainerPath for any repo that doesn't have one,
@@ -3145,53 +3102,6 @@ func convertGitURLToHTTPS(rawURL string) string {
 	}
 	parsed.User = nil
 	return parsed.String()
-}
-
-// parsePSOutput parses ps output. The last column (args) may contain spaces;
-// the first seven fields are whitespace-separated and the remainder is the command.
-func parsePSOutput(out string) ([]ProcessInfo, error) {
-	var procs []ProcessInfo
-	for line := range strings.SplitSeq(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, " ", 8)
-		var clean []string
-		for _, p := range parts {
-			if p = strings.TrimSpace(p); p != "" {
-				clean = append(clean, p)
-			}
-		}
-		if len(clean) < 8 {
-			clean = strings.Fields(line)
-			if len(clean) < 8 {
-				continue
-			}
-			cmd := strings.Join(clean[7:], " ")
-			clean = append(clean[:7], cmd)
-		}
-		pid, err := strconv.Atoi(clean[0])
-		if err != nil {
-			continue
-		}
-		ppid, _ := strconv.Atoi(clean[1])
-		cpu, _ := strconv.ParseFloat(clean[4], 64)
-		mem, _ := strconv.ParseFloat(clean[5], 64)
-		procs = append(procs, ProcessInfo{
-			PID:     pid,
-			PPID:    ppid,
-			User:    clean[2],
-			State:   clean[3],
-			CPU:     cpu,
-			Mem:     mem,
-			Time:    clean[6],
-			Command: clean[7],
-		})
-	}
-	return slices.DeleteFunc(procs, func(p ProcessInfo) bool {
-		return strings.HasPrefix(p.Command, "ps ")
-	}), nil
 }
 
 // generatePassword creates a random 20-character alphanumeric password

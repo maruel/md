@@ -1341,15 +1341,6 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			}
 		})
 	})
-	t.Run("Signal", func(t *testing.T) {
-		t.Run("error invalid pid", func(t *testing.T) {
-			t.Parallel()
-			ct := &Container{Name: "md-test"}
-			if err := ct.Signal(t.Context(), 0, "SIGTERM"); err == nil {
-				t.Fatal("Signal error = nil, want invalid pid error")
-			}
-		})
-	})
 }
 
 func TestFork(t *testing.T) {
@@ -2026,25 +2017,6 @@ func TestUSBRunArgs(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("USB run arguments = %v, want %v", got, want)
-	}
-}
-
-func TestParsePSOutput(t *testing.T) {
-	t.Parallel()
-	out := `    1     0 root     Ss    0.0  0.1 00:00:01 /sbin/init
-  123     1 user     Sl    1.5  2.5 00:00:03 agent run --flag value
-  124   123 user     R     0.0  0.0 00:00:00 ps -eo pid,ppid,user,stat,%cpu,%mem,time,args --no-headers
-broken
-`
-	procs, err := parsePSOutput(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(procs) != 2 {
-		t.Fatalf("processes = %+v, want 2 entries after filtering ps", procs)
-	}
-	if procs[1].PID != 123 || procs[1].PPID != 1 || procs[1].User != "user" || procs[1].CPU != 1.5 || procs[1].Mem != 2.5 || procs[1].Command != "agent run --flag value" {
-		t.Errorf("process = %+v, want parsed agent command", procs[1])
 	}
 }
 

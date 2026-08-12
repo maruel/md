@@ -54,6 +54,7 @@
 	check_version "Ninja" "ninja" "--version"
 	check_version "CMake" "cmake" "--version"
 	check_version "ccache" "ccache" "--version"
+	check_version "Protocol Buffers Compiler" "protoc" "--version"
 	check_version "Clang" "clang" "--version"
 	check_version "GCC" "gcc" "--version"
 	check_version "G++" "g++" "--version"

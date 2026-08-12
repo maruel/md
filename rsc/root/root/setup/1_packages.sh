@@ -71,6 +71,7 @@ apt-get install -qq -y --no-install-recommends \
 	libopus-dev \
 	libpng-dev \
 	librsvg2-bin \
+	libsodium-dev \
 	libssl-dev \
 	libtiff-dev \
 	libusb-1.0-0 \
@@ -93,6 +94,7 @@ apt-get install -qq -y --no-install-recommends \
 	passt \
 	pkg-config \
 	podman \
+	protobuf-compiler \
 	python-is-python3 \
 	python3 \
 	qemu-kvm \

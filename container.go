@@ -919,6 +919,31 @@ func commonPrefix(a, b string) string {
 	return a[:i]
 }
 
+// checkRepoOverlap reports an error if repos overlaps, on any GitRoot and
+// branch, with the repos of a container in existing other than name.
+func checkRepoOverlap(name string, repos []Repo, existing []*Container) error {
+	for _, other := range existing {
+		if other.Name == name {
+			continue
+		}
+		for i := range repos {
+			r := &repos[i]
+			for j := range other.Repos {
+				or := &other.Repos[j]
+				if r.GitRoot != or.GitRoot {
+					continue
+				}
+				for _, b := range r.Branches {
+					if slices.Contains(or.Branches, b) {
+						return fmt.Errorf("repo %s branch %s is already mapped into container %s; commands that locate a container by repo+branch would become ambiguous. Stop that container first, or pick a different branch", r.GitRoot, b, other.Name)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // Launch prepares the image and starts the Docker container. It does NOT
 // wait for SSH to become ready — call Connect to complete startup once the
 // container's repos have their branches set (e.g. after concurrent branch
@@ -955,6 +980,20 @@ func (c *Container) Launch(ctx context.Context, stdout, stderr io.Writer, opts *
 			return fmt.Errorf("container %s already exists. SSH in with 'ssh %s' or clean it up via 'md purge' first",
 				c.Name, c.Name)
 		}
+	}
+
+	// A repo+branch can be the *primary* of one container and an *extra*
+	// repo of another (they get different names, so the check above misses
+	// it), leaving two containers mapping the same repo+branch. That is an
+	// unresolvable ambiguity for anything that locates a container by
+	// repo+branch (e.g. `md diff`): neither -branch nor any other flag can
+	// disambiguate two containers that genuinely hold the same branch.
+	existing, err := c.List(ctx)
+	if err != nil {
+		return err
+	}
+	if err := checkRepoOverlap(c.Name, c.Repos, existing); err != nil {
+		return err
 	}
 
 	baseImage := opts.BaseImage

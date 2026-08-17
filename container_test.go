@@ -132,6 +132,65 @@ func TestRenderExtraEnv(t *testing.T) {
 	}
 }
 
+func TestCheckRepoOverlap(t *testing.T) {
+	t.Parallel()
+	name := "md-genai-caic-5"
+	repos := []Repo{{GitRoot: "/home/user/src/genai", Branches: []string{"caic-5"}}}
+	t.Run("no existing containers", func(t *testing.T) {
+		t.Parallel()
+		if err := checkRepoOverlap(name, repos, nil); err != nil {
+			t.Fatalf("checkRepoOverlap() = %v, want nil", err)
+		}
+	})
+	t.Run("distinct repo", func(t *testing.T) {
+		t.Parallel()
+		existing := []*Container{{
+			Name:  "md-caic-caic-2",
+			Repos: []Repo{{GitRoot: "/home/user/src/caic", Branches: []string{"caic-2"}}},
+		}}
+		if err := checkRepoOverlap(name, repos, existing); err != nil {
+			t.Fatalf("checkRepoOverlap() = %v, want nil", err)
+		}
+	})
+	t.Run("distinct branch, same repo", func(t *testing.T) {
+		t.Parallel()
+		existing := []*Container{{
+			Name:  "md-genai-main",
+			Repos: []Repo{{GitRoot: "/home/user/src/genai", Branches: []string{"main"}}},
+		}}
+		if err := checkRepoOverlap(name, repos, existing); err != nil {
+			t.Fatalf("checkRepoOverlap() = %v, want nil", err)
+		}
+	})
+	t.Run("same name is not a conflict with itself", func(t *testing.T) {
+		t.Parallel()
+		existing := []*Container{{
+			Name:  name,
+			Repos: []Repo{{GitRoot: "/home/user/src/genai", Branches: []string{"caic-5"}}},
+		}}
+		if err := checkRepoOverlap(name, repos, existing); err != nil {
+			t.Fatalf("checkRepoOverlap() = %v, want nil", err)
+		}
+	})
+	t.Run("overlapping repo and branch as an extra repo in another container", func(t *testing.T) {
+		t.Parallel()
+		existing := []*Container{{
+			Name: "md-caic-caic-2",
+			Repos: []Repo{
+				{GitRoot: "/home/user/src/caic", Branches: []string{"caic-2"}},
+				{GitRoot: "/home/user/src/genai", Branches: []string{"caic-5"}},
+			},
+		}}
+		err := checkRepoOverlap(name, repos, existing)
+		if err == nil {
+			t.Fatal("checkRepoOverlap() = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "md-caic-caic-2") {
+			t.Fatalf("checkRepoOverlap() = %v, want mention of md-caic-caic-2", err)
+		}
+	})
+}
+
 func TestDiff(t *testing.T) {
 	t.Parallel()
 	t.Run("valid", func(t *testing.T) {

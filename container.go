@@ -2010,13 +2010,17 @@ func (c *Container) pushContainerRefs(ctx context.Context, r *Repo, refspecs []s
 }
 
 // pushRefspecs pushes refspecs in command-line-size-bounded batches. It
-// disables implicit follow-tags behavior and optionally forces updates. A
-// failure can leave earlier batches applied; an empty refspec list is a no-op.
+// disables repository hooks and implicit follow-tags behavior, and optionally
+// forces updates. A failure can leave earlier batches applied; an empty
+// refspec list is a no-op.
 func (c *Container) pushRefspecs(ctx context.Context, gitRoot, remote string, refspecs []string, force bool, stdout, stderr io.Writer) error {
 	for start := 0; start < len(refspecs); {
 		end := refspecBatchEnd(refspecs, start)
-		args := make([]string, 0, 6+end-start)
-		args = append(args, "git", "push", "-q", "--no-follow-tags")
+		args := make([]string, 0, 8+end-start)
+		// These pushes replicate refs into a task container. They must not run
+		// user-configured pre-push hooks, which are intended for developer
+		// publishes and can require unavailable host-specific dependencies.
+		args = append(args, "git", "push", "-q", "--no-verify", "--no-follow-tags")
 		if force {
 			args = append(args, "-f")
 		}
@@ -2499,14 +2503,15 @@ func (c *Container) pushSubmodules(ctx context.Context, stdout, stderr io.Writer
 		if err := c.runCmdOut(ctx, "", c.SSHCommand(nil, initCmd), stdout, stderr); err != nil {
 			return fmt.Errorf("init submodule %s: %w", relPath, err)
 		}
-		// Push all refs from host bare module repo to container.
+		// Push all local branch refs from the host bare module repo. Selected
+		// tags are pushed separately below.
 		// Use GIT_DIR env var instead of --git-dir because --git-dir
 		// still reads core.worktree from the repo config and tries
 		// to chdir there, which fails when the submodule worktree
 		// was never checked out (init but not update, or deinited).
 		// GIT_DIR fully decouples git from any worktree.
 		containerURL := "user@" + c.Name + ":" + containerModuleDir
-		if _, err := c.runGitDir(ctx, hostGitRoot, hostModuleDir, "push", "-q", "--no-follow-tags", containerURL, "--all"); err != nil {
+		if _, err := c.runGitDir(ctx, hostGitRoot, hostModuleDir, "push", "-q", "--no-verify", "--no-follow-tags", "--all", containerURL); err != nil {
 			return fmt.Errorf("push submodule refs %s: %w", relPath, err)
 		}
 		if tagRegexp != "" {
@@ -2520,8 +2525,8 @@ func (c *Container) pushSubmodules(ctx context.Context, stdout, stderr io.Writer
 			}
 			for start := 0; start < len(refspecs); {
 				end := refspecBatchEnd(refspecs, start)
-				args := make([]string, 0, 4+end-start)
-				args = append(args, "push", "-q", "--no-follow-tags", containerURL)
+				args := make([]string, 0, 5+end-start)
+				args = append(args, "push", "-q", "--no-verify", "--no-follow-tags", containerURL)
 				args = append(args, refspecs[start:end]...)
 				if _, err := c.runGitDir(ctx, hostGitRoot, hostModuleDir, args...); err != nil {
 					return fmt.Errorf("push submodule tags %s: %w", relPath, err)

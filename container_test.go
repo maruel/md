@@ -607,6 +607,37 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			t.Fatal(err)
 		}
 	})
+	t.Run("pushRefspecs_skips_host_hooks", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Git hooks require a POSIX executable in this test")
+		}
+		ctx := t.Context()
+		hostDir := t.TempDir()
+		remoteDir := filepath.Join(t.TempDir(), "container.git")
+		hooksDir := filepath.Join(hostDir, "hooks")
+
+		runTestGit(t, ctx, "", "init", "-q", "--bare", remoteDir)
+		runTestGit(t, ctx, hostDir, "init", "-q", "--initial-branch=main")
+		writeTestFile(t, filepath.Join(hostDir, "tracked.txt"), "main\n")
+		runTestGit(t, ctx, hostDir, "add", ".")
+		runTestGit(t, ctx, hostDir, "commit", "-q", "-m", "main")
+		if err := os.Mkdir(hooksDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeTestFile(t, filepath.Join(hooksDir, "pre-push"), "#!/bin/sh\nexit 1\n")
+		if err := os.Chmod(filepath.Join(hooksDir, "pre-push"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, ctx, hostDir, "config", "core.hooksPath", hooksDir)
+
+		ct := &Container{Client: testClient(t), Logger: testLogger(t)}
+		if err := ct.pushRefspecs(ctx, hostDir, remoteDir, []string{"main:main"}, false, io.Discard, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if got := runTestGit(t, ctx, remoteDir, "rev-parse", "refs/heads/main"); got != runTestGit(t, ctx, hostDir, "rev-parse", "main") {
+			t.Errorf("pushed main = %q, want %q", got, runTestGit(t, ctx, hostDir, "rev-parse", "main"))
+		}
+	})
 	t.Run("SyncDefaultBranch", func(t *testing.T) {
 		t.Parallel()
 		t.Run("local_only_default_branch", func(t *testing.T) {

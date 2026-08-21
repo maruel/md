@@ -608,6 +608,7 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 		}
 	})
 	t.Run("pushRefspecs_skips_host_hooks", func(t *testing.T) {
+		t.Parallel()
 		if runtime.GOOS == "windows" {
 			t.Skip("Git hooks require a POSIX executable in this test")
 		}
@@ -621,11 +622,12 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 		writeTestFile(t, filepath.Join(hostDir, "tracked.txt"), "main\n")
 		runTestGit(t, ctx, hostDir, "add", ".")
 		runTestGit(t, ctx, hostDir, "commit", "-q", "-m", "main")
-		if err := os.Mkdir(hooksDir, 0o755); err != nil {
+		if err := os.Mkdir(hooksDir, 0o750); err != nil {
 			t.Fatal(err)
 		}
 		writeTestFile(t, filepath.Join(hooksDir, "pre-push"), "#!/bin/sh\nexit 1\n")
-		if err := os.Chmod(filepath.Join(hooksDir, "pre-push"), 0o755); err != nil {
+		// #nosec G302 -- Git requires hooks to be executable.
+		if err := os.Chmod(filepath.Join(hooksDir, "pre-push"), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		runTestGit(t, ctx, hostDir, "config", "core.hooksPath", hooksDir)

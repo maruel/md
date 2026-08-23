@@ -19,6 +19,9 @@ SHELL ["/bin/bash", "-lc"]
 # Copy all /home/user files.
 COPY --chown=user:user home/user/ /home/user/
 
+# Apply the setup-only curl policy without changing curl behavior in the final container.
+ARG CURL_HOME=/home/user/setup
+
 # Set GITHUB_TOKEN for setup scripts if the secret is available.
 # Each RUN gets its own layer for better caching and smaller diffs.
 RUN mkdir -p /home/user/.ssh /home/user/.cache/go-build /home/user/go/pkg && chmod 0700 /home/user/.ssh

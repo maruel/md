@@ -8,7 +8,19 @@ cd "$HOME"
 # OpenCode
 # The installer appends PATH to .bashrc; cleaned up by bashrc_cleanup.sh.
 # PATH setup is in bash.d/80-path.sh.
-curl -fsSL https://opencode.ai/install | bash
+# Resolve the version first so GITHUB_TOKEN avoids the installer's unauthenticated API limit.
+github_headers=()
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+	github_headers=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+fi
+opencode_version="$(
+	curl -fsSL "${github_headers[@]}" \
+		-H 'Accept: application/vnd.github+json' \
+		https://api.github.com/repos/anomalyco/opencode/releases/latest |
+		jq -er '.tag_name | ltrimstr("v")'
+)"
+readonly opencode_version
+curl -fsSL https://opencode.ai/install | VERSION="$opencode_version" bash
 
 # Amp
 # Note: Amp may require Node.js v24 environment to run, but the installer is standalone.

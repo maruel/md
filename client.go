@@ -788,6 +788,13 @@ func hostUserOwner() string {
 	return fmt.Sprintf("%d:%d", uid, gid)
 }
 
+func specializedUserOwner(runtimeName string, rootless bool, hostOwner string) string {
+	if runtimeName == "podman" && rootless {
+		return fmt.Sprintf("%d:%d", containerUserUID, containerUserGID)
+	}
+	return hostOwner
+}
+
 func (c *Client) getImageVersionLabel(ctx context.Context, imageName string) string {
 	out, err := c.Runtime.Run(ctx, "", "image", "inspect", imageName, "--format", `{{index .Config.Labels "org.opencontainers.image.version"}}`)
 	if err != nil || out == "" || out == "<no value>" {
@@ -937,7 +944,7 @@ func (c *Client) imageBuildNeeded(ctx context.Context, imageName, baseImage, pla
 	}
 	platform = p.String()
 	// Compute cheap inputs first so we can check the cache.
-	userOwner := hostUserOwner()
+	userOwner := specializedUserOwner(c.Runtime.Name(), c.Runtime.IsRootless(), hostUserOwner())
 	contextSHA, err := keysSHA(c.keysDir, userOwner)
 	if err != nil {
 		return true
@@ -1368,7 +1375,7 @@ func (c *Client) buildSpecializedImage(ctx context.Context, stdout, stderr io.Wr
 		manifestDigest, _ = c.Runtime.RemoteManifestDigest(ctx, baseImage, arch)
 	}
 
-	userOwner := hostUserOwner()
+	userOwner := specializedUserOwner(c.Runtime.Name(), c.Runtime.IsRootless(), hostUserOwner())
 	contextSHA, err := keysSHA(c.keysDir, userOwner)
 	if err != nil {
 		return "", fmt.Errorf("computing keys SHA: %w", err)

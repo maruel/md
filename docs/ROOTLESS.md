@@ -16,12 +16,12 @@ account cannot write it unless its UID maps to the host UID.
 `md` bind-mounts the host user's real config directories into the container
 (`AgentMounts`: `~/.claude`, `~/.config/*`, ...). The agent runs as `user` and
 must read **and write** them, while the host must keep ownership (the user edits
-those same dirs outside the container). At launch, md passes the host UID/GID to
-`start.sh`, which moves the image's `user` account to those IDs. For rootless
-podman, `--userns=keep-id` then maps that UID/GID back to the host user, so
-mounts stay host-owned and are writable by `user` with no chown of the host
-tree. `--user 0:0` keeps `start.sh` running as root for privileged setup (sshd,
-groupmod, dbus).
+those same dirs outside the container). Rootless Podman uses
+`--userns=keep-id:uid=1000,gid=1000` to map the host user to the image's `user`
+account. Mounts therefore stay host-owned and are writable inside the container
+without changing the image account or recursively copying up `/home/user` just
+to alter ownership. `--user 0:0` keeps `start.sh` running as root for privileged
+setup (sshd, groupmod, dbus).
 
 ## The cost: `podman commit` does not round-trip keep-id ownership
 
@@ -82,10 +82,10 @@ this case:
 
 ## What md does
 
-- Keep `--userns=keep-id` for the mount contract.
-- Move the image's `user` account to the host UID/GID at startup using
-  `MD_HOST_UID`/`MD_HOST_GID`, then repair files already in `/home/user` from
-  the image UID/GID to the new UID/GID without crossing bind mounts.
+- Map the rootless Podman host user to the image's fixed UID/GID 1000 with
+  `--userns=keep-id:uid=1000,gid=1000`. Specialized image content is also owned
+  by 1000:1000, so startup does not rewrite the account or repair the base home.
+  Docker still passes the host UID/GID and repairs ownership when they differ.
 - In `Fork`, after the fork's SSH is up and before pushing branches, restore
   every collapsed file in the home back to `user`
   (`find /home/user -xdev -uid 0 -exec chown user:user {} +`), gated on

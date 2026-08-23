@@ -211,6 +211,27 @@ func TestClient(t *testing.T) {
 			}
 		}
 	})
+	t.Run("specialized_user_owner", func(t *testing.T) {
+		t.Parallel()
+		for _, tc := range []struct {
+			name        string
+			runtimeName string
+			rootless    bool
+			want        string
+		}{
+			{name: "docker_rootful", runtimeName: "docker", want: "123:456"},
+			{name: "docker_rootless", runtimeName: "docker", rootless: true, want: "123:456"},
+			{name: "podman_rootful", runtimeName: "podman", want: "123:456"},
+			{name: "podman_rootless", runtimeName: "podman", rootless: true, want: "1000:1000"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				if got := specializedUserOwner(tc.runtimeName, tc.rootless, "123:456"); got != tc.want {
+					t.Errorf("specializedUserOwner() = %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
 	t.Run("AgentMounts", func(t *testing.T) {
 		t.Parallel()
 		home := t.TempDir()

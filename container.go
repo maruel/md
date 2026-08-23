@@ -64,6 +64,11 @@ const (
 
 	// containerHomeDir is the container user's home directory.
 	containerHomeDir = "/home/user"
+	// The image builds user as the conventional first regular Linux account at
+	// 1000:1000. Rootless Podman maps the host user to this container identity;
+	// these values are independent of the host user's UID and GID.
+	containerUserUID = 1000
+	containerUserGID = 1000
 
 	// Runtime images can contain large repos/caches under /home/user/src;
 	// start.sh may need to repair ownership before SSH is ready.
@@ -2661,20 +2666,20 @@ func (c *Container) launchContainer(ctx context.Context, stdout, stderr io.Write
 		runArgs = append(runArgs, "--security-opt", "apparmor=unconfined")
 	}
 
-	hostIDs := hostUserEnv()
+	rootlessPodman := c.Runtime.Name() == "podman" && c.Runtime.IsRootless()
+	hostIDs := hostUserEnv(rootlessPodman)
 	runArgs = append(runArgs, hostIDs...)
 
-	// Rootless podman: --userns=keep-id maps host UID to same UID inside the
-	// container so bind-mounted configs are writable. start.sh moves the image
-	// "user" account to that UID/GID using MD_HOST_UID/MD_HOST_GID above.
-	// --user 0:0 keeps start.sh running as root for privileged setup.
-	// Rootless Docker is handled inside start.sh via /proc/self/uid_map
-	// detection since Docker lacks --userns=keep-id.
+	// Rootless Podman maps the host user to the image's UID/GID 1000. This makes
+	// bind-mounted configs writable without rewriting and recursively chowning
+	// the large image home. --user 0:0 keeps start.sh running as root for
+	// privileged setup. Rootless Docker is handled inside start.sh via
+	// /proc/self/uid_map detection since Docker lacks --userns=keep-id.
 	//
 	// Trade-off: keep-id ownership does not round-trip through `podman
 	// commit`, so Fork must re-chown snapshotted repos. See docs/ROOTLESS.md.
-	if c.Runtime.IsRootless() {
-		runArgs = append(runArgs, "--userns=keep-id", "--user", "0:0")
+	if rootlessPodman {
+		runArgs = append(runArgs, rootlessPodmanUserNSArg(), "--user", "0:0")
 	}
 
 	// NET_ADMIN and NET_RAW are always granted:
@@ -2897,11 +2902,19 @@ func usbRunArgs(serialDevices []string) []string {
 	return args
 }
 
-func hostUserEnv() []string {
+func rootlessPodmanUserNSArg() string {
+	return fmt.Sprintf("--userns=keep-id:uid=%d,gid=%d", containerUserUID, containerUserGID)
+}
+
+func hostUserEnv(rootlessPodman bool) []string {
 	uid := os.Getuid()
 	gid := os.Getgid()
 	if uid <= 0 || gid <= 0 {
 		return nil
+	}
+	if rootlessPodman {
+		uid = containerUserUID
+		gid = containerUserGID
 	}
 	return []string{"-e", "MD_HOST_UID=" + strconv.Itoa(uid), "-e", "MD_HOST_GID=" + strconv.Itoa(gid)}
 }

@@ -157,11 +157,9 @@ if [ -e /dev/kvm ]; then
 fi
 
 # Rootless container runtime detection: if UID 0 inside the container maps to a
-# non-root host UID, bind-mounted host directories appear root-owned but the
-# "user" account (UID 1000) can't write to them. In this case, add "user" to
-# the "root" group.
-# Skip when --userns=keep-id already mapped the host UID correctly (podman),
-# detected by checking that "user" is no longer UID 1000.
+# non-root host UID, add "user" to the container's root group so it can access
+# root-owned paths. This applies to both Docker's default rootless mapping and
+# Podman's keep-id mapping; the account itself must remain non-root.
 if awk '$1 == 0 && $2 != 0 { found=1 } END { exit !found }' /proc/self/uid_map &&
 	[ "$(id -u user)" != "0" ]; then
 	usermod -aG root user

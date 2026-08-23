@@ -37,10 +37,10 @@ func (p *podman) UntagImage(ctx context.Context, image string) error {
 
 // IsRootless reports whether Podman is running rootless.
 //
-// In rootless Podman on Linux, the default user namespace maps host UID 1000 to
+// In rootless Podman on Linux, the default user namespace maps the host user to
 // container UID 0, so bind-mounted host directories appear root-owned inside
-// the container. Callers use this to inject --userns=keep-id so the host UID
-// maps to the same UID inside the container.
+// the container. Callers use this to map the host user to the image's fixed UID
+// and GID 1000 with --userns=keep-id:uid=1000,gid=1000.
 //
 // Caveat: keep-id ownership does not survive `podman commit`, so callers that
 // snapshot containers (fork) must repair ownership. See docs/ROOTLESS.md.

@@ -117,15 +117,15 @@ func ensureImages(t *testing.T, ctx context.Context, c *Client) string {
 	return "md-user-local"
 }
 
-// prebuildSpecializedImage builds the specialized image (with SSH keys and no
-// caches) so that subsequent subtests can reuse it without racing on the build.
-func prebuildSpecializedImage(t *testing.T, ctx context.Context, c *Client, baseImage string) {
+// prebuildSpecializedImage builds the specialized image so that subsequent
+// subtests can reuse it without racing on the build.
+func prebuildSpecializedImage(t *testing.T, ctx context.Context, c *Client, baseImage string, caches []CacheMount) {
 	ct, err := c.Container()
 	if err != nil {
 		t.Fatalf("Container: %v", err)
 	}
 	ct.Name = "md-smoke-prebuild"
-	opts := &StartOpts{BaseImage: baseImage, Quiet: true}
+	opts := &StartOpts{BaseImage: baseImage, Quiet: true, Caches: caches}
 	if _, err := ct.ensureImage(ctx, io.Discard, io.Discard, baseImage, opts.Platform, opts.Caches, true); err != nil {
 		t.Fatalf("prebuild specialized image: %v", err)
 	}
@@ -172,7 +172,7 @@ func launchSmokeContainer(t *testing.T, ctx context.Context, c *Client, baseImag
 	return ct
 }
 
-func launchSmokeRepoContainer(t *testing.T, ctx context.Context, c *Client, baseImage string, repo *Repo) *Container {
+func launchSmokeRepoContainer(t *testing.T, ctx context.Context, c *Client, baseImage string, caches []CacheMount, repo *Repo) *Container {
 	ct, err := c.Container(*repo)
 	if err != nil {
 		t.Fatalf("Container: %v", err)
@@ -183,6 +183,7 @@ func launchSmokeRepoContainer(t *testing.T, ctx context.Context, c *Client, base
 	opts := &StartOpts{
 		BaseImage: baseImage,
 		Quiet:     true,
+		Caches:    caches,
 	}
 
 	t.Logf("launching repo container %s ...", ct.Name)
@@ -356,21 +357,38 @@ func TestSmoke(t *testing.T) {
 			// Fetch md-user upfront so all subtests can reuse it.
 			baseImage := ensureImages(t, t.Context(), client)
 
-			// Pre-build the specialized image once so the serialized
-			// subtests (launch, nested, lifecycle) don't race on the
-			// build. The cache subtest uses different caches so it
-			// produces a different image and runs in parallel.
-			prebuildSpecializedImage(t, t.Context(), client, baseImage)
+			// Rootless Podman can spend over a minute preparing the ID mapping for
+			// each distinct large image. Include the cache fixture in the shared
+			// specialized image so cache coverage does not require a second image.
+			var sharedCaches []CacheMount
+			var smokeCacheSource string
+			if rootlessRuntime {
+				smokeCacheSource = filepath.Join(t.TempDir(), "smoke-cache")
+				if err := os.Mkdir(smokeCacheSource, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(smokeCacheSource, "hello.txt"), []byte("cache-works"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				sharedCaches = []CacheMount{{
+					Name:          "smoke-cache",
+					HostPath:      smokeCacheSource,
+					ContainerPath: "/home/user/.cache/smoke",
+				}}
+			}
+
+			// Pre-build the specialized image once so subtests reuse it.
+			prebuildSpecializedImage(t, t.Context(), client, baseImage, sharedCaches)
 
 			// Serialized group: these subtests share the same
 			// specialized image, so running them sequentially avoids
 			// redundant image-build checks.
 			t.Run("serialized", func(t *testing.T) {
 				t.Run("launch", func(t *testing.T) {
-					ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-launch", false)
+					ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-launch", false, sharedCaches...)
 
 					t.Run("sudo", func(t *testing.T) {
-						ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-sudo", true)
+						ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-sudo", true, sharedCaches...)
 						out, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, "echo '"+ct.sudoPassword+"' | sudo -S whoami"))
 						if err != nil {
 							t.Fatalf("sudo whoami: %v", err)
@@ -492,6 +510,7 @@ func TestSmoke(t *testing.T) {
 					opts := &StartOpts{
 						BaseImage: baseImage,
 						Quiet:     true,
+						Caches:    sharedCaches,
 						Mounts: []Mount{
 							{HostPath: hostRW, ContainerPath: "/home/user/mnt-rw"},
 							{HostPath: hostRO, ContainerPath: "/home/user/mnt-ro", ReadOnly: true},
@@ -514,8 +533,11 @@ func TestSmoke(t *testing.T) {
 					t.Run("writable", func(t *testing.T) {
 						// Read the host-seeded file and write a new one, all as
 						// the unprivileged "user" account.
-						writeCmd := `test "$(id -un)" = user || { echo "unexpected user: $(id -un)"; exit 1; }` +
-							` && cat /home/user/mnt-rw/seed.txt` +
+						writeCmd := `test "$(id -un)" = user || { echo "unexpected user: $(id -un)"; exit 1; }`
+						if rootlessRuntime {
+							writeCmd += ` && test "$(id -u)" = 1000 || { echo "unexpected uid: $(id -u)"; exit 1; }`
+						}
+						writeCmd += ` && cat /home/user/mnt-rw/seed.txt` +
 							` && printf 'from-container\n' > /home/user/mnt-rw/written.txt`
 						out, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, writeCmd))
 						if err != nil {
@@ -566,7 +588,7 @@ func TestSmoke(t *testing.T) {
 					if !nestedOK {
 						t.Skip("skipping: nested newuidmap fails with rootless podman (user namespace stacking)")
 					}
-					ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-nested", true)
+					ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-nested", true, sharedCaches...)
 
 					t.Run("version", func(t *testing.T) {
 						out, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, "podman version --format '{{.Version}}'"))
@@ -638,7 +660,7 @@ func TestSmoke(t *testing.T) {
 				})
 
 				t.Run("lifecycle", func(t *testing.T) {
-					ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-lifecycle", false)
+					ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-lifecycle", false, sharedCaches...)
 
 					// Verify Status returns "running" after launch.
 					if s := ct.Status(t.Context()); s != "running" {
@@ -683,7 +705,7 @@ func TestSmoke(t *testing.T) {
 			t.Run("repo_workflow", func(t *testing.T) {
 				repo := createSmokeGitRepo(t, "main", "main", false)
 				cp := "/home/user/src/smoke-" + rt + "-repo"
-				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, &Repo{
+				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, sharedCaches, &Repo{
 					GitRoot:       repo,
 					Branches:      []string{"main"},
 					ContainerPath: cp,
@@ -862,15 +884,21 @@ func TestSmoke(t *testing.T) {
 
 			t.Run("run_apply_patch", func(t *testing.T) {
 				repo := createSmokeGitRepo(t, "main", "main", false)
-				runSmokeMD(t, client,
+				args := []string{
 					"run",
 					"-image", baseImage,
 					"-repo", repo,
 					"-branch", "main",
 					"-no-caches",
+				}
+				if rootlessRuntime {
+					args = append(args, "-cache", smokeCacheSource+":/home/user/.cache/smoke")
+				}
+				args = append(args,
 					"-apply-patch",
 					"bash", "-c", "echo foo > bar.txt",
 				)
+				runSmokeMD(t, client, args...)
 				data, err := os.ReadFile(filepath.Join(repo, "bar.txt")) //nolint:gosec // repo is a test temp dir.
 				if err != nil {
 					t.Fatalf("read applied file: %v", err)
@@ -886,7 +914,7 @@ func TestSmoke(t *testing.T) {
 			t.Run("diff_rebase_in_progress", func(t *testing.T) {
 				repo := createSmokeGitRepo(t, "main", "main", false)
 				cp := "/home/user/src/smoke-" + rt + "-rebase"
-				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, &Repo{
+				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, sharedCaches, &Repo{
 					GitRoot:       repo,
 					Branches:      []string{"main"},
 					ContainerPath: cp,
@@ -923,7 +951,7 @@ func TestSmoke(t *testing.T) {
 			t.Run("repo_remote_refs_non_default_base_branch", func(t *testing.T) {
 				repo := createSmokeGitRepoWithRemote(t, "upstream", "release", "feature", true)
 				cp := "/home/user/src/smoke-" + rt + "-non-default-base"
-				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, &Repo{
+				ct := launchSmokeRepoContainer(t, t.Context(), client, baseImage, sharedCaches, &Repo{
 					GitRoot:       repo,
 					Branches:      []string{"feature"},
 					ContainerPath: cp,
@@ -946,32 +974,26 @@ func TestSmoke(t *testing.T) {
 				assertSmokeContainerGitRefMissing(t, ct, cp, "refs/remotes/host/HEAD")
 			})
 
-			if rootlessRuntime {
-				t.Log("pruning unused specialized images before cache test ...")
-				if _, err := client.PruneImages(t.Context(), io.Discard, io.Discard); err != nil {
-					t.Fatalf("PruneImages: %v", err)
-				}
-			}
-
-			// Cache subtest: creates a different specialized image (with cache
-			// mounts). Rootless podman may need an ID-mapped copy of the large
-			// base layers for each specialized image, so prune the now-unused
-			// no-cache image above before creating the cache image.
-			//
+			// Cache subtest. Rootless Podman reuses the shared cache-bearing image
+			// to avoid preparing an ID mapping for a second copy of the large base.
 			// Do not run this in parallel with build_image below: build_image removes
 			// and rebuilds md-user-local, which this test uses as the Dockerfile FROM
 			// image. Podman then tries to resolve the missing local short name via
 			// registries.conf and fails when no unqualified registry is configured.
 			t.Run("cache", func(t *testing.T) {
-				src := t.TempDir()
-				if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("cache-works"), 0o600); err != nil {
-					t.Fatal(err)
+				cacheMounts := sharedCaches
+				if len(cacheMounts) == 0 {
+					src := t.TempDir()
+					if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("cache-works"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					cacheMounts = []CacheMount{{
+						Name:          "smoke-cache",
+						HostPath:      src,
+						ContainerPath: "/home/user/.cache/smoke",
+					}}
 				}
-				ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-cache", false, CacheMount{
-					Name:          "smoke-cache",
-					HostPath:      src,
-					ContainerPath: "/home/user/.cache/smoke",
-				})
+				ct := launchSmokeContainer(t, t.Context(), client, baseImage, rt+"-cache", false, cacheMounts...)
 
 				out, err := ct.runCmd(t.Context(), "", ct.SSHCommand(nil, "cat /home/user/.cache/smoke/hello.txt"))
 				if err != nil {

@@ -1,6 +1,6 @@
 # Environment
 
-You are running inside a docker container.
+You are running inside a container. Rootless Podman keeps the `user` account at UID/GID 1000 and maps a differently numbered host user to it. Other runtimes may rewrite the account to the host UID/GID at startup.
 
 Subdirectories from the current working directory are the projects (as git repositories) the user wants to work on.
 

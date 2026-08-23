@@ -105,8 +105,9 @@ moves:
 - **Detect-and-provision for the mandatory few.** The `user` account and `/home/user`,
   `/home/user/.ssh`, `/run/md` dirs can be created at boot if absent (`getent passwd user ||
   useradd -m -u 1000 -s /bin/bash user`). Must be idempotent (re-runs on every revive). The
-  specialized build uses numeric host ownership for injected writable content; boot still needs a
-  `user` account that can be rewritten to that UID/GID. `sshd` itself is **not** boot-provisioned —
+  specialized build uses UID/GID 1000 for rootless Podman and numeric host ownership for other
+  runtimes. Boot still needs a `user` account initially at UID/GID 1000; non-rootless-Podman paths
+  may rewrite it to the host identity. `sshd` itself is **not** boot-provisioned —
   installing a package on every boot is too slow and needs network; that stays a build-time (B1) or
   contract (B2) concern.
 
@@ -120,10 +121,11 @@ Tasks (B3):
 
 Pitfalls specific to B3:
 - **Build-time COPY vs runtime user creation (chicken-and-egg).** The specialized Dockerfile
-  copies user-owned files with numeric `--chown=<host-uid>:<host-gid>` (`generateDockerfile`,
-  `client.go`). Numeric `--chown` avoids a build-time name lookup, but `start.sh` still needs a
-  `user` account before SSH starts so it can rewrite that account to the same UID/GID and repair
-  critical paths. A root-owned staging path plus a boot-time move remains the purer "any image"
+  copies user-owned files with numeric `--chown` (`generateDockerfile`, `client.go`): UID/GID 1000
+  for rootless Podman, or the host identity for other runtimes. Numeric ownership avoids a
+  build-time name lookup, but `start.sh` still needs a `user` account before SSH starts. Other
+  runtimes may rewrite that account and repair critical paths. A root-owned staging path plus a
+  boot-time move remains the purer "any image"
   route, but adds a runtime placement step.
 - **UID collision.** If the foreign image already uses UID 1000 for a different account,
   `useradd -u 1000` fails and cache ownership (chowned to 1000 at build) is wrong. Detect and
@@ -157,9 +159,10 @@ supplies keep-alive + sshd independently of the base — out of scope here.
 
 ## Cross-cutting pitfalls
 
-- **UID/ownership**: the generated Dockerfile `chown user:user`s caches and dirs. At startup,
-  md moves `user` to the host UID/GID and repairs `/home/user` ownership without crossing bind
-  mounts. A foreign image still needs a `user` account and a Debian-compatible user/group toolchain.
+- **UID/ownership**: the generated Dockerfile numerically owns caches and dirs. Rootless Podman
+  keeps `user` at UID/GID 1000 and maps the host user there. Other runtimes may move `user` to the
+  host UID/GID and repair `/home/user` ownership without crossing bind mounts. A foreign image still
+  needs a UID/GID-1000 `user` account and a Debian-compatible user/group toolchain.
 - **Debian-isms in start.sh**: `service ssh start`, `/etc/init.d/dbus`, apt layout. Porting to
   non-Debian means rewriting these, not just installing packages.
 - **Privileged first boot**: `groupmod` (kvm/plugdev GID match), `/proc` remount (nested
@@ -220,12 +223,8 @@ lands first, and container-only conveniences stay leaves:
 - A machine-readable manifest of the contract (the table in Layer B) could drive both the
   pre-flight probe and the docs from one source.
 
-### Pre-existing issues surfaced while investigating
+### Base-image user invariant
 
-These are not introduced by this work but bear on it; fix independently.
-
-- **UID 1000 is an unenforced base-image invariant.** `4_create_user.sh` runs
-  `useradd -ms /bin/bash user` with no `-u`, so `user` only gets UID 1000 by virtue of being the
-  first account on fresh Debian. Runtime startup now rewrites `user` to the host UID/GID and
-  specialized image content is chowned numerically, but the base image should still pin the initial
-  account for predictable BYO-image behavior: `useradd -u 1000 -ms /bin/bash user`.
+The bundled base image explicitly creates `user` with UID/GID 1000. Bring-your-own images must
+provide the same account identity so rootless Podman can map the host user to it without an
+expensive recursive ownership repair.

@@ -575,6 +575,20 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			}
 		}
 	})
+	t.Run("rootless_podman_user_environment", func(t *testing.T) {
+		t.Parallel()
+		if got, want := rootlessPodmanUserNSArg(), "--userns=keep-id:uid=1000,gid=1000"; got != want {
+			t.Errorf("rootlessPodmanUserNSArg() = %q, want %q", got, want)
+		}
+		if os.Getuid() <= 0 || os.Getgid() <= 0 {
+			t.Skip("host UID/GID environment is omitted for root")
+		}
+		got := hostUserEnv(true)
+		want := []string{"-e", "MD_HOST_UID=1000", "-e", "MD_HOST_GID=1000"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("hostUserEnv(true) = %q, want %q", got, want)
+		}
+	})
 	t.Run("runGitDir_overrides_client_environment", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()

@@ -505,7 +505,6 @@ func genCommitMsg(ctx context.Context, p genai.Provider, systemPrompt, content s
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	res, err := p.GenSync(ctx, genai.Messages{genai.NewTextMessage(content)}, &genai.GenOptionText{
-		MaxTokens:    1024,
 		SystemPrompt: systemPrompt,
 	})
 	if err != nil {

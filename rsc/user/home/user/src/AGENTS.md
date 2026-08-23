@@ -35,6 +35,6 @@ Notable executables available in the container:
 - Database: sqlite3
 - Network: curl, wget, net-tools, iproute2, ping, fping, traceroute, tcptraceroute, nmap, tcpdump, dig, host, nslookup, whois, sshpass, tailscale
 - GitHub: gh
-- Debugging: binwalk, strace, lsof, dlv (Go), lldb/rust-lldb (Rust), objdump, radare2 (r2)
+- Debugging: binwalk, strace, lsof, dlv (Go), lldb/rust-lldb (Rust), objdump, aarch64-linux-gnu-objdump, arm-linux-gnueabi-objdump, radare2 (r2)
 
 Web Remote Debugging: `google-chrome --remote-debugging-port` requires `--user-data-dir` pointing to a non-default directory.

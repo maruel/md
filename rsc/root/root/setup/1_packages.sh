@@ -16,6 +16,8 @@ apt-get install -qq -y --no-install-recommends \
 	bc \
 	bind9-dnsutils \
 	binutils \
+	binutils-aarch64-linux-gnu \
+	binutils-arm-linux-gnueabi \
 	binwalk \
 	bison \
 	breeze-cursor-theme \

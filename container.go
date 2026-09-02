@@ -550,6 +550,30 @@ func (r *Repo) containerRemoteConfigs(ctx context.Context, logger *slog.Logger) 
 	return configs, nil
 }
 
+func (r *Repo) gitIdentity(ctx context.Context, logger *slog.Logger) (gitIdentity, error) {
+	g := &git.Checkout{Root: r.GitRoot, Logger: logger}
+	name, err := optionalGitConfig(ctx, g, "user.name")
+	if err != nil {
+		return gitIdentity{}, fmt.Errorf("read Git user name for %s: %w", r.GitRoot, err)
+	}
+	email, err := optionalGitConfig(ctx, g, "user.email")
+	if err != nil {
+		return gitIdentity{}, fmt.Errorf("read Git user email for %s: %w", r.GitRoot, err)
+	}
+	return gitIdentity{name: name, email: email}, nil
+}
+
+func optionalGitConfig(ctx context.Context, g *git.Checkout, key string) (string, error) {
+	value, err := g.RunGit(ctx, "config", "--get", key)
+	if err == nil {
+		return value, nil
+	}
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 {
+		return "", nil
+	}
+	return "", err
+}
+
 // createForkHostBranch creates destinationBranch at startPoint and gives it the
 // source branch's upstream, falling back to the repository's default branch.
 func (r *Repo) createForkHostBranch(ctx context.Context, logger *slog.Logger, sourceBranch, destinationBranch, startPoint string) error {
@@ -1224,12 +1248,17 @@ func (c *Container) Push(ctx context.Context, stdout, stderr io.Writer, repoIdx 
 	r := &c.Repos[repoIdx]
 	g := &git.Checkout{Root: r.GitRoot, Logger: c.Logger}
 	mp := shellQuote(r.ContainerPath)
+	identity, err := r.gitIdentity(ctx, c.Logger)
+	if err != nil {
+		return "", err
+	}
 	backupBranch := "backup-" + time.Now().Format("20060102-150405")
 	// Do the dirty check, optional commit, and backup branch creation in one
 	// remote shell so every step observes the same index and HEAD.
-	backupCommands := make([]string, 0, 5+2*len(r.Branches))
+	backupCommands := make([]string, 0, 7+2*len(r.Branches))
+	backupCommands = append(backupCommands, "cd "+mp)
+	backupCommands = append(backupCommands, containerGitIdentityCommands(identity)...)
 	backupCommands = append(backupCommands,
-		"cd "+mp,
 		"git add .",
 		"diff_status=0",
 		"{ git diff --quiet HEAD -- . || diff_status=$?; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; if [ \"$diff_status\" -ne 0 ]; then git commit -q -m 'Backup before push'; fi; }",
@@ -1278,29 +1307,27 @@ func (c *Container) Fetch(ctx context.Context, stdout, stderr io.Writer, repoIdx
 		return err
 	}
 	r := &c.Repos[repoIdx]
-	g := &git.Checkout{Root: r.GitRoot, Logger: c.Logger}
 	mp := shellQuote(r.ContainerPath)
 	if err := c.SyncDefaultBranch(ctx, repoIdx); err != nil {
 		return err
 	}
+	identity, err := r.gitIdentity(ctx, c.Logger)
+	if err != nil {
+		return err
+	}
+	commitCommands := make([]string, 0, 3)
+	commitCommands = append(commitCommands, "cd "+mp)
+	commitCommands = append(commitCommands, containerGitIdentityCommands(identity)...)
+	commitPrefix := strings.Join(commitCommands, " && ")
 	commitMsg := "Pull from md"
-	gitUserName, _ := g.RunGit(ctx, "config", "user.name")
-	gitUserEmail, _ := g.RunGit(ctx, "config", "user.email")
-	if gitUserName == "" {
-		gitUserName = "md"
-	}
-	if gitUserEmail == "" {
-		gitUserEmail = "md@localhost"
-	}
-	gitAuthor := shellQuote(gitUserName + " <" + gitUserEmail + ">")
 	if p == nil {
 		// With the fixed commit message, one remote script can stage, check, and
 		// commit. A clean tree exits successfully; real git errors still propagate.
-		commitCmd := "cd " + mp + " && git add . && diff_status=0 && { git diff --quiet HEAD -- . || diff_status=$?; if [ \"$diff_status\" -eq 0 ]; then exit 0; fi; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -; }"
+		commitCmd := commitPrefix + " && git add . && diff_status=0 && { git diff --quiet HEAD -- . || diff_status=$?; if [ \"$diff_status\" -eq 0 ]; then exit 0; fi; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; echo " + shellQuote(commitMsg) + " | git commit -a -q -F -; }"
 		if err := c.runCmdOut(ctx, "", c.SSHCommand(nil, commitCmd), stdout, stderr); err != nil {
 			return fmt.Errorf("committing in container: %w", err)
 		}
-	} else if _, err := c.runCmd(ctx, "", c.SSHCommand(nil, "cd "+mp+" && git add . && git diff --quiet HEAD -- .")); err != nil {
+	} else if _, err := c.runCmd(ctx, "", c.SSHCommand(nil, commitPrefix+" && git add . && git diff --quiet HEAD -- .")); err != nil {
 		metadata := c.gatherGitMetadata(ctx, r)
 		diff := c.gatherGitDiff(ctx, r)
 		if msg, err := git.GenerateCommitMsg(ctx, p, metadata, diff, nil); err != nil {
@@ -1308,7 +1335,7 @@ func (c *Container) Fetch(ctx context.Context, stdout, stderr io.Writer, repoIdx
 		} else if msg != "" {
 			commitMsg = msg
 		}
-		commitCmd := "cd " + mp + " && echo " + shellQuote(commitMsg) + " | git commit -a -q --author " + gitAuthor + " -F -"
+		commitCmd := commitPrefix + " && echo " + shellQuote(commitMsg) + " | git commit -a -q -F -"
 		if err := c.runCmdOut(ctx, "", c.SSHCommand(nil, commitCmd), stdout, stderr); err != nil {
 			return fmt.Errorf("committing in container: %w", err)
 		}
@@ -1978,7 +2005,12 @@ func (c *Container) configureContainerRemotes(ctx context.Context, stdout, stder
 	if err != nil {
 		return fmt.Errorf("reading host remotes for %s: %w", r.GitRoot, err)
 	}
+	identity, err := r.gitIdentity(ctx, c.Logger)
+	if err != nil {
+		return err
+	}
 	commands := containerRemoteConfigCommands(r, configs, includeHost)
+	commands = slices.Insert(commands, 1, containerGitIdentityCommands(identity)...)
 	commands = append(commands, postCommands...)
 	if err := c.runCmdOut(ctx, "", c.SSHCommand(nil, strings.Join(commands, " && ")), stdout, stderr); err != nil {
 		return fmt.Errorf("configuring remotes for %s: %w", r.ContainerPath, err)
@@ -2002,6 +2034,24 @@ func containerRemoteConfigCommands(r *Repo, configs []containerRemoteConfig, inc
 			if config.pushURL != "" && config.pushURL != config.url {
 				commands = append(commands, "git config --replace-all "+shellQuote(remoteConfigPrefix+".pushurl")+" "+shellQuote(config.pushURL))
 			}
+		}
+	}
+	return commands
+}
+
+func containerGitIdentityCommands(identity gitIdentity) []string {
+	commands := make([]string, 0, 2)
+	for _, setting := range []struct {
+		key   string
+		value string
+	}{
+		{key: "user.email", value: identity.email},
+		{key: "user.name", value: identity.name},
+	} {
+		if setting.value == "" {
+			commands = append(commands, "(git config --local --unset-all "+setting.key+" >/dev/null 2>&1 || true)")
+		} else {
+			commands = append(commands, "git config --local --replace-all "+setting.key+" "+shellQuote(setting.value))
 		}
 	}
 	return commands
@@ -2168,6 +2218,11 @@ type containerRemoteConfig struct {
 	url        string
 	pushURL    string
 	configured bool
+}
+
+type gitIdentity struct {
+	name  string
+	email string
 }
 
 func defaultBranchPushSource(ctx context.Context, r *Repo) (src string, ok bool, err error) {

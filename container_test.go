@@ -526,6 +526,38 @@ func TestPlanFork(t *testing.T) {
 }
 
 func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with t.Setenv.
+	t.Run("configure_container_remotes_propagates_git_identity", func(t *testing.T) { //nolint:paralleltest // fakeSSH uses t.Setenv.
+		ctx := t.Context()
+		fakeSSH(t)
+		home := t.TempDir()
+		writeTestSSHConfig(t, home)
+		hostDir := t.TempDir()
+		containerDir := t.TempDir()
+		runTestGit(t, ctx, hostDir, "init", "-q")
+		runTestGit(t, ctx, hostDir, "config", "user.name", "Marc-Antoine Ruel")
+		runTestGit(t, ctx, hostDir, "config", "user.email", "maruel@example.com")
+		runTestGit(t, ctx, containerDir, "init", "-q")
+
+		logger := testLogger(t)
+		ct := &Container{
+			Client: &Client{Home: home, Logger: logger, Runtime: testRuntime(t, "true", logger, nil)},
+			Logger: logger,
+			Name:   "md-test",
+			Repos: []Repo{{
+				GitRoot:       hostDir,
+				ContainerPath: filepath.ToSlash(containerDir),
+			}},
+		}
+		if err := ct.configureContainerRemotes(ctx, io.Discard, io.Discard, 0, false); err != nil {
+			t.Fatal(err)
+		}
+		if got := runTestGit(t, ctx, containerDir, "config", "--local", "user.name"); got != "Marc-Antoine Ruel" {
+			t.Errorf("container user.name = %q, want Marc-Antoine Ruel", got)
+		}
+		if got := runTestGit(t, ctx, containerDir, "config", "--local", "user.email"); got != "maruel@example.com" {
+			t.Errorf("container user.email = %q, want maruel@example.com", got)
+		}
+	})
 	t.Run("command_logs_redact_sensitive_values", func(t *testing.T) {
 		t.Parallel()
 		rt, err := os.Executable()
@@ -1148,8 +1180,8 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			runTestGit(t, ctx, hostDir, "remote", "add", "origin", originDir)
 			runTestGit(t, ctx, hostDir, "push", "-q", "-u", "origin", "main")
 			runTestGit(t, ctx, "", "clone", "-q", originDir, containerDir)
-			runTestGit(t, ctx, containerDir, "config", "user.name", "Test")
-			runTestGit(t, ctx, containerDir, "config", "user.email", "test@test")
+			runTestGit(t, ctx, containerDir, "config", "user.name", "md")
+			runTestGit(t, ctx, containerDir, "config", "user.email", "<>")
 			writeTestFile(t, filepath.Join(containerDir, "container.txt"), "container\n")
 			runTestGit(t, ctx, hostDir, "remote", "add", "md-test", containerDir)
 
@@ -1171,6 +1203,9 @@ func TestContainer(t *testing.T) { //nolint:tparallel // Pull uses fakeSSH with 
 			}
 			if got := runTestGit(t, ctx, hostDir, "show", "md-test/main:container.txt"); got != "container" {
 				t.Fatalf("fetched container.txt = %q, want container", got)
+			}
+			if got := runTestGit(t, ctx, containerDir, "show", "-s", "--format=%an <%ae>%n%cn <%ce>"); got != "Test <test@test>\nTest <test@test>" {
+				t.Fatalf("container commit identity = %q, want host identity for author and committer", got)
 			}
 			sshLog, err := os.ReadFile(sshLogPath) //nolint:gosec // test log is under t.TempDir.
 			if err != nil {

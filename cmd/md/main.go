@@ -630,6 +630,7 @@ func printContainerSummary(ctx context.Context, ct *md.Container, r *md.StartRes
 		if pw, err := ct.SudoPassword(ctx); err != nil {
 			return err
 		} else {
+			// CodeQL [go/clear-text-logging] sudo password is printed to the terminal on user request by design
 			// CodeQL [go/log-sensitive-data-in-log] sudo password is printed to the terminal on user request by design
 			fmt.Printf("  > Sudo password             : %s\n", pw)
 		}
@@ -1502,6 +1503,7 @@ func (a *app) cmdSudoPassword(ctx context.Context, args []string) error {
 	if password == "" {
 		return fmt.Errorf("no sudo password found for %s", ct.Name)
 	}
+	// CodeQL [go/clear-text-logging] sudo password is printed to the terminal on user request by design
 	// CodeQL [go/log-sensitive-data-in-log] sudo password is printed to the terminal on user request by design
 	fmt.Println(password)
 	return nil
